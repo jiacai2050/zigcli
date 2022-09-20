@@ -1,3 +1,5 @@
+name: CI
+
 on:
   workflow_dispatch:
   pull_request:
@@ -24,5 +26,9 @@ jobs:
       - uses: goto-bus-stop/setup-zig@v1
         with:
           version: 0.10.0-dev.3071+8e75ba653
+      - name: fmt
+        run: |
+          zig fmt --check .
       - name: test
-        run: zig build test
+        run: |
+          zig build test
