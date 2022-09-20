@@ -1,0 +1,28 @@
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '**.zig'
+  push:
+    branches:
+      - main
+    paths:
+      - '**.zig'
+
+jobs:
+  test:
+    timeout-minutes: 10
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: true
+      - uses: goto-bus-stop/setup-zig@v1
+        with:
+          version: 0.10.0-dev.3071+8e75ba653
+      - name: test
+        run: zig build test
