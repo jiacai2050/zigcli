@@ -20,7 +20,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest, macos-latest]
         zig-version: [0.10.0-dev.3071+8e75ba653, master]
     steps:
       - uses: actions/checkout@v3

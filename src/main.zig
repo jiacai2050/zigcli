@@ -125,7 +125,7 @@ const LinesOfCode = struct {
     }
 };
 
-const LocMap = std.AutoHashMap(Language, LinesOfCode);
+const LocMap = std.enums.EnumMap(Language, LinesOfCode);
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -135,7 +135,7 @@ pub fn main() !void {
     var args = try std.process.argsWithAllocator(allocator);
     _ = args.next();
     const file_or_dir = args.next() orelse ".";
-    var loc_map = LocMap.init(allocator);
+    var loc_map = LocMap{};
     var iter_dir =
         fs.cwd().openIterableDir(file_or_dir, .{}) catch |err| switch (err) {
         error.NotDir => return loc(allocator, &loc_map, fs.cwd(), file_or_dir),
@@ -144,15 +144,15 @@ pub fn main() !void {
     defer iter_dir.close();
 
     try walk(allocator, &loc_map, iter_dir);
-    try printLocMap(allocator, loc_map);
+    try printLocMap(allocator, &loc_map);
 }
 
-fn printLocMap(allocator: std.mem.Allocator, loc_map: LocMap) !void {
+fn printLocMap(allocator: std.mem.Allocator, loc_map: *LocMap) !void {
     var iter = loc_map.iterator();
     var table_data = std.ArrayList(LinesOfCode.LOCTableData).init(allocator);
     var list = std.ArrayList(*LinesOfCode).init(allocator);
     while (iter.next()) |entry| {
-        try list.append(entry.value_ptr);
+        try list.append(entry.value);
     }
 
     std.sort.sort(*LinesOfCode, list.items, {}, LinesOfCode.cmp);
@@ -196,18 +196,22 @@ fn loc(allocator: std.mem.Allocator, loc_map: *LocMap, dir: fs.Dir, basename: []
         return;
     }
 
-    var loc_entry = try loc_map.getOrPutValue(lang, .{
-        .codes = 0,
-        .comments = 0,
-        .blanks = 0,
-        .lang = lang,
-        .files = 0,
-    });
+    // Why no `getOrPutValue` in EnumMap?
+    var loc_entry = loc_map.getPtr(lang) orelse blk: {
+        loc_map.put(lang, .{
+            .codes = 0,
+            .comments = 0,
+            .blanks = 0,
+            .lang = lang,
+            .files = 0,
+        });
+        break :blk loc_map.getPtr(lang) orelse unreachable;
+    };
 
     var file = try dir.openFile(basename, .{});
     defer file.close();
     // After replace file.reader with buffered reader,
-    // sys time dropped from 0m1.944s to 0m0.055s
+    // sys time dropped from 0m1.944s to 0m0.055s on rust-analyzer project
     // var reader = file.reader();
     var buf = std.io.bufferedReader(file.reader());
     var reader = buf.reader();
@@ -220,7 +224,7 @@ fn loc(allocator: std.mem.Allocator, loc_map: *LocMap, dir: fs.Dir, basename: []
             },
             error.EndOfStream => {
                 // only increment file when iterate file over.
-                loc_entry.value_ptr.files += 1;
+                loc_entry.files += 1;
                 break;
             },
             else => return err,
@@ -244,18 +248,17 @@ fn loc(allocator: std.mem.Allocator, loc_map: *LocMap, dir: fs.Dir, basename: []
 
         if (non_blank_idx) |idx| {
             if (std.mem.startsWith(u8, line[idx..], lang.commentChars())) {
-                loc_entry.value_ptr.comments += 1;
+                loc_entry.comments += 1;
             } else {
-                loc_entry.value_ptr.codes += 1;
+                loc_entry.codes += 1;
             }
-        } else loc_entry.value_ptr.blanks += 1;
+        } else loc_entry.blanks += 1;
     }
 }
 
 test "LOC Zig/Python/Ruby" {
     const allocator = std.testing.allocator;
-    var loc_map = LocMap.init(allocator);
-    defer loc_map.deinit();
+    var loc_map = LocMap{};
     var dir = fs.cwd();
 
     const testcases = .{
@@ -272,18 +275,18 @@ test "LOC Zig/Python/Ruby" {
             "tests/test.py", .{
                 .lang = Language.Python,
                 .files = 1,
-                .codes = 113,
-                .comments = 4,
-                .blanks = 17,
+                .codes = 7,
+                .comments = 2,
+                .blanks = 1,
             },
         },
         .{
             "tests/test.rb", .{
                 .lang = Language.Ruby,
                 .files = 1,
-                .codes = 116,
-                .comments = 8,
-                .blanks = 30,
+                .codes = 5,
+                .comments = 2,
+                .blanks = 1,
             },
         },
     };
