@@ -20,7 +20,7 @@ const Language = enum {
     YAML,
     TOML,
     JSON,
-    TS,
+    TypeScript,
     Other,
 
     const Self = @This();
@@ -52,7 +52,7 @@ const Language = enum {
         .{ ".yaml", Self.YAML },
         .{ ".toml", Self.YAML },
         .{ ".json", Self.JSON },
-        .{ ".ts", Self.TS },
+        .{ ".ts", Self.TypeScript },
     });
     const FilenameLangMap = std.ComptimeStringMap(Self, .{
         .{ "Makefile", Self.Makefile },
@@ -68,25 +68,7 @@ const Language = enum {
     }
 
     fn toString(self: Self) []const u8 {
-        return switch (self) {
-            Self.Zig => "Zig",
-            Self.C => "C",
-            Self.Go => "Go",
-            Self.Rust => "Rust",
-            Self.Bash => "Bash",
-            Self.Python => "Python",
-            Self.Ruby => "Ruby",
-            Self.JavaScript => "JavaScript",
-            Self.Java => "Java",
-            Self.Makefile => "Makefile",
-            Self.Markdown => "Markdown",
-            Self.HTML => "HTML",
-            Self.YAML => "YAML",
-            Self.TOML => "TOML",
-            Self.JSON => "JSON",
-            Self.TS => "TypeScript",
-            Self.Other => "Other",
-        };
+        return @tagName(self);
     }
 };
 
