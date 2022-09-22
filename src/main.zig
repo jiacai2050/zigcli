@@ -27,44 +27,44 @@ const Language = enum {
 
     fn commentChars(self: Self) []const u8 {
         return switch (self) {
-            Self.Bash, Self.Python, Self.Ruby, Self.Makefile, Self.YAML, Self.TOML => "#",
+            .Bash, .Python, .Ruby, .Makefile, .YAML, .TOML => "#",
             // TODO: multiple line comment not supported
-            Self.Markdown, Self.HTML => "<!--",
+            .Markdown, .HTML => "<!--",
             else => "//",
         };
     }
 
     const ExtLangMap = std.ComptimeStringMap(Self, .{
-        .{ ".zig", Self.Zig },
-        .{ ".c", Self.C },
-        .{ ".h", Self.C },
-        .{ ".go", Self.Go },
-        .{ ".rs", Self.Rust },
-        .{ ".sh", Self.Bash },
-        .{ ".py", Self.Python },
-        .{ ".rb", Self.Ruby },
-        .{ ".js", Self.JavaScript },
-        .{ ".java", Self.Java },
-        .{ ".md", Self.Markdown },
-        .{ ".markdown", Self.Markdown },
-        .{ ".html", Self.HTML },
-        .{ ".yml", Self.YAML },
-        .{ ".yaml", Self.YAML },
-        .{ ".toml", Self.YAML },
-        .{ ".json", Self.JSON },
-        .{ ".ts", Self.TypeScript },
+        .{ ".zig", .Zig },
+        .{ ".c", .C },
+        .{ ".h", .C },
+        .{ ".go", .Go },
+        .{ ".rs", .Rust },
+        .{ ".sh", .Bash },
+        .{ ".py", .Python },
+        .{ ".rb", .Ruby },
+        .{ ".js", .JavaScript },
+        .{ ".java", .Java },
+        .{ ".md", .Markdown },
+        .{ ".markdown", .Markdown },
+        .{ ".html", .HTML },
+        .{ ".yml", .YAML },
+        .{ ".yaml", .YAML },
+        .{ ".toml", .YAML },
+        .{ ".json", .JSON },
+        .{ ".ts", .TypeScript },
     });
     const FilenameLangMap = std.ComptimeStringMap(Self, .{
-        .{ "Makefile", Self.Makefile },
+        .{ "Makefile", .Makefile },
     });
 
     fn parse(basename: []const u8) Self {
         const ext = fs.path.extension(basename);
         if (std.mem.eql(u8, ext, "")) {
-            return FilenameLangMap.get(basename) orelse Self.Other;
+            return FilenameLangMap.get(basename) orelse .Other;
         }
 
-        return ExtLangMap.get(ext) orelse Self.Other;
+        return ExtLangMap.get(ext) orelse .Other;
     }
 
     fn toString(self: Self) []const u8 {
