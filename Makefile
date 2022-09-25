@@ -3,7 +3,7 @@ build:
 	zig build -Drelease-fast
 
 fmt:
-	zig fmt
+	zig fmt --check .
 
-test:
+test: fmt
 	zig build test

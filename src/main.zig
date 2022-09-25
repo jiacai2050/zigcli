@@ -22,6 +22,8 @@ const Language = enum {
     JSON,
     TypeScript,
     Other,
+    // Used in footer
+    Total,
 
     const Self = @This();
 
@@ -78,12 +80,22 @@ const LinesOfCode = struct {
     codes: usize,
     comments: usize,
     blanks: usize,
+    size: usize,
 
     const Self = @This();
 
-    const header = [_][]const u8{ "Language", "Files", "Lines", "Code", "Comment", "Blank" };
+    const SIZE_UNIT = [_][]const u8{ "B", "K", "M", "G", "T" };
+    const header = [_][]const u8{ "Language", "Files", "Lines", "Code", "Comment", "Blank", "Size" };
     const LOCTable = Table(&Self.header);
     const LOCTableData = [Self.header.len][]const u8;
+
+    fn merge(self: *Self, other: Self) void {
+        self.files += other.files;
+        self.codes += other.codes;
+        self.comments += other.comments;
+        self.blanks += other.blanks;
+        self.size += other.size;
+    }
 
     fn cmp(context: void, a: *Self, b: *Self) bool {
         _ = context;
@@ -91,8 +103,17 @@ const LinesOfCode = struct {
     }
 
     fn numToString(n: usize, allocator: std.mem.Allocator) []const u8 {
-        var buf = allocator.alloc(u8, 10) catch unreachable;
-        return std.fmt.bufPrint(buf, "{d}", .{n}) catch unreachable;
+        return std.fmt.allocPrint(allocator, "{d}", .{n}) catch unreachable;
+    }
+
+    fn sizeToString(n: usize, allocator: std.mem.Allocator) []const u8 {
+        var remaining = @intToFloat(f64, n);
+        var i: usize = 0;
+        while (remaining > 1024) {
+            remaining /= 1024;
+            i += 1;
+        }
+        return std.fmt.allocPrint(allocator, "{d:.2}{s}", .{ remaining, SIZE_UNIT[i] }) catch unreachable;
     }
 
     fn toTableData(self: Self, allocator: std.mem.Allocator) Self.LOCTableData {
@@ -103,6 +124,7 @@ const LinesOfCode = struct {
             Self.numToString(self.codes, allocator),
             Self.numToString(self.comments, allocator),
             Self.numToString(self.blanks, allocator),
+            Self.sizeToString(self.size, allocator),
         };
     }
 };
@@ -131,17 +153,37 @@ pub fn main() !void {
 
 fn printLocMap(allocator: std.mem.Allocator, loc_map: *LocMap) !void {
     var iter = loc_map.iterator();
-    var table_data = std.ArrayList(LinesOfCode.LOCTableData).init(allocator);
     var list = std.ArrayList(*LinesOfCode).init(allocator);
+    // TODO: It seems struct literals is const by default
+    // error: expected type '*LinesOfCode', found '*const LinesOfCode'
+    // Not work: var total_entry: *LinesOfCode = &LinesOfCode
+    var total_entry = LinesOfCode{
+        .lang = .Total,
+        .codes = 0,
+        .comments = 0,
+        .blanks = 0,
+        .files = 0,
+        .size = 0,
+    };
+
     while (iter.next()) |entry| {
         try list.append(entry.value);
+        total_entry.files += entry.value.files;
+        total_entry.codes += entry.value.codes;
+        total_entry.comments += entry.value.comments;
+        total_entry.blanks += entry.value.blanks;
+        total_entry.size += entry.value.size;
     }
-
     std.sort.sort(*LinesOfCode, list.items, {}, LinesOfCode.cmp);
+
+    var table_data = std.ArrayList(LinesOfCode.LOCTableData).init(allocator);
     for (list.items) |entry| {
         try table_data.append(entry.toTableData(allocator));
     }
-    const table = LinesOfCode.LOCTable{ .data = table_data.items };
+    const table = LinesOfCode.LOCTable{
+        .data = table_data.items,
+        .footer = total_entry.toTableData(allocator),
+    };
     try std.io.getStdOut().writer().print("{}\n", .{table});
 }
 
@@ -149,11 +191,11 @@ fn walk(allocator: std.mem.Allocator, loc_map: *LocMap, dir: fs.IterableDir) any
     var it = dir.iterate();
     while (try it.next()) |e| {
         switch (e.kind) {
-            fs.File.Kind.File => {
+            .File => {
                 std.log.debug("loc file:{s}", .{e.name});
                 try loc(allocator, loc_map, dir.dir, e.name);
             },
-            fs.File.Kind.Directory => {
+            .Directory => {
                 var should_ignore = false;
                 for (IGNORE_DIRS) |ignore| {
                     if (std.mem.eql(u8, ignore, e.name)) {
@@ -186,6 +228,7 @@ fn loc(allocator: std.mem.Allocator, loc_map: *LocMap, dir: fs.Dir, basename: []
             .blanks = 0,
             .lang = lang,
             .files = 0,
+            .size = 0,
         });
         break :blk loc_map.getPtr(lang) orelse unreachable;
     };
@@ -207,6 +250,8 @@ fn loc(allocator: std.mem.Allocator, loc_map: *LocMap, dir: fs.Dir, basename: []
             error.EndOfStream => {
                 // only increment file when iterate file over.
                 loc_entry.files += 1;
+                const metadata = try file.metadata();
+                loc_entry.size += metadata.size();
                 break;
             },
             else => return err,
@@ -251,6 +296,7 @@ test "LOC Zig/Python/Ruby" {
                 .codes = 34,
                 .comments = 2,
                 .blanks = 8,
+                .size = 1203,
             },
         },
         .{
@@ -260,6 +306,7 @@ test "LOC Zig/Python/Ruby" {
                 .codes = 7,
                 .comments = 2,
                 .blanks = 1,
+                .size = 166,
             },
         },
         .{
@@ -269,6 +316,7 @@ test "LOC Zig/Python/Ruby" {
                 .codes = 5,
                 .comments = 2,
                 .blanks = 1,
+                .size = 201,
             },
         },
     };
