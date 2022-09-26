@@ -154,9 +154,6 @@ pub fn main() !void {
 fn printLocMap(allocator: std.mem.Allocator, loc_map: *LocMap) !void {
     var iter = loc_map.iterator();
     var list = std.ArrayList(*LinesOfCode).init(allocator);
-    // TODO: It seems struct literals is const by default
-    // error: expected type '*LinesOfCode', found '*const LinesOfCode'
-    // Not work: var total_entry: *LinesOfCode = &LinesOfCode
     var total_entry = LinesOfCode{
         .lang = .Total,
         .codes = 0,
@@ -168,11 +165,7 @@ fn printLocMap(allocator: std.mem.Allocator, loc_map: *LocMap) !void {
 
     while (iter.next()) |entry| {
         try list.append(entry.value);
-        total_entry.files += entry.value.files;
-        total_entry.codes += entry.value.codes;
-        total_entry.comments += entry.value.comments;
-        total_entry.blanks += entry.value.blanks;
-        total_entry.size += entry.value.size;
+        total_entry.merge(entry.value.*);
     }
     std.sort.sort(*LinesOfCode, list.items, {}, LinesOfCode.cmp);
 
