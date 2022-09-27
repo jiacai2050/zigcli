@@ -1,0 +1,37 @@
+name: Build binary
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '**.zig'
+
+env:
+  BUILD_DIR: "build"
+
+jobs:
+  build:
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        zig-version: [master]
+        targets: ["x86_64-windows", "x86_64-linux", "x86_64-macos", "i386-windows", "i386-linux", "aarch64-macos"]
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: true
+      - uses: goto-bus-stop/setup-zig@v1
+        with:
+          version: ${{ matrix.zig-version }}
+      - name: Build
+        run: |
+          zig build -Dtarget=${{ matrix.targets }} -Drelease-fast
+      - name: Upload
+        uses: actions/upload-artifact@v2
+        with:
+          name: loc-${{ matrix.targets }}
+          path: zig-out/bin/loc**

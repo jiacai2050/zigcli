@@ -80,7 +80,7 @@ const LinesOfCode = struct {
     codes: usize,
     comments: usize,
     blanks: usize,
-    size: usize,
+    size: u64,
 
     const Self = @This();
 
@@ -106,7 +106,7 @@ const LinesOfCode = struct {
         return std.fmt.allocPrint(allocator, "{d}", .{n}) catch unreachable;
     }
 
-    fn sizeToString(n: usize, allocator: std.mem.Allocator) []const u8 {
+    fn sizeToString(n: u64, allocator: std.mem.Allocator) []const u8 {
         var remaining = @intToFloat(f64, n);
         var i: usize = 0;
         while (remaining > 1024) {

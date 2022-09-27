@@ -10,21 +10,27 @@
 [[https://github.com/jiacai2050/loc/actions/workflows/CI.yml][https://github.com/jiacai2050/loc/actions/workflows/CI.yml/badge.svg]]
 
 Lines of code in Zig
+
+Prebuilt binaries can be found in [[https://github.com/jiacai2050/loc/actions/workflows/binary.yml][CI's artifacts]], or you can build from source:
+#+begin_src bash
+git clone --recurse-submodules https://github.com/jiacai2050/loc.git
+#+end_src
+Then
 #+begin_src bash :results verbatim :exports both
 zig build -Drelease-fast
 ./zig-out/bin/loc
 #+end_src
 
 #+RESULTS:
-: Language Files Lines Code Comment Blank Size    
-: -------- ----- ----- ---- ------- ----- ------- 
-: Zig      3     400   343  9       48    11.46K  
-: YAML     1     37    35   0       2     737.00B 
-: Python   1     10    7    2       1     166.00B 
-: Makefile 1     9     6    0       3     86.00B  
-: Ruby     1     8     5    2       1     201.00B 
-: -------- ----- ----- ---- ------- ----- ------- 
-: Total    7     464   396  13      55    12.62K  
+: Language Files Lines Code Comment Blank Size
+: -------- ----- ----- ---- ------- ----- -------
+: Zig      3     400   343  9       48    11.46K
+: YAML     2     74    69   0       5     1.54K
+: Python   1     10    7    2       1     166.00B
+: Makefile 1     9     6    0       3     86.00B
+: Ruby     1     8     5    2       1     201.00B
+: -------- ----- ----- ---- ------- ----- -------
+: Total    8     501   430  13      58    13.43K
 
 
 * Roadmap
