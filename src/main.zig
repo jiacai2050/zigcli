@@ -2,7 +2,6 @@ const std = @import("std");
 const Table = @import("table-helper").Table;
 const fs = std.fs;
 
-const MAX_COLUMNS: usize = 4096;
 const IGNORE_DIRS = [_][]const u8{ ".git", "zig-cache", "zig-out", "target", "vendor", "node_modules", "out" };
 const Language = enum {
     Zig,
@@ -228,14 +227,13 @@ fn loc(allocator: std.mem.Allocator, loc_map: *LocMap, dir: fs.Dir, basename: []
     };
     var file = try dir.openFile(basename, .{});
     defer file.close();
+    loc_entry.files += 1;
 
     const metadata = try file.metadata();
     const file_size = metadata.size();
     if (file_size == 0) {
         return;
     }
-
-    loc_entry.files += 1;
     loc_entry.size += file_size;
 
     var ptr = try std.os.mmap(null, file_size, std.os.PROT.READ, std.os.MAP.PRIVATE, file.handle, 0);

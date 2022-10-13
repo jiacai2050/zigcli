@@ -24,13 +24,13 @@ zig build -Drelease-fast
 #+RESULTS:
 : Language Files Lines Code Comment Blank Size
 : -------- ----- ----- ---- ------- ----- -------
-: Zig      3     400   343  9       48    11.46K
+: Zig      3     397   343  5       49    11.18K
 : YAML     2     74    69   0       5     1.54K
 : Python   1     10    7    2       1     166.00B
 : Makefile 1     9     6    0       3     86.00B
 : Ruby     1     8     5    2       1     201.00B
 : -------- ----- ----- ---- ------- ----- -------
-: Total    8     501   430  13      58    13.43K
+: Total    8     498   430  9       59    13.16K
 
 
 * Roadmap
