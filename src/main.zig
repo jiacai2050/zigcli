@@ -228,10 +228,20 @@ fn loc(allocator: std.mem.Allocator, loc_map: *LocMap, dir: fs.Dir, basename: []
 
     var file = try dir.openFile(basename, .{});
     defer file.close();
+    const metadata = try file.metadata();
+    const file_size = metadata.size();
+    if (file_size == 0) {
+        return;
+    }
     // After replace file.reader with buffered reader,
     // sys time dropped from 0m1.944s to 0m0.055s on rust-analyzer project
     // var reader = file.reader();
-    var buf = std.io.bufferedReader(file.reader());
+    // var buf = std.io.bufferedReader(file.reader());
+
+    var ptr = try std.os.mmap(null, file_size, std.os.PROT.READ, std.os.MAP.PRIVATE, file.handle, 0);
+    defer std.os.munmap(ptr);
+    var fixed_buf = std.io.fixedBufferStream(ptr);
+    var buf = std.io.bufferedReader(fixed_buf.reader());
     var reader = buf.reader();
 
     while (true) {
@@ -243,8 +253,7 @@ fn loc(allocator: std.mem.Allocator, loc_map: *LocMap, dir: fs.Dir, basename: []
             error.EndOfStream => {
                 // only increment file when iterate file over.
                 loc_entry.files += 1;
-                const metadata = try file.metadata();
-                loc_entry.size += metadata.size();
+                loc_entry.size += file_size;
                 break;
             },
             else => return err,
