@@ -208,6 +208,7 @@ fn walk(allocator: std.mem.Allocator, loc_map: *LocMap, dir: fs.IterableDir) any
 }
 
 fn loc(allocator: std.mem.Allocator, loc_map: *LocMap, dir: fs.Dir, basename: []const u8) anyerror!void {
+    _ = allocator;
     const lang = Language.parse(basename);
     if (lang == Language.Other) {
         return;
@@ -225,40 +226,29 @@ fn loc(allocator: std.mem.Allocator, loc_map: *LocMap, dir: fs.Dir, basename: []
         });
         break :blk loc_map.getPtr(lang) orelse unreachable;
     };
-
     var file = try dir.openFile(basename, .{});
     defer file.close();
+
     const metadata = try file.metadata();
     const file_size = metadata.size();
     if (file_size == 0) {
         return;
     }
-    // After replace file.reader with buffered reader,
-    // sys time dropped from 0m1.944s to 0m0.055s on rust-analyzer project
-    // var reader = file.reader();
-    // var buf = std.io.bufferedReader(file.reader());
+
+    loc_entry.files += 1;
+    loc_entry.size += file_size;
 
     var ptr = try std.os.mmap(null, file_size, std.os.PROT.READ, std.os.MAP.PRIVATE, file.handle, 0);
     defer std.os.munmap(ptr);
-    var fixed_buf = std.io.fixedBufferStream(ptr);
-    var buf = std.io.bufferedReader(fixed_buf.reader());
-    var reader = buf.reader();
 
-    while (true) {
-        var line = reader.readUntilDelimiterAlloc(allocator, '\n', MAX_COLUMNS) catch |err| switch (err) {
-            error.StreamTooLong => {
-                std.log.debug("skip file, line too long. {s}", .{basename});
-                return;
-            },
-            error.EndOfStream => {
-                // only increment file when iterate file over.
-                loc_entry.files += 1;
-                loc_entry.size += file_size;
-                break;
-            },
-            else => return err,
-        };
-        defer allocator.free(line);
+    var offset_so_far: usize = 0;
+    while (offset_so_far < ptr.len) {
+        var line_end = offset_so_far;
+        while (line_end < ptr.len and ptr[line_end] != '\n') {
+            line_end += 1;
+        }
+        const line = ptr[offset_so_far..line_end];
+        offset_so_far = line_end + 1;
 
         var non_blank_idx: ?usize = null;
         for (line) |c, idx| {
