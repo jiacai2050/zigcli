@@ -8,6 +8,7 @@
 #+STARTUP: content
 
 [[https://github.com/jiacai2050/loc/actions/workflows/CI.yml][https://github.com/jiacai2050/loc/actions/workflows/CI.yml/badge.svg]]
+[[https://github.com/jiacai2050/loc/actions/workflows/binary.yml][https://github.com/jiacai2050/loc/actions/workflows/binary.yml/badge.svg]]
 
 Lines of code in Zig
 

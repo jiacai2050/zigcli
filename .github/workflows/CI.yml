@@ -20,7 +20,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest]
         zig-version: [0.10.0-dev.3071+8e75ba653, master]
     steps:
       - uses: actions/checkout@v3
@@ -31,7 +31,7 @@ jobs:
           version: ${{ matrix.zig-version }}
       - name: fmt
         run: |
-          zig fmt --check .
+          make fmt
       - name: test
         run: |
-          zig build test
+          make test

@@ -79,7 +79,7 @@ const LinesOfCode = struct {
     codes: usize,
     comments: usize,
     blanks: usize,
-    size: u64,
+    size: usize,
 
     const Self = @This();
 
@@ -230,7 +230,7 @@ fn loc(allocator: std.mem.Allocator, loc_map: *LocMap, dir: fs.Dir, basename: []
     loc_entry.files += 1;
 
     const metadata = try file.metadata();
-    const file_size = metadata.size();
+    const file_size = @truncate(usize, metadata.size());
     if (file_size == 0) {
         return;
     }

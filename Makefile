@@ -7,3 +7,4 @@ fmt:
 
 test: fmt
 	zig build test
+	zig build test -Dtarget=i386-linux
