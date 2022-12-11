@@ -1,8 +1,10 @@
 const std = @import("std");
 const Table = @import("table-helper").Table;
+const simargs = @import("simargs");
 const fs = std.fs;
 
 const IGNORE_DIRS = [_][]const u8{ ".git", "zig-cache", "zig-out", "target", "vendor", "node_modules", "out" };
+
 const Language = enum {
     Zig,
     C,
@@ -73,6 +75,16 @@ const Language = enum {
     }
 };
 
+const Column = enum {
+    language,
+    file,
+    line,
+    code,
+    comment,
+    blank,
+    size,
+};
+
 const LinesOfCode = struct {
     lang: Language,
     files: usize,
@@ -84,7 +96,14 @@ const LinesOfCode = struct {
     const Self = @This();
 
     const SIZE_UNIT = [_][]const u8{ "B", "K", "M", "G", "T" };
-    const header = [_][]const u8{ "Language", "Files", "Lines", "Code", "Comment", "Blank", "Size" };
+    const header = b: {
+        const fieldInfos = std.meta.fields(Column);
+        var names: [fieldInfos.len][]const u8 = undefined;
+        for (fieldInfos) |field, i| {
+            names[i] = [_]u8{std.ascii.toUpper(field.name[0])} ++ field.name[1..];
+        }
+        break :b names;
+    };
     const LOCTable = Table(&Self.header);
     const LOCTableData = [Self.header.len][]const u8;
 
@@ -96,9 +115,16 @@ const LinesOfCode = struct {
         self.size += other.size;
     }
 
-    fn cmp(context: void, a: *Self, b: *Self) bool {
-        _ = context;
-        return a.blanks + a.codes + a.comments > b.blanks + b.codes + b.comments;
+    fn cmp(sort_col: Column, a: *Self, b: *Self) bool {
+        return switch (sort_col) {
+            .language => std.mem.lessThan(u8, @tagName(a.lang), @tagName(b.lang)),
+            .file => a.files > b.files,
+            .code => a.codes > b.codes,
+            .comment => a.comments > b.comments,
+            .blank => a.comments > b.comments,
+            .size => a.size > b.size,
+            .line => a.blanks + a.codes + a.comments > b.blanks + b.codes + b.comments,
+        };
     }
 
     fn numToString(n: usize, allocator: std.mem.Allocator) []const u8 {
@@ -130,14 +156,39 @@ const LinesOfCode = struct {
 
 const LocMap = std.enums.EnumMap(Language, LinesOfCode);
 
+pub const log_level: std.log.Level = .info;
+
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var args = try std.process.argsWithAllocator(allocator);
-    _ = args.next();
-    const file_or_dir = args.next() orelse ".";
+    const opt = try simargs.parse(allocator, struct {
+        sort: Column = .line,
+        help: ?bool,
+
+        pub const __shorts__ = .{
+            .sort = .s,
+            .help = .h,
+        };
+
+        pub const __messages__ = .{ .help = "Prints help information", .sort = "Column to sort by" };
+    });
+    defer opt.deinit();
+
+    if (opt.args.help) |help| {
+        if (help) {
+            const stdout = std.io.getStdOut();
+            try opt.print_help(stdout.writer());
+            return;
+        }
+    }
+
+    const file_or_dir = if (opt.positional_args.items.len == 0)
+        "."
+    else
+        opt.positional_args.items[0];
+
     var loc_map = LocMap{};
     var iter_dir =
         fs.cwd().openIterableDir(file_or_dir, .{}) catch |err| switch (err) {
@@ -147,10 +198,10 @@ pub fn main() !void {
     defer iter_dir.close();
 
     try walk(allocator, &loc_map, iter_dir);
-    try printLocMap(allocator, &loc_map);
+    try printLocMap(allocator, &loc_map, opt.args.sort);
 }
 
-fn printLocMap(allocator: std.mem.Allocator, loc_map: *LocMap) !void {
+fn printLocMap(allocator: std.mem.Allocator, loc_map: *LocMap, sort_col: Column) !void {
     var iter = loc_map.iterator();
     var list = std.ArrayList(*LinesOfCode).init(allocator);
     var total_entry = LinesOfCode{
@@ -166,7 +217,7 @@ fn printLocMap(allocator: std.mem.Allocator, loc_map: *LocMap) !void {
         try list.append(entry.value);
         total_entry.merge(entry.value.*);
     }
-    std.sort.sort(*LinesOfCode, list.items, {}, LinesOfCode.cmp);
+    std.sort.sort(*LinesOfCode, list.items, sort_col, LinesOfCode.cmp);
 
     var table_data = std.ArrayList(LinesOfCode.LOCTableData).init(allocator);
     for (list.items) |entry| {
@@ -223,7 +274,7 @@ fn loc(allocator: std.mem.Allocator, loc_map: *LocMap, dir: fs.Dir, basename: []
             .files = 0,
             .size = 0,
         });
-        break :blk loc_map.getPtr(lang) orelse unreachable;
+        break :blk loc_map.getPtr(lang).?;
     };
     var file = try dir.openFile(basename, .{});
     defer file.close();

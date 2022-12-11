@@ -6,6 +6,7 @@ pub fn build(b: *std.build.Builder) void {
 
     const exe = b.addExecutable("loc", "src/main.zig");
     exe.addPackagePath("table-helper", "vendor/table-helper/table-helper.zig");
+    exe.addPackagePath("simargs", "vendor/simargs/src/simargs.zig");
     exe.setTarget(target);
     exe.setBuildMode(mode);
     exe.install();

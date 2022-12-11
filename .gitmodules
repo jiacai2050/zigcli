@@ -1,3 +1,6 @@
 [submodule "table-helper"]
 	path = vendor/table-helper
 	url = https://github.com/jiacai2050/table-helper.git
+[submodule "vendor/simargs"]
+	path = vendor/simargs
+	url = https://github.com/jiacai2050/simargs.git
