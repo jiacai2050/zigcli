@@ -7,4 +7,6 @@ fmt:
 
 test: fmt
 	zig build test
-	zig build test -Dtarget=i386-linux
+	# Don't work on latest Zig
+	# error: Unable to parse target 'i386-linux': UnknownArchitecture
+	# zig build test -Dtarget=i386-linux

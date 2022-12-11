@@ -14,22 +14,37 @@ Prebuilt binaries can be found in [[https://github.com/jiacai2050/loc/actions/wo
 git clone --recurse-submodules https://github.com/jiacai2050/loc.git
 #+end_src
 Then
-#+begin_src bash :results verbatim :exports both
+#+begin_src bash :results verbatim code :exports both
 zig build -Drelease-fast
 ./zig-out/bin/loc
 #+end_src
 
 #+RESULTS:
-: Language File Line Code Comment Blank Size
-: -------- ---- ---- ---- ------- ----- -------
-: Zig      3    449  387  5       57    12.48K
-: YAML     2    74   69   0       5     1.51K
-: Python   1    10   7    2       1     166.00B
-: Makefile 1    10   7    0       3     122.00B
-: Ruby     1    8    5    2       1     201.00B
-: -------- ---- ---- ---- ------- ----- -------
-: Total    8    551  475  9       67    14.47K
+#+begin_src bash
+Language File Line Code Comment Blank Size
+-------- ---- ---- ---- ------- ----- -------
+Zig      3    449  387  5       57    12.49K
+YAML     2    74   69   0       5     1.50K
+Makefile 1    12   6    3       3     219.00B
+Python   1    10   7    2       1     166.00B
+Ruby     1    8    5    2       1     201.00B
+-------- ---- ---- ---- ------- ----- -------
+Total    8    553  474  12      67    14.57K
+#+end_src
 
+#+begin_src bash :results verbatim code :exports both
+./zig-out/bin/loc -h
+#+end_src
+
+#+RESULTS:
+#+begin_src bash
+ USAGE:
+     ./zig-out/bin/loc [OPTIONS] ...
+
+ OPTIONS:
+	-s, --sort=STRING                 Column to sort by (valid: language|file|line|code|comment|blank|size)(default: line)
+	-h, --help                        Prints help information
+#+end_src
 
 * Roadmap
 - Performance, at least comparable with [[https://github.com/cgag/loc][cgag/loc]] [[https://github.com/jiacai2050/loc/issues/1][#1]]

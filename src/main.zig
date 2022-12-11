@@ -302,7 +302,7 @@ fn loc(allocator: std.mem.Allocator, loc_map: *LocMap, dir: fs.Dir, basename: []
         var non_blank_idx: ?usize = null;
         for (line) |c, idx| {
             var is_blank = false;
-            for (std.ascii.spaces) |space| {
+            for (std.ascii.whitespace) |space| {
                 if (space == c) {
                     is_blank = true;
                     break;
