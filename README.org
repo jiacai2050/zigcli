@@ -23,13 +23,13 @@ zig build -Drelease-fast
 #+begin_src bash
 Language File Line Code Comment Blank Size
 -------- ---- ---- ---- ------- ----- -------
-Zig      3    449  387  5       57    12.49K
+Zig      3    449  387  5       57    12.51K
 YAML     2    74   69   0       5     1.50K
 Makefile 1    12   6    3       3     219.00B
 Python   1    10   7    2       1     166.00B
 Ruby     1    8    5    2       1     201.00B
 -------- ---- ---- ---- ------- ----- -------
-Total    8    553  474  12      67    14.57K
+Total    8    553  474  12      67    14.59K
 #+end_src
 
 #+begin_src bash :results verbatim code :exports both
@@ -39,10 +39,10 @@ Total    8    553  474  12      67    14.57K
 #+RESULTS:
 #+begin_src bash
  USAGE:
-     ./zig-out/bin/loc [OPTIONS] ...
+     ./zig-out/bin/loc [OPTIONS] [file or directory]
 
  OPTIONS:
-	-s, --sort=STRING                 Column to sort by (valid: language|file|line|code|comment|blank|size)(default: line)
+	-s, --sort STRING                 Column to sort by (valid: language|file|line|code|comment|blank|size)(default: line)
 	-h, --help                        Prints help information
 #+end_src
 

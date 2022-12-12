@@ -179,7 +179,7 @@ pub fn main() !void {
     if (opt.args.help) |help| {
         if (help) {
             const stdout = std.io.getStdOut();
-            try opt.print_help(stdout.writer());
+            try opt.print_help(stdout.writer(), "[file or directory]");
             return;
         }
     }
