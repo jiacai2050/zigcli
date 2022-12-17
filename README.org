@@ -23,13 +23,13 @@ zig build -Drelease-fast
 #+begin_src bash
 Language File Line Code Comment Blank Size
 -------- ---- ---- ---- ------- ----- -------
-Zig      3    449  387  5       57    12.51K
-YAML     2    74   69   0       5     1.50K
+Zig      3    447  385  5       57    12.47K
+YAML     3    91   84   0       7     1.87K
 Makefile 1    12   6    3       3     219.00B
 Python   1    10   7    2       1     166.00B
 Ruby     1    8    5    2       1     201.00B
 -------- ---- ---- ---- ------- ----- -------
-Total    8    553  474  12      67    14.59K
+Total    9    568  487  12      69    14.91K
 #+end_src
 
 #+begin_src bash :results verbatim code :exports both

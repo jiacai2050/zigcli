@@ -165,7 +165,7 @@ pub fn main() !void {
 
     const opt = try simargs.parse(allocator, struct {
         sort: Column = .line,
-        help: ?bool,
+        help: bool = false,
 
         pub const __shorts__ = .{
             .sort = .s,
@@ -176,12 +176,10 @@ pub fn main() !void {
     });
     defer opt.deinit();
 
-    if (opt.args.help) |help| {
-        if (help) {
-            const stdout = std.io.getStdOut();
-            try opt.print_help(stdout.writer(), "[file or directory]");
-            return;
-        }
+    if (opt.args.help) {
+        const stdout = std.io.getStdOut();
+        try opt.print_help(stdout.writer(), "[file or directory]");
+        return;
     }
 
     const file_or_dir = if (opt.positional_args.items.len == 0)
