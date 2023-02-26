@@ -7,6 +7,7 @@ on:
       - main
     paths:
       - '**.zig'
+      - '.github/workflows/binary.yml'
 
 env:
   BUILD_DIR: "build"
@@ -19,7 +20,7 @@ jobs:
       fail-fast: false
       matrix:
         zig-version: [master]
-        targets: ["x86_64-windows", "x86_64-linux", "x86_64-macos", "i386-windows", "i386-linux", "aarch64-macos"]
+        targets: ["x86_64-windows", "x86_64-linux", "x86_64-macos", "x86-windows", "x86-linux", "aarch64-macos"]
     steps:
       - uses: actions/checkout@v3
         with:
@@ -29,7 +30,7 @@ jobs:
           version: ${{ matrix.zig-version }}
       - name: Build
         run: |
-          zig build -Dtarget=${{ matrix.targets }} -Drelease-fast
+          zig build -Dtarget=${{ matrix.targets }} -Doptimize=ReleaseFast
       - name: Upload
         uses: actions/upload-artifact@v2
         with:
