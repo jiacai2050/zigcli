@@ -21,7 +21,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
-        zig-version: [0.10.0, master]
+        zig-version: [master]
     steps:
       - uses: actions/checkout@v3
         with:

@@ -99,7 +99,7 @@ const LinesOfCode = struct {
     const header = b: {
         const fieldInfos = std.meta.fields(Column);
         var names: [fieldInfos.len][]const u8 = undefined;
-        for (fieldInfos) |field, i| {
+        for (fieldInfos, 0..) |field, i| {
             names[i] = [_]u8{std.ascii.toUpper(field.name[0])} ++ field.name[1..];
         }
         break :b names;
@@ -298,7 +298,7 @@ fn loc(allocator: std.mem.Allocator, loc_map: *LocMap, dir: fs.Dir, basename: []
         offset_so_far = line_end + 1;
 
         var non_blank_idx: ?usize = null;
-        for (line) |c, idx| {
+        for (line, 0..) |c, idx| {
             var is_blank = false;
             for (std.ascii.whitespace) |space| {
                 if (space == c) {
