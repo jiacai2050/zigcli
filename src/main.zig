@@ -156,7 +156,9 @@ const LinesOfCode = struct {
 
 const LocMap = std.enums.EnumMap(Language, LinesOfCode);
 
-pub const log_level: std.log.Level = .info;
+pub const std_options = struct {
+    pub const log_level: std.log.Level = .info;
+};
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);

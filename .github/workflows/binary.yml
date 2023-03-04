@@ -20,7 +20,13 @@ jobs:
       fail-fast: false
       matrix:
         zig-version: [master]
-        targets: ["x86_64-windows", "x86_64-linux", "x86_64-macos", "x86-windows", "x86-linux", "aarch64-macos"]
+        targets:
+          # - "x86_64-windows"
+          - "x86_64-linux"
+          - "x86_64-macos"
+          # - "x86-windows"
+          - "x86-linux"
+          - "aarch64-macos"
     steps:
       - uses: actions/checkout@v3
         with:
