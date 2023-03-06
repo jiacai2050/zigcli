@@ -3,12 +3,12 @@
     .version = "0.1.0",
     .dependencies = .{
         .simargs = .{
-            .url = "https://github.com/jiacai2050/simargs/archive/0a1a2afd072cc915009a063075743192fc6b1fd5.tar.gz",
-            .hash = "1220a6554eccb2e9a9d7d63047e062314851ffd11315b9e6d1b5e06a9dde3275f150",
+            .url = "https://github.com/jiacai2050/simargs/archive/b386cdd.tar.gz",
+            .hash = "1220e4f65941ba6afb0d6ec28147b924f26b18ac21d79913d44d49e34da07163c9aa",
         },
         .table_helper = .{
-            .url = "https://github.com/jiacai2050/table-helper/archive/5bccb95fea45f11699712cf4bcdf1afcb3393d27.tar.gz",
-            .hash = "12203fd395153174ae7342528bde0a009543c7d218b2147c4591da645a8a545d0ae4",
+            .url = "https://github.com/jiacai2050/table-helper/archive/a886dca.tar.gz",
+            .hash = "12209010104a85472a854ed4de2a11c0623903c64f1cf3cfac3827c5c76abad11b79",
         },
     },
 }
