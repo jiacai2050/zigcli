@@ -27,7 +27,6 @@ pub fn build(b: *std.build.Builder) void {
 
 fn buildRunTestStep(b: *std.build.Builder, exe: *std.build.CompileStep, comptime name: []const u8, root_file: []const u8) void {
     const run_cmd = exe.run();
-    run_cmd.step.dependOn(b.getInstallStep());
     if (b.args) |args| {
         run_cmd.addArgs(args);
     }

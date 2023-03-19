@@ -7,10 +7,12 @@
 
 const std = @import("std");
 const simargs = @import("simargs");
+const StringUtil = @import("util.zig").StringUtil;
 const process = std.process;
 const fs = std.fs;
 const mem = std.mem;
 const testing = std.testing;
+const fmt = std.fmt;
 
 pub const std_options = struct {
     pub const log_level: std.log.Level = .info;
@@ -39,30 +41,42 @@ fn getPrefix(mode: Mode, pos: Position) []const u8 {
     return PREFIX_ARR[@enumToInt(mode)][@enumToInt(pos)];
 }
 
+pub const WalkOptions = struct {
+    mode: Mode = .BOX,
+    all: bool = false,
+    size: bool = false,
+    directory: bool = false,
+    help: bool = false,
+
+    pub const __shorts__ = .{
+        .all = .a,
+        .mode = .m,
+        .size = .s,
+        .directory = .d,
+        .help = .h,
+    };
+
+    pub const __messages__ = .{
+        .all = "All files are printed.",
+        .size = "Print the size of each file in bytes along with the name.",
+        .directory = "List directories only.",
+        .mode = "line-drawing characters.",
+        .help = "Prints help information.",
+    };
+};
+
 pub fn main() anyerror!void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    const opt = try simargs.parse(allocator, struct {
-        mode: Mode = .BOX,
-        help: ?bool,
-
-        pub const __shorts__ = .{
-            .mode = .m,
-            .help = .h,
-        };
-
-        pub const __messages__ = .{ .help = "Prints help information", .mode = "line-drawing characters" };
-    });
+    const opt = try simargs.parse(allocator, WalkOptions);
     defer opt.deinit();
 
-    if (opt.args.help) |help| {
-        if (help) {
-            const stdout = std.io.getStdOut();
-            try opt.print_help(stdout.writer(), "[directory]");
-            return;
-        }
+    if (opt.args.help) {
+        const stdout = std.io.getStdOut();
+        try opt.print_help(stdout.writer(), "[directory]");
+        return;
     }
 
     const root_dir = if (opt.positional_args.items.len == 0)
@@ -78,7 +92,7 @@ pub fn main() anyerror!void {
         try fs.cwd().openIterableDir(root_dir, .{});
     defer iter_dir.close();
 
-    try walk(allocator, &iter_dir, &writer, opt.args.mode, "");
+    try walk(allocator, opt.args, &iter_dir, &writer, "");
 
     try writer.flush();
 }
@@ -109,15 +123,27 @@ test "testing string lessThan" {
 
 fn walk(
     allocator: mem.Allocator,
+    walk_ctx: anytype,
     iter_dir: *fs.IterableDir,
     writer: anytype,
-    mode: Mode,
     prefix: []const u8,
 ) !void {
     var it = iter_dir.iterate();
     var files = std.ArrayList(fs.IterableDir.Entry).init(allocator);
     while (try it.next()) |entry| {
         const dupe_name = try allocator.dupe(u8, entry.name);
+        if (walk_ctx.directory) {
+            if (entry.kind != .Directory) {
+                continue;
+            }
+        }
+
+        if (!walk_ctx.all) {
+            if ('.' == entry.name[0]) {
+                continue;
+            }
+        }
+
         try files.append(.{ .name = dupe_name, .kind = entry.kind });
     }
 
@@ -143,11 +169,18 @@ fn walk(
         _ = try writer.write(prefix);
 
         if (i < files.items.len - 1) {
-            _ = try writer.write(getPrefix(mode, Position.Normal));
+            _ = try writer.write(getPrefix(walk_ctx.mode, Position.Normal));
         } else {
-            _ = try writer.write(getPrefix(mode, Position.Last));
+            _ = try writer.write(getPrefix(walk_ctx.mode, Position.Last));
         }
         _ = try writer.write(entry.name);
+
+        if (walk_ctx.size) {
+            const stat = try iter_dir.dir.statFile(entry.name);
+            _ = try writer.write(" [");
+            _ = try writer.write(try StringUtil.humanSize(allocator, stat.size));
+            _ = try writer.write("]");
+        }
         _ = try writer.write("\n");
         switch (entry.kind) {
             .Directory => {
@@ -156,10 +189,10 @@ fn walk(
 
                 const new_prefix =
                     if (i < files.items.len - 1)
-                    try std.fmt.allocPrint(allocator, "{s}{s}", .{ prefix, getPrefix(mode, Position.UpperNormal) })
+                    try std.fmt.allocPrint(allocator, "{s}{s}", .{ prefix, getPrefix(walk_ctx.mode, Position.UpperNormal) })
                 else
-                    try std.fmt.allocPrint(allocator, "{s}{s}", .{ prefix, getPrefix(mode, Position.UpperLast) });
-                try walk(allocator, &sub_iter_dir, writer, mode, new_prefix);
+                    try std.fmt.allocPrint(allocator, "{s}{s}", .{ prefix, getPrefix(walk_ctx.mode, Position.UpperLast) });
+                try walk(allocator, walk_ctx, &sub_iter_dir, writer, new_prefix);
             },
             else => {},
         }

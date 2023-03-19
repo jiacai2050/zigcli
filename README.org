@@ -37,6 +37,23 @@ zig-out
    └──tree
 #+end_src
 
+#+begin_src bash :results verbatim code :exports both
+./zig-out/bin/tree -h
+#+end_src
+
+#+RESULTS:
+#+begin_src bash
+ USAGE:
+     ./zig-out/bin/tree [OPTIONS] [--] [directory]
+
+ OPTIONS:
+	-m, --mode STRING                 line-drawing characters. (valid: ASCII|BOX)(default: BOX)
+	-a, --all                         All files are printed.
+	-s, --size                        Print the size of each file in bytes along with the name.
+	-d, --directory                   List directories only.
+	-h, --help                        Prints help information.
+#+end_src
+
 * loc
 #+begin_src bash :results verbatim code :exports both
 ./zig-out/bin/loc
@@ -75,6 +92,6 @@ Total    9    568  487  12      69    14.91K
 - More options, such as =--exclude <regex>=
 - Support multiline comment
 ** Tree
-- Add file size
+- ✅ Add file size
 * License
 zigcli is licensed under the GPL 3.0 or later, see [[file:LICENSE][LICENSE]] for details.

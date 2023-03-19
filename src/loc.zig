@@ -1,6 +1,7 @@
 const std = @import("std");
 const Table = @import("table-helper").Table;
 const simargs = @import("simargs");
+const StringUtil = @import("util.zig").StringUtil;
 const fs = std.fs;
 
 const IGNORE_DIRS = [_][]const u8{ ".git", "zig-cache", "zig-out", "target", "vendor", "node_modules", "out" };
@@ -95,7 +96,6 @@ const LinesOfCode = struct {
 
     const Self = @This();
 
-    const SIZE_UNIT = [_][]const u8{ "B", "K", "M", "G", "T" };
     const header = b: {
         const fieldInfos = std.meta.fields(Column);
         var names: [fieldInfos.len][]const u8 = undefined;
@@ -131,16 +131,6 @@ const LinesOfCode = struct {
         return std.fmt.allocPrint(allocator, "{d}", .{n}) catch unreachable;
     }
 
-    fn sizeToString(n: u64, allocator: std.mem.Allocator) []const u8 {
-        var remaining = @intToFloat(f64, n);
-        var i: usize = 0;
-        while (remaining > 1024) {
-            remaining /= 1024;
-            i += 1;
-        }
-        return std.fmt.allocPrint(allocator, "{d:.2}{s}", .{ remaining, SIZE_UNIT[i] }) catch unreachable;
-    }
-
     fn toTableData(self: Self, allocator: std.mem.Allocator) Self.LOCTableData {
         return [_][]const u8{
             self.lang.toString(),
@@ -149,7 +139,7 @@ const LinesOfCode = struct {
             Self.numToString(self.codes, allocator),
             Self.numToString(self.comments, allocator),
             Self.numToString(self.blanks, allocator),
-            Self.sizeToString(self.size, allocator),
+            StringUtil.humanSize(allocator, self.size) catch unreachable,
         };
     }
 };
