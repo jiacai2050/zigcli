@@ -21,6 +21,7 @@ pub const std_options = struct {
 const Mode = enum {
     ascii,
     box,
+    dos,
 };
 
 const Position = enum {
@@ -35,6 +36,8 @@ const Position = enum {
 const PREFIX_ARR = [_][4][]const u8{ // mode -> position
     .{ "|--", "\\--", "|  ", "   " },
     .{ "├──", "└──", "│  ", "   " },
+    // https://en.m.wikipedia.org/wiki/Box-drawing_character#DOS
+    .{ "╠══", "╚══", "║  ", "   " },
 };
 
 fn getPrefix(mode: Mode, pos: Position) []const u8 {
