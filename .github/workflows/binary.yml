@@ -31,14 +31,14 @@ jobs:
       - uses: actions/checkout@v3
         with:
           submodules: true
-      - uses: goto-bus-stop/setup-zig@v1
+      - uses: goto-bus-stop/setup-zig@v2
         with:
           version: ${{ matrix.zig-version }}
       - name: Build
         run: |
-          zig build -Dtarget=${{ matrix.targets }} -Doptimize=ReleaseFast
+          zig build -Dtarget=${{ matrix.targets }} -Doptimize=ReleaseSafe
       - name: Upload
         uses: actions/upload-artifact@v2
         with:
-          name: loc-${{ matrix.targets }}
-          path: zig-out/bin/loc**
+          name: zigcli-${{ matrix.targets }}
+          path: zig-out/bin/**

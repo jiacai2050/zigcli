@@ -1,4 +1,4 @@
-#+TITLE: Lines of code in Zig
+#+TITLE: Zigcli
 #+DATE: 2022-09-20T22:55:17+0800
 #+LASTMOD: 2022-09-20T22:55:17+0800
 #+AUTHOR: Jiacai Liu
@@ -9,13 +9,36 @@
 [[https://github.com/jiacai2050/loc/actions/workflows/CI.yml][https://github.com/jiacai2050/loc/actions/workflows/CI.yml/badge.svg]]
 [[https://github.com/jiacai2050/loc/actions/workflows/binary.yml][https://github.com/jiacai2050/loc/actions/workflows/binary.yml/badge.svg]]
 
+Command line programs written in Zig. Currently there are:
+- =loc=, lines of code.
+- =tree=, list contents of directories in a tree-like format.
+
 Prebuilt binaries can be found in [[https://github.com/jiacai2050/loc/actions/workflows/binary.yml][CI's artifacts]], or you can build from source:
 #+begin_src bash
-git clone --recurse-submodules https://github.com/jiacai2050/loc.git
+git clone --recurse-submodules https://github.com/jiacai2050/zigcli.git
 #+end_src
 Then
+#+begin_src bash
+zig build -Doptimize=ReleaseFast
+#+end_src
+
+#+RESULTS:
+
+* tree
 #+begin_src bash :results verbatim code :exports both
-zig build -Drelease-fast
+./zig-out/bin/tree zig-out
+#+end_src
+
+#+RESULTS:
+#+begin_src bash
+zig-out
+└──bin
+   ├──loc
+   └──tree
+#+end_src
+
+* loc
+#+begin_src bash :results verbatim code :exports both
 ./zig-out/bin/loc
 #+end_src
 
@@ -47,6 +70,11 @@ Total    9    568  487  12      69    14.91K
 #+end_src
 
 * Roadmap
+** LOC
 - Performance, at least comparable with [[https://github.com/cgag/loc][cgag/loc]] [[https://github.com/jiacai2050/loc/issues/1][#1]]
 - More options, such as =--exclude <regex>=
 - Support multiline comment
+** Tree
+- Add file size
+* License
+zigcli is licensed under the GPL 3.0 or later, see [[file:LICENSE][LICENSE]] for details.
