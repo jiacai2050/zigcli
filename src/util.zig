@@ -4,7 +4,7 @@ const mem = std.mem;
 pub const StringUtil = struct {
     const SIZE_UNIT = [_][]const u8{ "B", "K", "M", "G", "T" };
 
-    pub fn humanSize(allocator: mem.Allocator, n: usize) ![]const u8 {
+    pub fn humanSize(allocator: mem.Allocator, n: u64) ![]const u8 {
         var remaining = @intToFloat(f64, n);
         var i: usize = 0;
         while (remaining > 1024) {
