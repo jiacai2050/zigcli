@@ -19,8 +19,8 @@ pub const std_options = struct {
 };
 
 const Mode = enum {
-    ASCII,
-    BOX,
+    ascii,
+    box,
 };
 
 const Position = enum {
@@ -42,10 +42,11 @@ fn getPrefix(mode: Mode, pos: Position) []const u8 {
 }
 
 pub const WalkOptions = struct {
-    mode: Mode = .BOX,
+    mode: Mode = .box,
     all: bool = false,
     size: bool = false,
     directory: bool = false,
+    level: ?usize,
     help: bool = false,
 
     pub const __shorts__ = .{
@@ -53,14 +54,16 @@ pub const WalkOptions = struct {
         .mode = .m,
         .size = .s,
         .directory = .d,
+        .level = .L,
         .help = .h,
     };
 
     pub const __messages__ = .{
+        .mode = "line-drawing characters.",
         .all = "All files are printed.",
         .size = "Print the size of each file in bytes along with the name.",
         .directory = "List directories only.",
-        .mode = "line-drawing characters.",
+        .level = "Max display depth of the directory tree.",
         .help = "Prints help information.",
     };
 };
@@ -92,7 +95,7 @@ pub fn main() anyerror!void {
         try fs.cwd().openIterableDir(root_dir, .{});
     defer iter_dir.close();
 
-    try walk(allocator, opt.args, &iter_dir, &writer, "");
+    try walk(allocator, opt.args, &iter_dir, &writer, "", 1);
 
     try writer.flush();
 }
@@ -127,7 +130,14 @@ fn walk(
     iter_dir: *fs.IterableDir,
     writer: anytype,
     prefix: []const u8,
+    level: usize,
 ) !void {
+    if (walk_ctx.level) |max| {
+        if (level > max) {
+            return;
+        }
+    }
+
     var it = iter_dir.iterate();
     var files = std.ArrayList(fs.IterableDir.Entry).init(allocator);
     while (try it.next()) |entry| {
@@ -192,7 +202,7 @@ fn walk(
                     try std.fmt.allocPrint(allocator, "{s}{s}", .{ prefix, getPrefix(walk_ctx.mode, Position.UpperNormal) })
                 else
                     try std.fmt.allocPrint(allocator, "{s}{s}", .{ prefix, getPrefix(walk_ctx.mode, Position.UpperLast) });
-                try walk(allocator, walk_ctx, &sub_iter_dir, writer, new_prefix);
+                try walk(allocator, walk_ctx, &sub_iter_dir, writer, new_prefix, level + 1);
             },
             else => {},
         }
