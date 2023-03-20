@@ -1,0 +1,22 @@
+name: Bug Report
+labels: ['bug']
+description: Report to help us improve
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to fill out this bug report!
+  - type: textarea
+    id: bug-description
+    attributes:
+      label: Describe this problem
+      description: What this problem is and what happened.
+    validations:
+      required: true
+  - type: textarea
+    id: version
+    attributes:
+      label: OS Version
+      description: Which OS version are you using when this issue arises.
+    validations:
+      required: true

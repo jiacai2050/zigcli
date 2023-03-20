@@ -20,6 +20,15 @@ pub fn build(b: *std.build.Builder) void {
             "loc",
             "src/loc.zig",
         },
+        .{
+            buildYes(
+                b,
+                optimize,
+                target,
+            ),
+            "yes",
+            "src/yes.zig",
+        },
     }) |prog| {
         buildRunTestStep(b, prog.@"0", prog.@"1", prog.@"2");
     }
@@ -67,6 +76,18 @@ fn buildLoc(b: *std.build.Builder, optimize: std.builtin.Mode, target: std.zig.C
         .optimize = optimize,
     });
     exe.addModule("table-helper", dep_table.module("table-helper"));
+    exe.install();
+
+    return exe;
+}
+
+fn buildYes(b: *std.build.Builder, optimize: std.builtin.Mode, target: std.zig.CrossTarget) *std.build.CompileStep {
+    const exe = b.addExecutable(.{
+        .name = "yes",
+        .root_source_file = .{ .path = "src/yes.zig" },
+        .target = target,
+        .optimize = optimize,
+    });
     exe.install();
 
     return exe;

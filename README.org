@@ -12,19 +12,23 @@
 Command line programs written in Zig. Currently there are:
 - =loc=, lines of code.
 - =tree=, list contents of directories in a tree-like format.
+- =yes=, output a string repeatedly until killed.
 
 Prebuilt binaries can be found in [[https://github.com/jiacai2050/loc/actions/workflows/binary.yml][CI's artifacts]], or you can build from source:
 #+begin_src bash
-git clone --recurse-submodules https://github.com/jiacai2050/zigcli.git
+git clone https://github.com/jiacai2050/zigcli.git
 #+end_src
-Then
+Then build with
 #+begin_src bash
 zig build -Doptimize=ReleaseFast
 #+end_src
 
 #+RESULTS:
 
-* tree
+#+begin_quote
+Zigcli currently supports Zig master, which can be downloaded [[https://ziglang.org/download/][here]].
+#+end_quote
+* Tree
 #+begin_src bash :results verbatim code :exports both
 ./zig-out/bin/tree zig-out
 #+end_src
@@ -35,6 +39,8 @@ zig-out
 └──bin
    ├──loc
    └──tree
+
+1 directories, 2 files
 #+end_src
 
 #+begin_src bash :results verbatim code :exports both
@@ -47,14 +53,22 @@ zig-out
      ./zig-out/bin/tree [OPTIONS] [--] [directory]
 
  OPTIONS:
-	-m, --mode STRING                 line-drawing characters. (valid: ASCII|BOX)(default: BOX)
+	-m, --mode STRING                 Line drawing characters. (valid: ascii|box|dos)(default: box)
 	-a, --all                         All files are printed.
 	-s, --size                        Print the size of each file in bytes along with the name.
 	-d, --directory                   List directories only.
+	-L, --level INTEGER               Max display depth of the directory tree.
 	-h, --help                        Prints help information.
 #+end_src
 
-* loc
+** Yes
+Here [[https://linux.die.net/man/1/pv][pv]] is used to monitor io rate.
+#+begin_src bash
+./zig-out/bin/yes | pv -r >/dev/null
+#+end_src
+=[6.71GiB/s]=
+
+* Loc
 #+begin_src bash :results verbatim code :exports both
 ./zig-out/bin/loc
 #+end_src
@@ -87,7 +101,7 @@ Total    9    568  487  12      69    14.91K
 #+end_src
 
 * Roadmap
-** LOC
+** Loc
 - Performance, at least comparable with [[https://github.com/cgag/loc][cgag/loc]] [[https://github.com/jiacai2050/loc/issues/1][#1]]
 - More options, such as =--exclude <regex>=
 - Support multiline comment
