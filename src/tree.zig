@@ -62,7 +62,7 @@ pub const WalkOptions = struct {
     };
 
     pub const __messages__ = .{
-        .mode = "line-drawing characters.",
+        .mode = "Line drawing characters.",
         .all = "All files are printed.",
         .size = "Print the size of each file in bytes along with the name.",
         .directory = "List directories only.",
@@ -98,8 +98,12 @@ pub fn main() anyerror!void {
         try fs.cwd().openIterableDir(root_dir, .{});
     defer iter_dir.close();
 
-    try walk(allocator, opt.args, &iter_dir, &writer, "", 1);
+    const ret = try walk(allocator, opt.args, &iter_dir, &writer, "", 1);
 
+    _ = try writer.write(try std.fmt.allocPrint(allocator, "\n{d} directories, {d} files\n", .{
+        ret.directories,
+        ret.files,
+    }));
     try writer.flush();
 }
 
@@ -127,6 +131,16 @@ test "testing string lessThan" {
     }
 }
 
+const WalkResult = struct {
+    files: usize,
+    directories: usize,
+
+    fn add(self: *@This(), other: @This()) void {
+        self.directories += other.directories;
+        self.files += other.files;
+    }
+};
+
 fn walk(
     allocator: mem.Allocator,
     walk_ctx: anytype,
@@ -134,10 +148,11 @@ fn walk(
     writer: anytype,
     prefix: []const u8,
     level: usize,
-) !void {
+) !WalkResult {
+    var ret = WalkResult{ .files = 0, .directories = 0 };
     if (walk_ctx.level) |max| {
         if (level > max) {
-            return;
+            return ret;
         }
     }
 
@@ -194,9 +209,10 @@ fn walk(
             _ = try writer.write(try StringUtil.humanSize(allocator, stat.size));
             _ = try writer.write("]");
         }
-        _ = try writer.write("\n");
         switch (entry.kind) {
             .Directory => {
+                _ = try writer.write("\n");
+                ret.directories += 1;
                 var sub_iter_dir = try iter_dir.dir.openIterableDir(entry.name, .{});
                 defer sub_iter_dir.close();
 
@@ -205,9 +221,22 @@ fn walk(
                     try std.fmt.allocPrint(allocator, "{s}{s}", .{ prefix, getPrefix(walk_ctx.mode, Position.UpperNormal) })
                 else
                     try std.fmt.allocPrint(allocator, "{s}{s}", .{ prefix, getPrefix(walk_ctx.mode, Position.UpperLast) });
-                try walk(allocator, walk_ctx, &sub_iter_dir, writer, new_prefix, level + 1);
+
+                ret.add(try walk(allocator, walk_ctx, &sub_iter_dir, writer, new_prefix, level + 1));
             },
-            else => {},
+            .SymLink => {
+                ret.files += 1;
+                const real_file = try iter_dir.dir.realpathAlloc(allocator, entry.name);
+                _ = try writer.write(" -> ");
+                _ = try writer.write(real_file);
+                _ = try writer.write("\n");
+            },
+            else => {
+                _ = try writer.write("\n");
+                ret.files += 1;
+            },
         }
     }
+
+    return ret;
 }
