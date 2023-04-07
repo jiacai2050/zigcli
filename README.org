@@ -77,13 +77,14 @@ Here [[https://linux.die.net/man/1/pv][pv]] is used to monitor io rate.
 #+begin_src bash
 Language File Line Code Comment Blank Size
 -------- ---- ---- ---- ------- ----- -------
-Zig      3    447  385  5       57    12.47K
-YAML     3    91   84   0       7     1.87K
-Makefile 1    12   6    3       3     219.00B
+Zig      7    896  756  22      118   24.72K
+YAML     6    145  134  3       8     3.19K
+Makefile 1    15   8    3       4     262.00B
 Python   1    10   7    2       1     166.00B
+C        1    9    2    6       1     34.00B
 Ruby     1    8    5    2       1     201.00B
 -------- ---- ---- ---- ------- ----- -------
-Total    9    568  487  12      69    14.91K
+Total    17   1083 912  38      133   28.56K
 #+end_src
 
 #+begin_src bash :results verbatim code :exports both

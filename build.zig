@@ -38,7 +38,8 @@ fn buildRunTestStep(b: *std.build.Builder, exe: *std.build.CompileStep, comptime
         .root_source_file = .{ .path = "src/" ++ name ++ ".zig" },
     });
     const test_step = b.step("test-" ++ name, "Run " ++ name ++ " tests");
-    test_step.dependOn(&exe_tests.step);
+    // https://github.com/ziglang/zig/issues/15009#issuecomment-1475350701
+    test_step.dependOn(&exe_tests.run().step);
 }
 
 fn buildTree(b: *std.build.Builder, optimize: std.builtin.Mode, target: std.zig.CrossTarget, simargs_dep: *std.build.Dependency) *std.build.CompileStep {
