@@ -9,6 +9,8 @@ const IGNORE_DIRS = [_][]const u8{ ".git", "zig-cache", "zig-out", "target", "ve
 const Language = enum {
     Zig,
     C,
+    CPP,
+    CHeader,
     Go,
     Rust,
     Bash,
@@ -32,7 +34,7 @@ const Language = enum {
     fn multiLineCommentBeginChars(self: Self) ?[]const u8 {
         return switch (self) {
             .Markdown, .HTML => "<!--",
-            .C => "/*",
+            .C, .CPP, .CHeader, .Java, .JavaScript => "/*",
             else => null,
         };
     }
@@ -40,7 +42,7 @@ const Language = enum {
     fn multiLineCommentEndChars(self: Self) []const u8 {
         return switch (self) {
             .Markdown, .HTML => "--!>",
-            .C => "*/",
+            .C, .CPP, .CHeader, .Java, .JavaScript => "*/",
             else => unreachable,
         };
     }
@@ -56,7 +58,10 @@ const Language = enum {
     const ExtLangMap = std.ComptimeStringMap(Self, .{
         .{ ".zig", .Zig },
         .{ ".c", .C },
-        .{ ".h", .C },
+        .{ ".cpp", .CPP },
+        .{ ".cxx", .CPP },
+        .{ ".cc", .CPP },
+        .{ ".h", .CHeader },
         .{ ".go", .Go },
         .{ ".rs", .Rust },
         .{ ".sh", .Bash },
@@ -197,7 +202,10 @@ pub fn main() !void {
     var loc_map = LocMap{};
     var iter_dir =
         fs.cwd().openIterableDir(file_or_dir, .{}) catch |err| switch (err) {
-        error.NotDir => return loc(allocator, &loc_map, fs.cwd(), file_or_dir),
+        error.NotDir => {
+            try loc(allocator, &loc_map, fs.cwd(), file_or_dir);
+            return printLocMap(allocator, &loc_map, opt.args.sort);
+        },
         else => return err,
     };
     defer iter_dir.close();
@@ -262,6 +270,15 @@ fn walk(allocator: std.mem.Allocator, loc_map: *LocMap, dir: fs.IterableDir) any
     }
 }
 
+// State used when decide if this line is code,comment or blank
+// Two possible transitions:
+// 1. Normal: Unknown -> Unknown
+// 2. MultipleLineComment: Unknown -> [InMultipleLineComment]? -> Unknown
+const State = enum {
+    Unknown,
+    InMultipleLineComment,
+};
+
 fn loc(allocator: std.mem.Allocator, loc_map: *LocMap, dir: fs.Dir, basename: []const u8) anyerror!void {
     _ = allocator;
     const lang = Language.parse(basename);
@@ -296,7 +313,7 @@ fn loc(allocator: std.mem.Allocator, loc_map: *LocMap, dir: fs.Dir, basename: []
     defer std.os.munmap(ptr);
 
     var offset_so_far: usize = 0;
-    var in_mutli_line_comments = false;
+    var state = State.Unknown;
     while (offset_so_far < ptr.len) {
         var line_end = offset_so_far;
         while (line_end < ptr.len and ptr[line_end] != '\n') {
@@ -305,42 +322,72 @@ fn loc(allocator: std.mem.Allocator, loc_map: *LocMap, dir: fs.Dir, basename: []
         const line = ptr[offset_so_far..line_end];
         offset_so_far = line_end + 1;
 
-        var non_blank_idx: ?usize = null;
-        for (line, 0..) |c, idx| {
-            var is_blank = false;
-            for (std.ascii.whitespace) |space| {
-                if (space == c) {
-                    is_blank = true;
-                    break;
-                }
-            }
-            if (!is_blank) {
-                non_blank_idx = idx;
+        state = decideLineType(state, line, lang, loc_entry);
+    }
+}
+
+fn decideLineType(
+    state: State,
+    line: []const u8,
+    lang: Language,
+    loc_entry: *LinesOfCode,
+) State {
+    var non_blank_idx: ?usize = null;
+    for (line, 0..) |c, idx| {
+        var is_blank = false;
+        for (std.ascii.whitespace) |space| {
+            if (space == c) {
+                is_blank = true;
                 break;
             }
         }
-
-        if (non_blank_idx) |idx| {
-            if (!in_mutli_line_comments) {
-                if (lang.multiLineCommentBeginChars()) |begin_chars| {
-                    in_mutli_line_comments = std.mem.startsWith(u8, line[idx..], begin_chars);
-                }
-            }
-
-            if (in_mutli_line_comments) {
-                loc_entry.comments += 1;
-                in_mutli_line_comments = !std.mem.endsWith(u8, line[idx..], lang.multiLineCommentEndChars());
-            } else {
-                if (lang.commentChars()) |begin_chars| {
-                    if (std.mem.startsWith(u8, line[idx..], begin_chars)) {
-                        loc_entry.comments += 1;
-                    }
-                } else {
-                    loc_entry.codes += 1;
-                }
-            }
-        } else loc_entry.blanks += 1;
+        if (!is_blank) {
+            non_blank_idx = idx;
+            break;
+        }
     }
+
+    return switch (state) {
+        .Unknown => blk: {
+            if (non_blank_idx == null) {
+                loc_entry.blanks += 1;
+                break :blk .Unknown;
+            }
+
+            const idx = non_blank_idx orelse unreachable;
+            if (lang.commentChars()) |chars| {
+                if (std.mem.startsWith(u8, line[idx..], chars)) {
+                    loc_entry.comments += 1;
+                    break :blk .Unknown;
+                }
+            }
+
+            if (lang.multiLineCommentBeginChars()) |chars| {
+                if (std.mem.startsWith(u8, line[idx..], chars)) {
+                    loc_entry.comments += 1;
+                    const end_chars = lang.multiLineCommentEndChars();
+                    if (std.mem.endsWith(u8, line[idx..], end_chars)) {
+                        break :blk .Unknown;
+                    }
+
+                    break :blk .InMultipleLineComment;
+                }
+            }
+
+            loc_entry.codes += 1;
+            break :blk .Unknown;
+        },
+        .InMultipleLineComment => blk: {
+            loc_entry.comments += 1;
+            const end_chars = lang.multiLineCommentEndChars();
+            if (non_blank_idx) |idx| {
+                if (std.mem.endsWith(u8, line[idx..], end_chars)) {
+                    break :blk .Unknown;
+                }
+            }
+            break :blk .InMultipleLineComment;
+        },
+    };
 }
 
 test "LOC Zig/Python/Ruby" {
@@ -377,6 +424,16 @@ test "LOC Zig/Python/Ruby" {
                 .comments = 2,
                 .blanks = 1,
                 .size = 201,
+            },
+        },
+        .{
+            "tests/test.c", .{
+                .lang = Language.C,
+                .files = 1,
+                .codes = 2,
+                .comments = 6,
+                .blanks = 1,
+                .size = 34,
             },
         },
     };
