@@ -29,11 +29,26 @@ const Language = enum {
 
     const Self = @This();
 
-    fn commentChars(self: Self) []const u8 {
+    fn multiLineCommentBeginChars(self: Self) ?[]const u8 {
+        return switch (self) {
+            .Markdown, .HTML => "<!--",
+            .C => "/*",
+            else => null,
+        };
+    }
+
+    fn multiLineCommentEndChars(self: Self) []const u8 {
+        return switch (self) {
+            .Markdown, .HTML => "--!>",
+            .C => "*/",
+            else => unreachable,
+        };
+    }
+
+    fn commentChars(self: Self) ?[]const u8 {
         return switch (self) {
             .Bash, .Python, .Ruby, .Makefile, .YAML, .TOML => "#",
-            // TODO: multiple line comment not supported
-            .Markdown, .HTML => "<!--",
+            .Markdown, .HTML => null,
             else => "//",
         };
     }
@@ -281,6 +296,7 @@ fn loc(allocator: std.mem.Allocator, loc_map: *LocMap, dir: fs.Dir, basename: []
     defer std.os.munmap(ptr);
 
     var offset_so_far: usize = 0;
+    var in_mutli_line_comments = false;
     while (offset_so_far < ptr.len) {
         var line_end = offset_so_far;
         while (line_end < ptr.len and ptr[line_end] != '\n') {
@@ -305,10 +321,23 @@ fn loc(allocator: std.mem.Allocator, loc_map: *LocMap, dir: fs.Dir, basename: []
         }
 
         if (non_blank_idx) |idx| {
-            if (std.mem.startsWith(u8, line[idx..], lang.commentChars())) {
+            if (!in_mutli_line_comments) {
+                if (lang.multiLineCommentBeginChars()) |begin_chars| {
+                    in_mutli_line_comments = std.mem.startsWith(u8, line[idx..], begin_chars);
+                }
+            }
+
+            if (in_mutli_line_comments) {
                 loc_entry.comments += 1;
+                in_mutli_line_comments = !std.mem.endsWith(u8, line[idx..], lang.multiLineCommentEndChars());
             } else {
-                loc_entry.codes += 1;
+                if (lang.commentChars()) |begin_chars| {
+                    if (std.mem.startsWith(u8, line[idx..], begin_chars)) {
+                        loc_entry.comments += 1;
+                    }
+                } else {
+                    loc_entry.codes += 1;
+                }
             }
         } else loc_entry.blanks += 1;
     }
