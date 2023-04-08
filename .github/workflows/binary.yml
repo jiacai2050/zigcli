@@ -43,8 +43,10 @@ jobs:
       - name: Build
         run: |
           zig build -Dtarget=${{ matrix.targets }} -Doptimize=ReleaseSafe
+          # https://github.com/actions/upload-artifact#maintaining-file-permissions-and-case-sensitive-files
+          tar -cvf zigcli.tar zig-out/bin/
       - name: Upload
         uses: actions/upload-artifact@v3
         with:
           name: zigcli-${{ matrix.targets }}
-          path: zig-out/bin/
+          path: zigcli.tar
