@@ -31,12 +31,12 @@ jobs:
       - uses: goto-bus-stop/setup-zig@v2
         with:
           version: ${{ matrix.zig-version }}
-      - name: fmt and test
+      - name: fmt and test(windows)
         if: matrix.os == 'windows-latest'
         run: |
           zig.exe fmt --check .
           zig.exe build test
-      - name: fmt and test
+      - name: fmt and test(unix)
         if: matrix.os != 'windows-latest'
         run: |
           zig fmt --check .

@@ -26,7 +26,6 @@ jobs:
         targets:
           - "x86-windows"
           - "x86_64-windows"
-          - "arm-windows"
           - "aarch64-windows"
           - "x86-linux"
           - "x86_64-linux"
