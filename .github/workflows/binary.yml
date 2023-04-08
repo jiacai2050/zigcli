@@ -21,11 +21,13 @@ jobs:
       matrix:
         zig-version: [master]
         targets:
-          # - "x86_64-windows"
-          - "x86_64-linux"
-          - "x86_64-macos"
           # - "x86-windows"
+          # - "x86_64-windows"
           - "x86-linux"
+          - "x86_64-linux"
+          - "arm-linux"
+          - "aarch64-linux"
+          - "x86_64-macos"
           - "aarch64-macos"
     steps:
       - uses: actions/checkout@v3
