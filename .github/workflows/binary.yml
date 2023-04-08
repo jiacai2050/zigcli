@@ -4,7 +4,6 @@ on:
   workflow_dispatch:
   pull_request:
     paths:
-      - '**.zig'
       - '.github/workflows/binary.yml'
   push:
     branches:
@@ -25,8 +24,9 @@ jobs:
       matrix:
         zig-version: [master]
         targets:
-          # - "x86-windows"
-          # - "x86_64-windows"
+          - "x86-windows"
+          - "x86_64-windows"
+          - "aarch64-windows"
           - "x86-linux"
           - "x86_64-linux"
           - "arm-linux"

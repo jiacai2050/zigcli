@@ -74,7 +74,7 @@ const Language = enum {
         .{ ".html", .HTML },
         .{ ".yml", .YAML },
         .{ ".yaml", .YAML },
-        .{ ".toml", .YAML },
+        .{ ".toml", .TOML },
         .{ ".json", .JSON },
         .{ ".ts", .TypeScript },
     });
@@ -135,6 +135,10 @@ const LinesOfCode = struct {
         self.size += other.size;
     }
 
+    fn lines(self: Self) usize {
+        return self.blanks + self.codes + self.comments;
+    }
+
     fn cmp(sort_col: Column, a: *Self, b: *Self) bool {
         return switch (sort_col) {
             .language => std.mem.lessThan(u8, @tagName(a.lang), @tagName(b.lang)),
@@ -143,7 +147,7 @@ const LinesOfCode = struct {
             .comment => a.comments > b.comments,
             .blank => a.comments > b.comments,
             .size => a.size > b.size,
-            .line => a.blanks + a.codes + a.comments > b.blanks + b.codes + b.comments,
+            .line => a.lines() > b.lines(),
         };
     }
 
@@ -203,7 +207,7 @@ pub fn main() !void {
     var iter_dir =
         fs.cwd().openIterableDir(file_or_dir, .{}) catch |err| switch (err) {
         error.NotDir => {
-            try loc(allocator, &loc_map, fs.cwd(), file_or_dir);
+            try populateLoc(allocator, &loc_map, fs.cwd(), file_or_dir);
             return printLocMap(allocator, &loc_map, opt.args.sort);
         },
         else => return err,
@@ -248,8 +252,7 @@ fn walk(allocator: std.mem.Allocator, loc_map: *LocMap, dir: fs.IterableDir) any
     while (try it.next()) |e| {
         switch (e.kind) {
             .File => {
-                std.log.debug("loc file:{s}", .{e.name});
-                try loc(allocator, loc_map, dir.dir, e.name);
+                try populateLoc(allocator, loc_map, dir.dir, e.name);
             },
             .Directory => {
                 var should_ignore = false;
@@ -279,7 +282,7 @@ const State = enum {
     InMultipleLineComment,
 };
 
-fn loc(allocator: std.mem.Allocator, loc_map: *LocMap, dir: fs.Dir, basename: []const u8) anyerror!void {
+fn populateLoc(allocator: std.mem.Allocator, loc_map: *LocMap, dir: fs.Dir, basename: []const u8) anyerror!void {
     _ = allocator;
     const lang = Language.parse(basename);
     if (lang == Language.Other) {
@@ -309,64 +312,64 @@ fn loc(allocator: std.mem.Allocator, loc_map: *LocMap, dir: fs.Dir, basename: []
     }
     loc_entry.size += file_size;
 
-    var ptr = try std.os.mmap(null, file_size, std.os.PROT.READ, std.os.MAP.PRIVATE, file.handle, 0);
-    defer std.os.munmap(ptr);
-
-    var offset_so_far: usize = 0;
     var state = State.Unknown;
-    while (offset_so_far < ptr.len) {
-        var line_end = offset_so_far;
-        while (line_end < ptr.len and ptr[line_end] != '\n') {
-            line_end += 1;
-        }
-        const line = ptr[offset_so_far..line_end];
-        offset_so_far = line_end + 1;
+    switch (@import("builtin").os.tag) {
+        .windows => {
+            const rdr = file.reader();
+            var buf: [1024]u8 = undefined;
+            while (rdr.readUntilDelimiterOrEof(&buf, '\n') catch |e| {
+                std.log.err("File contains too long lines, name:{s}, err:{any}", .{ basename, e });
+                return;
+            }) |line| {
+                state = updateLineType(state, line, lang, loc_entry);
+            }
+        },
+        else => {
+            var ptr = try std.os.mmap(null, file_size, std.os.PROT.READ, std.os.MAP.PRIVATE, file.handle, 0);
+            defer std.os.munmap(ptr);
 
-        state = decideLineType(state, line, lang, loc_entry);
+            var offset_so_far: usize = 0;
+            while (offset_so_far < ptr.len) {
+                var line_end = offset_so_far;
+                while (line_end < ptr.len and ptr[line_end] != '\n') {
+                    line_end += 1;
+                }
+                const line = ptr[offset_so_far..line_end];
+                offset_so_far = line_end + 1;
+
+                state = updateLineType(state, line, lang, loc_entry);
+            }
+        },
     }
 }
 
-fn decideLineType(
+fn updateLineType(
     state: State,
-    line: []const u8,
+    raw_line: []const u8,
     lang: Language,
     loc_entry: *LinesOfCode,
 ) State {
-    var non_blank_idx: ?usize = null;
-    for (line, 0..) |c, idx| {
-        var is_blank = false;
-        for (std.ascii.whitespace) |space| {
-            if (space == c) {
-                is_blank = true;
-                break;
-            }
-        }
-        if (!is_blank) {
-            non_blank_idx = idx;
-            break;
-        }
+    const line = trimWhitespace(raw_line);
+    if (line == null) {
+        loc_entry.blanks += 1;
+        // state not change
+        return state;
     }
 
     return switch (state) {
         .Unknown => blk: {
-            if (non_blank_idx == null) {
-                loc_entry.blanks += 1;
-                break :blk .Unknown;
-            }
-
-            const idx = non_blank_idx orelse unreachable;
             if (lang.commentChars()) |chars| {
-                if (std.mem.startsWith(u8, line[idx..], chars)) {
+                if (std.mem.startsWith(u8, line.?, chars)) {
                     loc_entry.comments += 1;
                     break :blk .Unknown;
                 }
             }
 
             if (lang.multiLineCommentBeginChars()) |chars| {
-                if (std.mem.startsWith(u8, line[idx..], chars)) {
+                if (std.mem.startsWith(u8, line.?, chars)) {
                     loc_entry.comments += 1;
                     const end_chars = lang.multiLineCommentEndChars();
-                    if (std.mem.endsWith(u8, line[idx..], end_chars)) {
+                    if (std.mem.endsWith(u8, line.?, end_chars)) {
                         break :blk .Unknown;
                     }
 
@@ -380,14 +383,57 @@ fn decideLineType(
         .InMultipleLineComment => blk: {
             loc_entry.comments += 1;
             const end_chars = lang.multiLineCommentEndChars();
-            if (non_blank_idx) |idx| {
-                if (std.mem.endsWith(u8, line[idx..], end_chars)) {
-                    break :blk .Unknown;
-                }
+            if (std.mem.endsWith(u8, line.?, end_chars)) {
+                break :blk .Unknown;
             }
             break :blk .InMultipleLineComment;
         },
     };
+}
+
+fn isWhitespace(c: u8) bool {
+    for (std.ascii.whitespace) |space| {
+        if (space == c) {
+            return true;
+        }
+    }
+    return false;
+}
+
+fn trimWhitespace(line: []const u8) ?[]const u8 {
+    if (line.len == 0) {
+        return null;
+    }
+
+    var start_idx: usize = 0;
+    var end_idx: usize = line.len - 1;
+    while (start_idx <= end_idx) {
+        if (!isWhitespace(line[start_idx])) {
+            break;
+        }
+        start_idx += 1;
+    }
+    while (end_idx >= start_idx) {
+        if (!isWhitespace(line[end_idx])) {
+            break;
+        }
+        end_idx -= 1;
+    }
+
+    return if (start_idx > end_idx)
+        null
+    else
+        return line[start_idx .. end_idx + 1];
+}
+
+test "trimWhitespace" {
+    try std.testing.expect(null == trimWhitespace(""));
+    try std.testing.expect(null == trimWhitespace(" "));
+    try std.testing.expect(null == trimWhitespace("  "));
+    try std.testing.expectEqualStrings("a", trimWhitespace("a").?);
+    try std.testing.expectEqualStrings("a", trimWhitespace("a  ").?);
+    try std.testing.expectEqualStrings("a", trimWhitespace("   a").?);
+    try std.testing.expectEqualStrings("a", trimWhitespace("  a  ").?);
 }
 
 test "LOC Zig/Python/Ruby" {
@@ -431,8 +477,8 @@ test "LOC Zig/Python/Ruby" {
                 .lang = Language.C,
                 .files = 1,
                 .codes = 2,
-                .comments = 6,
-                .blanks = 1,
+                .comments = 4,
+                .blanks = 3,
                 .size = 34,
             },
         },
@@ -445,8 +491,15 @@ test "LOC Zig/Python/Ruby" {
 
         try std.testing.expectEqual(Language.parse(basename), lang);
 
-        try loc(allocator, &loc_map, dir, basename);
-        const zig_codes = loc_map.get(lang).?;
-        try std.testing.expectEqual(zig_codes, expected);
+        try populateLoc(allocator, &loc_map, dir, basename);
+        var loc = loc_map.get(lang).?;
+        // On windows, newline will be \r\n, so size is different
+        // Zig file stays the same since it's special taken care of in .gitattributes
+        if (.windows == @import("builtin").os.tag) {
+            if (lang != .Zig) {
+                loc.size = expected.size;
+            }
+        }
+        try std.testing.expectEqual(loc, expected);
     }
 }
