@@ -32,18 +32,19 @@ pub fn build(b: *Build) void {
         const run_step = b.step("run-" ++ name, "Run " ++ name);
         run_step.dependOn(&run_cmd.step);
 
-        all_tests.append(buildRunTestStep(b, name)) catch @panic("OOM");
+        all_tests.append(buildTestStep(b, name, target)) catch @panic("OOM");
     }
 
-    const test_all_step = b.step("test-all", "Run all tests");
+    const test_all_step = b.step("test", "Run all tests");
     for (all_tests.items) |step| {
         test_all_step.dependOn(step);
     }
 }
 
-fn buildRunTestStep(b: *std.Build, comptime name: []const u8) *Build.Step {
+fn buildTestStep(b: *std.Build, comptime name: []const u8, target: std.zig.CrossTarget) *Build.Step {
     const exe_tests = b.addTest(.{
         .root_source_file = .{ .path = "src/" ++ name ++ ".zig" },
+        .target = target,
     });
     const test_step = b.step("test-" ++ name, "Run " ++ name ++ " tests");
     // https://github.com/ziglang/zig/issues/15009#issuecomment-1475350701

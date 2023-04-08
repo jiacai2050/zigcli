@@ -74,7 +74,7 @@ const Language = enum {
         .{ ".html", .HTML },
         .{ ".yml", .YAML },
         .{ ".yaml", .YAML },
-        .{ ".toml", .YAML },
+        .{ ".toml", .TOML },
         .{ ".json", .JSON },
         .{ ".ts", .TypeScript },
     });
@@ -203,7 +203,7 @@ pub fn main() !void {
     var iter_dir =
         fs.cwd().openIterableDir(file_or_dir, .{}) catch |err| switch (err) {
         error.NotDir => {
-            try loc(allocator, &loc_map, fs.cwd(), file_or_dir);
+            try populateLoc(allocator, &loc_map, fs.cwd(), file_or_dir);
             return printLocMap(allocator, &loc_map, opt.args.sort);
         },
         else => return err,
@@ -249,7 +249,7 @@ fn walk(allocator: std.mem.Allocator, loc_map: *LocMap, dir: fs.IterableDir) any
         switch (e.kind) {
             .File => {
                 std.log.debug("loc file:{s}", .{e.name});
-                try loc(allocator, loc_map, dir.dir, e.name);
+                try populateLoc(allocator, loc_map, dir.dir, e.name);
             },
             .Directory => {
                 var should_ignore = false;
@@ -279,7 +279,7 @@ const State = enum {
     InMultipleLineComment,
 };
 
-fn loc(allocator: std.mem.Allocator, loc_map: *LocMap, dir: fs.Dir, basename: []const u8) anyerror!void {
+fn populateLoc(allocator: std.mem.Allocator, loc_map: *LocMap, dir: fs.Dir, basename: []const u8) anyerror!void {
     _ = allocator;
     const lang = Language.parse(basename);
     if (lang == Language.Other) {
@@ -309,20 +309,34 @@ fn loc(allocator: std.mem.Allocator, loc_map: *LocMap, dir: fs.Dir, basename: []
     }
     loc_entry.size += file_size;
 
-    var ptr = try std.os.mmap(null, file_size, std.os.PROT.READ, std.os.MAP.PRIVATE, file.handle, 0);
-    defer std.os.munmap(ptr);
-
-    var offset_so_far: usize = 0;
     var state = State.Unknown;
-    while (offset_so_far < ptr.len) {
-        var line_end = offset_so_far;
-        while (line_end < ptr.len and ptr[line_end] != '\n') {
-            line_end += 1;
-        }
-        const line = ptr[offset_so_far..line_end];
-        offset_so_far = line_end + 1;
+    switch (@import("builtin").os.tag) {
+        .windows => {
+            const rdr = file.reader();
+            var buf: [1024]u8 = undefined;
+            while (rdr.readUntilDelimiterOrEof(&buf, '\n') catch |e| {
+                std.log.err("File contains too long lines, name:{s}, err:{any}", .{ basename, e });
+                return;
+            }) |line| {
+                state = decideLineType(state, line, lang, loc_entry);
+            }
+        },
+        else => {
+            var ptr = try std.os.mmap(null, file_size, std.os.PROT.READ, std.os.MAP.PRIVATE, file.handle, 0);
+            defer std.os.munmap(ptr);
 
-        state = decideLineType(state, line, lang, loc_entry);
+            var offset_so_far: usize = 0;
+            while (offset_so_far < ptr.len) {
+                var line_end = offset_so_far;
+                while (line_end < ptr.len and ptr[line_end] != '\n') {
+                    line_end += 1;
+                }
+                const line = ptr[offset_so_far..line_end];
+                offset_so_far = line_end + 1;
+
+                state = decideLineType(state, line, lang, loc_entry);
+            }
+        },
     }
 }
 
@@ -445,7 +459,7 @@ test "LOC Zig/Python/Ruby" {
 
         try std.testing.expectEqual(Language.parse(basename), lang);
 
-        try loc(allocator, &loc_map, dir, basename);
+        try populateLoc(allocator, &loc_map, dir, basename);
         const zig_codes = loc_map.get(lang).?;
         try std.testing.expectEqual(zig_codes, expected);
     }
