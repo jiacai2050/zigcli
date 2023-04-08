@@ -6,10 +6,11 @@ fmt:
 	zig fmt --check .
 
 test:
-	zig build test-loc
-	zig build test-tree
-	# Don't work on latest Zig
-	# error: Unable to parse target 'i386-linux': UnknownArchitecture
-	# zig build test -Dtarget=i386-linux
+	zig build test-all -Dtarget=x86-linux
+	zig build test-all -Dtarget=arm-linux
+	zig build test-all -Dtarget=x86_64-linux
+	zig build test-all -Dtarget=aarch64-linux
+	zig build test-all -Dtarget=x86_64-macos
+	zig build test-all -Dtarget=aarch64-macos
 
 ci: fmt test
