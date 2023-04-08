@@ -2,6 +2,10 @@ name: Build binary
 
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - '**.zig'
+      - '.github/workflows/binary.yml'
   push:
     branches:
       - main
@@ -40,7 +44,7 @@ jobs:
         run: |
           zig build -Dtarget=${{ matrix.targets }} -Doptimize=ReleaseSafe
       - name: Upload
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
         with:
           name: zigcli-${{ matrix.targets }}
-          path: zig-out/bin/**
+          path: zig-out/bin/
