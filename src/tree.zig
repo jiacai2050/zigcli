@@ -76,14 +76,8 @@ pub fn main() anyerror!void {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    const opt = try simargs.parse(allocator, WalkOptions);
+    const opt = try simargs.parse(allocator, WalkOptions, "[directory]");
     defer opt.deinit();
-
-    if (opt.args.help) {
-        const stdout = std.io.getStdOut();
-        try opt.print_help(stdout.writer(), "[directory]");
-        return;
-    }
 
     const root_dir = if (opt.positional_args.items.len == 0)
         "."

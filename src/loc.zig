@@ -189,14 +189,8 @@ pub fn main() !void {
         };
 
         pub const __messages__ = .{ .help = "Prints help information", .sort = "Column to sort by" };
-    });
+    }, "[file or directory]");
     defer opt.deinit();
-
-    if (opt.args.help) {
-        const stdout = std.io.getStdOut();
-        try opt.print_help(stdout.writer(), "[file or directory]");
-        return;
-    }
 
     const file_or_dir = if (opt.positional_args.items.len == 0)
         "."

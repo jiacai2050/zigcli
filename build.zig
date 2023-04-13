@@ -24,8 +24,8 @@ pub fn build(b: *Build) void {
     }) |prog| {
         const exe = prog.@"0";
         const name = prog.@"1";
-        exe.install();
-        const run_cmd = exe.run();
+        b.installArtifact(exe);
+        const run_cmd = b.addRunArtifact(exe);
         if (b.args) |args| {
             run_cmd.addArgs(args);
         }
@@ -48,7 +48,7 @@ fn buildTestStep(b: *std.Build, comptime name: []const u8, target: std.zig.Cross
     });
     const test_step = b.step("test-" ++ name, "Run " ++ name ++ " tests");
     // https://github.com/ziglang/zig/issues/15009#issuecomment-1475350701
-    test_step.dependOn(&exe_tests.run().step);
+    test_step.dependOn(&b.addRunArtifact(exe_tests).step);
     return test_step;
 }
 
