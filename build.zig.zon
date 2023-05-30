@@ -3,8 +3,8 @@
     .version = "0.1.0",
     .dependencies = .{
         .simargs = .{
-            .url = "https://github.com/jiacai2050/simargs/archive/9a74803.tar.gz",
-            .hash = "122095afd39e0bb248628b4ff8d9b2bd5cfadceb8e7cd93285d533fb45de861725cc",
+            .url = "https://github.com/jiacai2050/simargs/archive/2f0c722.tar.gz",
+            .hash = "12205afa92b21cb61baa5e0adba431155d04e2c064aa104b19c4dad75752d42519b6",
         },
         .@"table-helper" = .{
             .url = "https://github.com/jiacai2050/table-helper/archive/f0c8eb9.tar.gz",
