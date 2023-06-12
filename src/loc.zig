@@ -228,7 +228,7 @@ fn printLocMap(allocator: std.mem.Allocator, loc_map: *LocMap, sort_col: Column)
         try list.append(entry.value);
         total_entry.merge(entry.value.*);
     }
-    std.sort.sort(*LinesOfCode, list.items, sort_col, LinesOfCode.cmp);
+    std.sort.heap(*LinesOfCode, list.items, sort_col, LinesOfCode.cmp);
 
     var table_data = std.ArrayList(LinesOfCode.LOCTableData).init(allocator);
     for (list.items) |entry| {
@@ -245,10 +245,10 @@ fn walk(allocator: std.mem.Allocator, loc_map: *LocMap, dir: fs.IterableDir) any
     var it = dir.iterate();
     while (try it.next()) |e| {
         switch (e.kind) {
-            .File => {
+            .file => {
                 try populateLoc(allocator, loc_map, dir.dir, e.name);
             },
-            .Directory => {
+            .directory => {
                 var should_ignore = false;
                 for (IGNORE_DIRS) |ignore| {
                     if (std.mem.eql(u8, ignore, e.name)) {

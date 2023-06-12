@@ -155,7 +155,7 @@ fn walk(
     while (try it.next()) |entry| {
         const dupe_name = try allocator.dupe(u8, entry.name);
         if (walk_ctx.directory) {
-            if (entry.kind != .Directory) {
+            if (entry.kind != .directory) {
                 continue;
             }
         }
@@ -169,16 +169,16 @@ fn walk(
         try files.append(.{ .name = dupe_name, .kind = entry.kind });
     }
 
-    std.sort.sort(fs.IterableDir.Entry, files.items, {}, struct {
+    std.sort.heap(fs.IterableDir.Entry, files.items, {}, struct {
         fn lessThan(ctx: void, a: fs.IterableDir.Entry, b: fs.IterableDir.Entry) bool {
             _ = ctx;
 
             // file < directory
             if (a.kind != b.kind) {
-                if (a.kind == .Directory) {
+                if (a.kind == .directory) {
                     return false;
                 }
-                if (b.kind == .Directory) {
+                if (b.kind == .directory) {
                     return true;
                 }
             }
@@ -204,7 +204,7 @@ fn walk(
             _ = try writer.write("]");
         }
         switch (entry.kind) {
-            .Directory => {
+            .directory => {
                 _ = try writer.write("\n");
                 ret.directories += 1;
                 var sub_iter_dir = try iter_dir.dir.openIterableDir(entry.name, .{});
@@ -218,7 +218,7 @@ fn walk(
 
                 ret.add(try walk(allocator, walk_ctx, &sub_iter_dir, writer, new_prefix, level + 1));
             },
-            .SymLink => {
+            .sym_link => {
                 ret.files += 1;
                 const real_file = try iter_dir.dir.realpathAlloc(allocator, entry.name);
                 _ = try writer.write(" -> ");
