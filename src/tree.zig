@@ -41,7 +41,7 @@ const PREFIX_ARR = [_][4][]const u8{ // mode -> position
 };
 
 fn getPrefix(mode: Mode, pos: Position) []const u8 {
-    return PREFIX_ARR[@enumToInt(mode)][@enumToInt(pos)];
+    return PREFIX_ARR[@intFromEnum(mode)][@intFromEnum(pos)];
 }
 
 pub const WalkOptions = struct {
