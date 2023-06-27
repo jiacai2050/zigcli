@@ -18,6 +18,10 @@ pub fn build(b: *Build) void {
             "loc",
         },
         .{
+            buildPidof(b, optimize, target, simargs_dep),
+            "pidof",
+        },
+        .{
             buildYes(b, optimize, target),
             "yes",
         },
@@ -85,6 +89,18 @@ fn buildYes(b: *std.build.Builder, optimize: std.builtin.Mode, target: std.zig.C
         .target = target,
         .optimize = optimize,
     });
+
+    return exe;
+}
+
+fn buildPidof(b: *std.Build, optimize: std.builtin.Mode, target: std.zig.CrossTarget, simargs_dep: *std.build.Dependency) *Build.CompileStep {
+    const exe = b.addExecutable(.{
+        .name = "pidof",
+        .root_source_file = FileSource.relative("src/pidof.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    exe.addModule("simargs", simargs_dep.module("simargs"));
 
     return exe;
 }
