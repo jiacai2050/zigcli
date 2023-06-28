@@ -9,8 +9,10 @@ pub fn build(b: *Build) void {
     const table_dep = b.dependency("table-helper", .{});
 
     const opt = b.addOptions();
-    opt.addOption(i64, "build_date", std.time.milliTimestamp());
-    opt.addOption([]const u8, "git_commit", b.option([]const u8, "git_commit", "Git commit") orelse "Unknown");
+    opt.addOption([]const u8, "build_date", b.option([]const u8, "build_date", "Build date") orelse
+        b.fmt("{d}", .{std.time.milliTimestamp()}));
+    opt.addOption([]const u8, "git_commit", b.option([]const u8, "git_commit", "Git commit") orelse
+        "Unknown");
     b.modules.put("build_info", opt.createModule()) catch @panic("OOM");
     b.modules.put("simargs", simargs_dep.module("simargs")) catch @panic("OOM");
     b.modules.put("table-helper", table_dep.module("table-helper")) catch @panic("OOM");
