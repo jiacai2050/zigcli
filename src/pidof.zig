@@ -4,6 +4,7 @@
 
 const std = @import("std");
 const simargs = @import("simargs");
+const common = @import("common.zig");
 const c = @cImport({
     @cInclude("sys/sysctl.h");
 });
@@ -11,16 +12,19 @@ const c = @cImport({
 pub const Options = struct {
     single: bool = false,
     separator: []const u8 = " ",
+    version: bool = false,
     help: bool = false,
 
     pub const __shorts__ = .{
         .single = .s,
         .separator = .S,
+        .version = .v,
         .help = .h,
     };
     pub const __messages__ = .{
         .single = "Single shot - this instructs the program to only return one pid.",
         .separator = "Use separator as a separator put between pids.",
+        .version = "Print version.",
         .help = "Print help message.",
     };
 };
@@ -72,6 +76,11 @@ pub fn main() !void {
 
     const opt = try simargs.parse(allocator, Options, "[program]");
     defer opt.deinit();
+
+    if (opt.args.version) {
+        try common.print_build_info(std.io.getStdOut().writer());
+        return;
+    }
 
     if (opt.positional_args.items.len == 0) {
         std.debug.print("program is not given", .{});

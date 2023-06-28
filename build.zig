@@ -6,27 +6,42 @@ pub fn build(b: *Build) void {
     const optimize = b.standardOptimizeOption(.{});
     const target = b.standardTargetOptions(.{});
     const simargs_dep = b.dependency("simargs", .{});
+    const table_dep = b.dependency("table-helper", .{});
+
+    const opt = b.addOptions();
+    opt.addOption([]const u8, "build_date", b.option([]const u8, "build_date", "Build date") orelse
+        b.fmt("{d}", .{std.time.milliTimestamp()}));
+    opt.addOption([]const u8, "git_commit", b.option([]const u8, "git_commit", "Git commit") orelse
+        "Unknown");
+    b.modules.put("build_info", opt.createModule()) catch @panic("OOM");
+    b.modules.put("simargs", simargs_dep.module("simargs")) catch @panic("OOM");
+    b.modules.put("table-helper", table_dep.module("table-helper")) catch @panic("OOM");
 
     var all_tests = std.ArrayList(*Build.Step).init(b.allocator);
     inline for (.{
         .{
-            buildTree(b, optimize, target, simargs_dep),
+            buildCli(b, "tree", optimize, target),
             "tree",
         },
         .{
-            buildLoc(b, optimize, target, simargs_dep),
+            buildCli(b, "loc", optimize, target),
             "loc",
         },
         .{
-            buildPidof(b, optimize, target, simargs_dep),
+            buildCli(b, "pidof", optimize, target),
             "pidof",
         },
         .{
-            buildYes(b, optimize, target),
+            buildCli(b, "yes", optimize, target),
             "yes",
         },
     }) |prog| {
         if (prog.@"0") |exe| {
+            var deps = b.modules.iterator();
+            while (deps.next()) |dep| {
+                exe.addModule(dep.key_ptr.*, dep.value_ptr.*);
+            }
+
             const name = prog.@"1";
             b.installArtifact(exe);
             const run_cmd = b.addRunArtifact(exe);
@@ -57,55 +72,17 @@ fn buildTestStep(b: *std.Build, comptime name: []const u8, target: std.zig.Cross
     return test_step;
 }
 
-fn buildTree(b: *std.Build, optimize: std.builtin.Mode, target: std.zig.CrossTarget, simargs_dep: *std.build.Dependency) ?*Build.CompileStep {
-    const exe = b.addExecutable(.{
-        .name = "tree",
-        .root_source_file = FileSource.relative("src/tree.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    exe.addModule("simargs", simargs_dep.module("simargs"));
-
-    return exe;
-}
-
-fn buildLoc(b: *std.Build, optimize: std.builtin.Mode, target: std.zig.CrossTarget, simargs_dep: *std.build.Dependency) ?*Build.CompileStep {
-    const exe = b.addExecutable(.{
-        .name = "loc",
-        .root_source_file = FileSource.relative("src/loc.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    exe.addModule("simargs", simargs_dep.module("simargs"));
-    const table_dep = b.dependency("table-helper", .{});
-    exe.addModule("table-helper", table_dep.module("table-helper"));
-
-    return exe;
-}
-
-fn buildYes(b: *std.build.Builder, optimize: std.builtin.Mode, target: std.zig.CrossTarget) ?*Build.CompileStep {
-    const exe = b.addExecutable(.{
-        .name = "yes",
-        .root_source_file = FileSource.relative("src/yes.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-
-    return exe;
-}
-
-fn buildPidof(b: *std.Build, optimize: std.builtin.Mode, target: std.zig.CrossTarget, simargs_dep: *std.build.Dependency) ?*Build.CompileStep {
-    if (target.getOsTag() != .macos) {
-        return null;
+fn buildCli(b: *std.Build, comptime name: []const u8, optimize: std.builtin.Mode, target: std.zig.CrossTarget) ?*Build.CompileStep {
+    if (std.mem.eql(u8, name, "pidof")) {
+        if (target.getOsTag() != .macos) {
+            return null;
+        }
     }
 
-    const exe = b.addExecutable(.{
-        .name = "pidof",
-        .root_source_file = FileSource.relative("src/pidof.zig"),
+    return b.addExecutable(.{
+        .name = name,
+        .root_source_file = FileSource.relative("src/" ++ name ++ ".zig"),
         .target = target,
         .optimize = optimize,
     });
-    exe.addModule("simargs", simargs_dep.module("simargs"));
-
-    return exe;
 }
