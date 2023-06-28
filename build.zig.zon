@@ -1,10 +1,10 @@
 .{
-    .name = "loc",
+    .name = "zigcli",
     .version = "0.1.0",
     .dependencies = .{
         .simargs = .{
-            .url = "https://github.com/jiacai2050/simargs/archive/2ac9368.tar.gz",
-            .hash = "1220c7f602de51855b241b771058255d5023e156c2d8df93c3cf0f6ec3248e484f95",
+            .url = "https://github.com/jiacai2050/simargs/archive/77eb191.tar.gz",
+            .hash = "1220eef7753fccb692bbebae6b4ee2bab7900e954b5598ea25649ade4c062481cb49",
         },
         .@"table-helper" = .{
             .url = "https://github.com/jiacai2050/table-helper/archive/f0c8eb9.tar.gz",

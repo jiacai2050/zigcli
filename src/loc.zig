@@ -300,7 +300,7 @@ fn populateLoc(allocator: std.mem.Allocator, loc_map: *LocMap, dir: fs.Dir, base
     loc_entry.files += 1;
 
     const metadata = try file.metadata();
-    const file_size = @truncate(usize, metadata.size());
+    const file_size: usize = @truncate(metadata.size());
     if (file_size == 0) {
         return;
     }

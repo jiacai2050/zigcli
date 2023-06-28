@@ -18,21 +18,26 @@ pub fn build(b: *Build) void {
             "loc",
         },
         .{
+            buildPidof(b, optimize, target, simargs_dep),
+            "pidof",
+        },
+        .{
             buildYes(b, optimize, target),
             "yes",
         },
     }) |prog| {
-        const exe = prog.@"0";
-        const name = prog.@"1";
-        b.installArtifact(exe);
-        const run_cmd = b.addRunArtifact(exe);
-        if (b.args) |args| {
-            run_cmd.addArgs(args);
-        }
-        const run_step = b.step("run-" ++ name, "Run " ++ name);
-        run_step.dependOn(&run_cmd.step);
+        if (prog.@"0") |exe| {
+            const name = prog.@"1";
+            b.installArtifact(exe);
+            const run_cmd = b.addRunArtifact(exe);
+            if (b.args) |args| {
+                run_cmd.addArgs(args);
+            }
+            b.step("run-" ++ name, "Run " ++ name)
+                .dependOn(&run_cmd.step);
 
-        all_tests.append(buildTestStep(b, name, target)) catch @panic("OOM");
+            all_tests.append(buildTestStep(b, name, target)) catch @panic("OOM");
+        }
     }
 
     const test_all_step = b.step("test", "Run all tests");
@@ -52,7 +57,7 @@ fn buildTestStep(b: *std.Build, comptime name: []const u8, target: std.zig.Cross
     return test_step;
 }
 
-fn buildTree(b: *std.Build, optimize: std.builtin.Mode, target: std.zig.CrossTarget, simargs_dep: *std.build.Dependency) *Build.CompileStep {
+fn buildTree(b: *std.Build, optimize: std.builtin.Mode, target: std.zig.CrossTarget, simargs_dep: *std.build.Dependency) ?*Build.CompileStep {
     const exe = b.addExecutable(.{
         .name = "tree",
         .root_source_file = FileSource.relative("src/tree.zig"),
@@ -64,7 +69,7 @@ fn buildTree(b: *std.Build, optimize: std.builtin.Mode, target: std.zig.CrossTar
     return exe;
 }
 
-fn buildLoc(b: *std.Build, optimize: std.builtin.Mode, target: std.zig.CrossTarget, simargs_dep: *std.build.Dependency) *Build.CompileStep {
+fn buildLoc(b: *std.Build, optimize: std.builtin.Mode, target: std.zig.CrossTarget, simargs_dep: *std.build.Dependency) ?*Build.CompileStep {
     const exe = b.addExecutable(.{
         .name = "loc",
         .root_source_file = FileSource.relative("src/loc.zig"),
@@ -78,13 +83,29 @@ fn buildLoc(b: *std.Build, optimize: std.builtin.Mode, target: std.zig.CrossTarg
     return exe;
 }
 
-fn buildYes(b: *std.build.Builder, optimize: std.builtin.Mode, target: std.zig.CrossTarget) *std.build.CompileStep {
+fn buildYes(b: *std.build.Builder, optimize: std.builtin.Mode, target: std.zig.CrossTarget) ?*Build.CompileStep {
     const exe = b.addExecutable(.{
         .name = "yes",
         .root_source_file = FileSource.relative("src/yes.zig"),
         .target = target,
         .optimize = optimize,
     });
+
+    return exe;
+}
+
+fn buildPidof(b: *std.Build, optimize: std.builtin.Mode, target: std.zig.CrossTarget, simargs_dep: *std.build.Dependency) ?*Build.CompileStep {
+    if (target.getOsTag() != .macos) {
+        return null;
+    }
+
+    const exe = b.addExecutable(.{
+        .name = "pidof",
+        .root_source_file = FileSource.relative("src/pidof.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    exe.addModule("simargs", simargs_dep.module("simargs"));
 
     return exe;
 }
