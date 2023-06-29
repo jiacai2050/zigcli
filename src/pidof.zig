@@ -4,26 +4,30 @@
 
 const std = @import("std");
 const simargs = @import("simargs");
-const common = @import("common.zig");
+const util = @import("util.zig");
 const c = @cImport({
     @cInclude("sys/sysctl.h");
+    @cInclude("unistd.h");
 });
 
 pub const Options = struct {
     single: bool = false,
     separator: []const u8 = " ",
+    user_only: bool = false,
     version: bool = false,
     help: bool = false,
 
     pub const __shorts__ = .{
         .single = .s,
         .separator = .S,
+        .user_only = .u,
         .version = .v,
         .help = .h,
     };
     pub const __messages__ = .{
         .single = "Single shot - this instructs the program to only return one pid.",
         .separator = "Use separator as a separator put between pids.",
+        .user_only = "Only show process belonging to current user.",
         .version = "Print version.",
         .help = "Print help message.",
     };
@@ -52,11 +56,18 @@ pub fn findPids(allocator: std.mem.Allocator, opt: Options, program: []const u8)
     // procSize may change between two calls of sysctl, so we cannot iterate
     // procList directly with for(procList) |proc|.
     var pids = std.ArrayList(c.pid_t).init(allocator);
+    const uid = if (opt.user_only) c.getuid() else null;
     for (0..procSize / @sizeOf(c.struct_kinfo_proc)) |i| {
         if (opt.single and pids.items.len == 1) {
             break;
         }
         const proc = procList[i];
+        if (uid) |id| {
+            if (id != proc.kp_eproc.e_pcred.p_ruid) {
+                continue;
+            }
+        }
+
         // p_comm is [17]u8
         const name = std.mem.sliceTo(&proc.kp_proc.p_comm, 0);
         if (program.len >= name.len) {
@@ -74,13 +85,8 @@ pub fn main() !void {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    const opt = try simargs.parse(allocator, Options, "[program]");
+    const opt = try simargs.parse(allocator, Options, "[program]", util.get_build_info());
     defer opt.deinit();
-
-    if (opt.args.version) {
-        try common.print_build_info(std.io.getStdOut().writer());
-        return;
-    }
 
     if (opt.positional_args.items.len == 0) {
         std.debug.print("program is not given", .{});

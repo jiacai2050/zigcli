@@ -1,6 +1,6 @@
 #+TITLE: Zigcli
 #+DATE: 2022-09-20T22:55:17+0800
-#+LASTMOD: 2023-06-28T20:22:53+0800
+#+LASTMOD: 2023-06-29T20:22:28+0800
 #+AUTHOR: Jiacai Liu
 #+EMAIL: dev@liujiacai.net
 #+OPTIONS: toc:nil num:nil
@@ -21,7 +21,7 @@ git clone https://github.com/jiacai2050/zigcli.git
 #+end_src
 Then build with
 #+begin_src bash
-zig build -Doptimize=ReleaseFast
+make build
 #+end_src
 
 #+RESULTS:
@@ -39,36 +39,12 @@ Zigcli currently supports Zig master, which can be downloaded [[https://ziglang.
 zig-out
 └──bin
    ├──loc
-   └──tree
+   ├──pidof
+   ├──tree
+   └──yes
 
-1 directories, 2 files
+1 directories, 4 files
 #+end_src
-
-#+begin_src bash :results verbatim code :exports both
-./zig-out/bin/tree -h
-#+end_src
-
-#+RESULTS:
-#+begin_src bash
- USAGE:
-     ./zig-out/bin/tree [OPTIONS] [--] [directory]
-
- OPTIONS:
-	-m, --mode STRING                 Line drawing characters. (valid: ascii|box|dos)(default: box)
-	-a, --all                         All files are printed.
-	-s, --size                        Print the size of each file in bytes along with the name.
-	-d, --directory                   List directories only.
-	-L, --level INTEGER               Max display depth of the directory tree.
-	-h, --help                        Prints help information.
-#+end_src
-
-** Yes
-Here [[https://linux.die.net/man/1/pv][pv]] is used to monitor io rate.
-#+begin_src bash
-./zig-out/bin/yes | pv -r >/dev/null
-#+end_src
-=[6.71GiB/s]=
-
 * Loc
 #+begin_src bash :results verbatim code :exports both
 ./zig-out/bin/loc
@@ -78,28 +54,14 @@ Here [[https://linux.die.net/man/1/pv][pv]] is used to monitor io rate.
 #+begin_src bash
 Language File Line Code Comment Blank Size
 -------- ---- ---- ---- ------- ----- -------
-Zig      7    896  756  22      118   24.72K
-YAML     6    145  134  3       8     3.19K
-Makefile 1    15   8    3       4     262.00B
+Zig      7    1057 896  32      129   29.91K
+YAML     6    164  154  2       8     3.96K
+Makefile 1    12   8    0       4     206.00B
 Python   1    10   7    2       1     166.00B
-C        1    9    2    6       1     34.00B
+C        1    9    2    4       3     34.00B
 Ruby     1    8    5    2       1     201.00B
 -------- ---- ---- ---- ------- ----- -------
-Total    17   1083 912  38      133   28.56K
-#+end_src
-
-#+begin_src bash :results verbatim code :exports both
-./zig-out/bin/loc -h
-#+end_src
-
-#+RESULTS:
-#+begin_src bash
- USAGE:
-     ./zig-out/bin/loc [OPTIONS] [file or directory]
-
- OPTIONS:
-	-s, --sort STRING                 Column to sort by (valid: language|file|line|code|comment|blank|size)(default: line)
-	-h, --help                        Prints help information
+Total    17   1260 1072 42      146   34.46K
 #+end_src
 
 * Roadmap

@@ -1,7 +1,8 @@
 const std = @import("std");
 const Table = @import("table-helper").Table;
 const simargs = @import("simargs");
-const StringUtil = @import("util.zig").StringUtil;
+const util = @import("util.zig");
+const StringUtil = util.StringUtil;
 const fs = std.fs;
 
 const IGNORE_DIRS = [_][]const u8{ ".git", "zig-cache", "zig-out", "target", "vendor", "node_modules", "out" };
@@ -181,15 +182,21 @@ pub fn main() !void {
 
     const opt = try simargs.parse(allocator, struct {
         sort: Column = .line,
+        version: bool = false,
         help: bool = false,
 
         pub const __shorts__ = .{
             .sort = .s,
+            .version = .v,
             .help = .h,
         };
 
-        pub const __messages__ = .{ .help = "Prints help information", .sort = "Column to sort by" };
-    }, "[file or directory]");
+        pub const __messages__ = .{
+            .help = "Print help information",
+            .version = "Print version",
+            .sort = "Column to sort by",
+        };
+    }, "[file or directory]", util.get_build_info());
     defer opt.deinit();
 
     const file_or_dir = if (opt.positional_args.items.len == 0)

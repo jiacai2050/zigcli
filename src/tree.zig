@@ -7,7 +7,8 @@
 
 const std = @import("std");
 const simargs = @import("simargs");
-const StringUtil = @import("util.zig").StringUtil;
+const util = @import("util.zig");
+const StringUtil = util.StringUtil;
 const process = std.process;
 const fs = std.fs;
 const mem = std.mem;
@@ -50,6 +51,7 @@ pub const WalkOptions = struct {
     size: bool = false,
     directory: bool = false,
     level: ?usize,
+    version: bool = false,
     help: bool = false,
 
     pub const __shorts__ = .{
@@ -58,6 +60,7 @@ pub const WalkOptions = struct {
         .size = .s,
         .directory = .d,
         .level = .L,
+        .version = .v,
         .help = .h,
     };
 
@@ -67,7 +70,8 @@ pub const WalkOptions = struct {
         .size = "Print the size of each file in bytes along with the name.",
         .directory = "List directories only.",
         .level = "Max display depth of the directory tree.",
-        .help = "Prints help information.",
+        .version = "Print version.",
+        .help = "Print help information.",
     };
 };
 
@@ -76,7 +80,12 @@ pub fn main() anyerror!void {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    const opt = try simargs.parse(allocator, WalkOptions, "[directory]");
+    const opt = try simargs.parse(
+        allocator,
+        WalkOptions,
+        "[directory]",
+        util.get_build_info(),
+    );
     defer opt.deinit();
 
     const root_dir = if (opt.positional_args.items.len == 0)

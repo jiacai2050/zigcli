@@ -1,4 +1,5 @@
 const std = @import("std");
+const info = @import("build_info");
 const mem = std.mem;
 
 pub const StringUtil = struct {
@@ -14,3 +15,10 @@ pub const StringUtil = struct {
         return std.fmt.allocPrint(allocator, "{d:.2}{s}", .{ remaining, SIZE_UNIT[i] });
     }
 };
+
+pub fn get_build_info() []const u8 {
+    return std.fmt.comptimePrint("Build date: {s}\nGit commit: {s}", .{
+        info.build_date,
+        info.git_commit,
+    });
+}
