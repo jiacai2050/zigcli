@@ -9,49 +9,44 @@ pub fn build(b: *Build) void {
     const table_dep = b.dependency("table-helper", .{});
 
     const opt = b.addOptions();
-    opt.addOption([]const u8, "build_date", b.option([]const u8, "build_date", "Build date") orelse
-        b.fmt("{d}", .{std.time.milliTimestamp()}));
-    opt.addOption([]const u8, "git_commit", b.option([]const u8, "git_commit", "Git commit") orelse
-        "Unknown");
+    opt.addOption(
+        []const u8,
+        "build_date",
+        b.option([]const u8, "build_date", "Build date") orelse
+            b.fmt("{d}", .{std.time.milliTimestamp()}),
+    );
+    opt.addOption(
+        []const u8,
+        "git_commit",
+        b.option([]const u8, "git_commit", "Git commit") orelse
+            "Unknown",
+    );
     b.modules.put("build_info", opt.createModule()) catch @panic("OOM");
     b.modules.put("simargs", simargs_dep.module("simargs")) catch @panic("OOM");
     b.modules.put("table-helper", table_dep.module("table-helper")) catch @panic("OOM");
 
     var all_tests = std.ArrayList(*Build.Step).init(b.allocator);
     inline for (.{
-        .{
-            buildCli(b, "tree", optimize, target),
-            "tree",
-        },
-        .{
-            buildCli(b, "loc", optimize, target),
-            "loc",
-        },
-        .{
-            buildCli(b, "pidof", optimize, target),
-            "pidof",
-        },
-        .{
-            buildCli(b, "yes", optimize, target),
-            "yes",
-        },
-    }) |prog| {
-        if (prog.@"0") |exe| {
+        "tree",
+        "loc",
+        "pidof",
+        "yes",
+    }) |prog_name| {
+        if (buildCli(b, prog_name, optimize, target)) |exe| {
             var deps = b.modules.iterator();
             while (deps.next()) |dep| {
                 exe.addModule(dep.key_ptr.*, dep.value_ptr.*);
             }
 
-            const name = prog.@"1";
             b.installArtifact(exe);
             const run_cmd = b.addRunArtifact(exe);
             if (b.args) |args| {
                 run_cmd.addArgs(args);
             }
-            b.step("run-" ++ name, "Run " ++ name)
+            b.step("run-" ++ prog_name, "Run " ++ prog_name)
                 .dependOn(&run_cmd.step);
 
-            all_tests.append(buildTestStep(b, name, target)) catch @panic("OOM");
+            all_tests.append(buildTestStep(b, prog_name, target)) catch @panic("OOM");
         }
     }
 
