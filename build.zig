@@ -31,6 +31,7 @@ pub fn build(b: *Build) void {
         "loc",
         "pidof",
         "yes",
+        "night-shift",
     }) |prog_name| {
         if (buildCli(b, prog_name, optimize, target)) |exe| {
             var deps = b.modules.iterator();
@@ -68,16 +69,23 @@ fn buildTestStep(b: *std.Build, comptime name: []const u8, target: std.zig.Cross
 }
 
 fn buildCli(b: *std.Build, comptime name: []const u8, optimize: std.builtin.Mode, target: std.zig.CrossTarget) ?*Build.CompileStep {
-    if (std.mem.eql(u8, name, "pidof")) {
+    if (std.mem.eql(u8, name, "night-shift") or std.mem.eql(u8, name, "pidof")) {
         if (target.getOsTag() != .macos) {
             return null;
         }
     }
 
-    return b.addExecutable(.{
+    const exe = b.addExecutable(.{
         .name = name,
         .root_source_file = FileSource.relative("src/" ++ name ++ ".zig"),
         .target = target,
         .optimize = optimize,
     });
+
+    if (std.mem.eql(u8, name, "night-shift")) {
+        exe.linkSystemLibrary("objc");
+        exe.addFrameworkPath("/System/Library/PrivateFrameworks");
+        exe.linkFramework("CoreBrightness");
+    }
+    return exe;
 }
