@@ -29,18 +29,17 @@ pub fn main() !void {
     const allocator = arena.allocator();
 
     const clazz = c.objc_getClass("CBBlueLightClient");
-    var call0: *fn (c.id, c.SEL) callconv(.C) c.id = @constCast(@ptrCast(&c.objc_msgSend));
+    const call0: *fn (c.id, c.SEL) callconv(.C) c.id = @constCast(@ptrCast(&c.objc_msgSend));
 
     const client = call0(
         call0(@alignCast(@ptrCast(clazz.?)), c.sel_registerName("alloc")),
+        // call0((clazz), c.sel_registerName("alloc")),
         c.sel_registerName("init"),
     );
 
     var status = try allocator.create(Status);
-    // Status *status = malloc(sizeof(Status));
-    var call1: *fn (c.id, c.SEL, *Status) callconv(.C) bool =
+    const call1: *fn (c.id, c.SEL, *Status) callconv(.C) bool =
         @constCast(@ptrCast(&c.objc_msgSend));
-
     const ret = call1(client, c.sel_registerName("getBlueLightStatus:"), status);
 
     // printf("ret:%d, enabled: %d", ret, status->enabled);
