@@ -133,15 +133,15 @@ pub fn main() !void {
     },
         \\<command>
         \\
-        \\Available commands by category:
-        \\Manual on/off control:
-        \\  on                Turn Night Shift on
-        \\  off               Turn Night Shift off
-        \\  toggle            Toggle Night Shift
+        \\ Available commands by category:
+        \\ Manual on/off control:
+        \\   on                Turn Night Shift on
+        \\   off               Turn Night Shift off
+        \\   toggle            Toggle Night Shift
         \\
-        \\Color temperature:
-        \\  temp              View temperature preference
-        \\  temp  <0-100>     Set temperature preference
+        \\ Color temperature:
+        \\   temp              View temperature preference
+        \\   temp  <0-100>     Set temperature preference
     , util.get_build_info());
     defer opt.deinit();
 
