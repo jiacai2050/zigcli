@@ -54,7 +54,7 @@ jobs:
 
   build-macos:
     timeout-minutes: 10
-    runs-on: macos-13
+    runs-on: macos-latest
     strategy:
       fail-fast: false
       matrix:
@@ -72,8 +72,8 @@ jobs:
       - name: Set Environment Variables
         run: |
             echo "BUILD_DATE=$(date +'%Y-%m-%dT%H:%M:%S%z')" >> $GITHUB_ENV
-            xcrun --show-sdk-path
-            find $(xcrun --show-sdk-path) -name objc.h
+            # xcrun --show-sdk-path
+            # find $(xcrun --show-sdk-path) -name objc.h
       - name: Build
         run: |
           zig build -Dtarget=${{ matrix.targets }} -Doptimize=ReleaseSafe \

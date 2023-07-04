@@ -3,7 +3,7 @@ const simargs = @import("simargs");
 const util = @import("util.zig");
 const c = @cImport({
     @cInclude("objc/objc.h");
-    @cInclude("objc/objc-class.h");
+    @cInclude("objc/message.h");
 });
 
 const Time = extern struct {
