@@ -13,9 +13,6 @@ on:
       - '**.zig'
       - '.github/workflows/binary.yml'
 
-env:
-  BUILD_DIR: "build"
-
 jobs:
   build:
     timeout-minutes: 10
@@ -32,6 +29,37 @@ jobs:
           - "x86_64-linux"
           - "arm-linux"
           - "aarch64-linux"
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: true
+      - uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: ${{ matrix.zig-version }}
+      - name: Set Environment Variables
+        run: |
+            echo "BUILD_DATE=$(date +'%Y-%m-%dT%H:%M:%S%z')" >> $GITHUB_ENV
+      - name: Build
+        run: |
+          zig build -Dtarget=${{ matrix.targets }} -Doptimize=ReleaseSafe \
+          -Dgit_commit=${{ github.head_ref }}-${{ github.sha }} \
+          -Dbuild_date=${{ env.BUILD_DATE }}
+          # https://github.com/actions/upload-artifact#maintaining-file-permissions-and-case-sensitive-files
+          tar -cvf zigcli.tar zig-out/bin/
+      - name: Upload
+        uses: actions/upload-artifact@v3
+        with:
+          name: zigcli-${{ matrix.targets }}
+          path: zigcli.tar
+
+  build-macos:
+    timeout-minutes: 10
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        zig-version: [master]
+        targets:
           - "x86_64-macos"
           - "aarch64-macos"
     steps:
