@@ -1,3 +1,5 @@
+//! Control Night shift in cli, build for macOS.
+//!
 const std = @import("std");
 const simargs = @import("simargs");
 const util = @import("util.zig");
@@ -15,6 +17,7 @@ const Schedule = extern struct {
     to_time: Time,
 };
 
+// Refer https://github.com/smudge/nightlight/blob/03595a642f0876388db11b9f5a3bd8261ab178d5/src/macos/status.rs#L21
 const Status = extern struct {
     active: bool,
     enabled: bool,
@@ -32,6 +35,7 @@ const Client = struct {
     const Self = @This();
 
     fn init(allocator: std.mem.Allocator) Self {
+        // https://developer.limneos.net/?ios=14.4&framework=CoreBrightness.framework&header=CBBlueLightClient.h
         const clazz = c.objc_getClass("CBBlueLightClient");
         const call: *fn (c.id, c.SEL) callconv(.C) c.id = @constCast(@ptrCast(&c.objc_msgSend));
 
