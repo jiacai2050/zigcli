@@ -24,6 +24,7 @@ pub fn build(b: *Build) void {
     b.modules.put("build_info", opt.createModule()) catch @panic("OOM");
     b.modules.put("simargs", simargs_dep.module("simargs")) catch @panic("OOM");
     b.modules.put("table-helper", table_dep.module("table-helper")) catch @panic("OOM");
+    const is_ci = b.option(bool, "is_ci", "Build in CI") orelse false;
 
     var all_tests = std.ArrayList(*Build.Step).init(b.allocator);
     inline for (.{
@@ -31,8 +32,9 @@ pub fn build(b: *Build) void {
         "loc",
         "pidof",
         "yes",
+        "night-shift",
     }) |prog_name| {
-        if (buildCli(b, prog_name, optimize, target)) |exe| {
+        if (buildCli(b, prog_name, optimize, target, is_ci)) |exe| {
             var deps = b.modules.iterator();
             while (deps.next()) |dep| {
                 exe.addModule(dep.key_ptr.*, dep.value_ptr.*);
@@ -67,17 +69,41 @@ fn buildTestStep(b: *std.Build, comptime name: []const u8, target: std.zig.Cross
     return test_step;
 }
 
-fn buildCli(b: *std.Build, comptime name: []const u8, optimize: std.builtin.Mode, target: std.zig.CrossTarget) ?*Build.CompileStep {
-    if (std.mem.eql(u8, name, "pidof")) {
+fn buildCli(
+    b: *std.Build,
+    comptime name: []const u8,
+    optimize: std.builtin.Mode,
+    target: std.zig.CrossTarget,
+    is_ci: bool,
+) ?*Build.CompileStep {
+    if (std.mem.eql(u8, name, "night-shift") or std.mem.eql(u8, name, "pidof")) {
         if (target.getOsTag() != .macos) {
             return null;
         }
     }
 
-    return b.addExecutable(.{
+    if (is_ci and std.mem.eql(u8, name, "night-shift")) {
+        // zig build -Dtarget=aarch64-macos  will throw error
+        // error: warning(link): library not found for '-lobjc'
+        // warning(link): Library search paths:
+        // warning(link): framework not found for '-framework CoreBrightness'
+        // warning(link): Framework search paths:
+        // warning(link):   /System/Library/PrivateFrameworks
+        // so disable this in CI environment.
+        return null;
+    }
+
+    const exe = b.addExecutable(.{
         .name = name,
         .root_source_file = FileSource.relative("src/" ++ name ++ ".zig"),
         .target = target,
         .optimize = optimize,
     });
+
+    if (std.mem.eql(u8, name, "night-shift")) {
+        exe.linkSystemLibrary("objc");
+        exe.addFrameworkPath("/System/Library/PrivateFrameworks");
+        exe.linkFramework("CoreBrightness");
+    }
+    return exe;
 }

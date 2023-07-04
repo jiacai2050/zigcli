@@ -1,6 +1,6 @@
 #+TITLE: Zigcli
 #+DATE: 2022-09-20T22:55:17+0800
-#+LASTMOD: 2023-06-29T20:22:28+0800
+#+LASTMOD: 2023-07-04T22:26:07+0800
 #+AUTHOR: Jiacai Liu
 #+EMAIL: dev@liujiacai.net
 #+OPTIONS: toc:nil num:nil
@@ -14,6 +14,7 @@ Command line programs written in Zig. Currently there are:
 - =tree=, list contents of directories in a tree-like format.
 - =yes=, output a string repeatedly until killed.
 - =pidof=, like [[https://man7.org/linux/man-pages/man1/pidof.1.html][pidof]], but for macOS.
+- =night-shift=, control [[https://support.apple.com/guide/mac-help/use-night-shift-mchl97bc676d/mac][Night Shift]] in cli, build for macOS.
 
 Prebuilt binaries can be found in [[https://github.com/jiacai2050/loc/actions/workflows/binary.yml][CI's artifacts]], or you can build from source:
 #+begin_src bash
@@ -62,6 +63,30 @@ C        1    9    2    4       3     34.00B
 Ruby     1    8    5    2       1     201.00B
 -------- ---- ---- ---- ------- ----- -------
 Total    17   1260 1072 42      146   34.46K
+#+end_src
+* Night shift
+#+begin_src bash :results verbatim code :exports both
+./zig-out/bin/night-shift -h
+#+end_src
+
+#+RESULTS:
+#+begin_src bash
+ USAGE:
+     ./zig-out/bin/night-shift [OPTIONS] [--] <command>
+
+ Available commands by category:
+ Manual on/off control:
+   on                Turn Night Shift on
+   off               Turn Night Shift off
+   toggle            Toggle Night Shift
+
+ Color temperature:
+   temp              View temperature preference
+   temp  <0-100>     Set temperature preference
+
+ OPTIONS:
+	-v, --version                     Print version
+	-h, --help                        Print help information
 #+end_src
 
 * Roadmap
