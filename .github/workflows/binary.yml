@@ -72,6 +72,8 @@ jobs:
       - name: Set Environment Variables
         run: |
             echo "BUILD_DATE=$(date +'%Y-%m-%dT%H:%M:%S%z')" >> $GITHUB_ENV
+            xcrun --show-sdk-path
+            find $(xcrun --show-sdk-path) -name objc.h
       - name: Build
         run: |
           zig build -Dtarget=${{ matrix.targets }} -Doptimize=ReleaseSafe \
