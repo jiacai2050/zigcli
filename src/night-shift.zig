@@ -12,6 +12,7 @@ const Time = extern struct {
     hour: c_int,
     minute: c_int,
 };
+
 const Schedule = extern struct {
     from_time: Time,
     to_time: Time,
@@ -26,6 +27,35 @@ const Status = extern struct {
     schedule: Schedule,
     disable_flags: c_ulonglong,
     available: bool,
+
+    const Self = @This();
+
+    fn formatSchedule(self: Self, buf: []u8) ![]const u8 {
+        return switch (self.mode) {
+            0 => "Off",
+            1 => "SunsetToSunrise",
+            2 => try std.fmt.bufPrint(buf, "Custom({d}:{d}-{d}:{d})", .{
+                self.schedule.from_time.hour,
+                self.schedule.from_time.minute,
+                self.schedule.to_time.hour,
+                self.schedule.to_time.minute,
+            }),
+            else => "Unknown",
+        };
+    }
+
+    fn display(self: Self, wtr: anytype) !void {
+        if (!self.enabled) {
+            try wtr.writeAll("Enabled: off");
+            return;
+        }
+
+        var buf = std.mem.zeroes([32]u8);
+        try wtr.print(
+            \\Enabled: on
+            \\Schedule: {s}
+        , .{try self.formatSchedule(&buf)});
+    }
 };
 
 const Client = struct {
@@ -98,14 +128,23 @@ const Client = struct {
     fn destroyStatus(self: Self, status: *Status) void {
         self.allocator.destroy(status);
     }
+
+    fn setSchedule(self: Self, schedule: Schedule) !void {
+        const call: *fn (c.id, c.SEL, *Schedule) callconv(.C) bool = @constCast(@ptrCast(&c.objc_msgSend));
+        const ret = call(self.inner, c.sel_registerName("setSchedule"), &schedule);
+        if (!ret) {
+            return error.setSchedule;
+        }
+    }
 };
 
-const Action = enum {
+const Command = enum {
     Status,
     On,
     Off,
     Toggle,
     Temp,
+    Schedule,
 
     const FromString = std.ComptimeStringMap(@This(), .{
         .{ "status", .Status },
@@ -113,6 +152,7 @@ const Action = enum {
         .{ "off", .Off },
         .{ "toggle", .Toggle },
         .{ "temp", .Temp },
+        .{ "schedule", .Schedule },
     });
 };
 
@@ -139,6 +179,7 @@ pub fn main() !void {
         \\
         \\ Available commands by category:
         \\ Manual on/off control:
+        \\   status            Show current Night Shift status
         \\   on                Turn Night Shift on
         \\   off               Turn Night Shift off
         \\   toggle            Toggle Night Shift
@@ -149,10 +190,10 @@ pub fn main() !void {
     , util.get_build_info());
     defer opt.deinit();
 
-    const action: Action = if (opt.positional_args.items.len == 0)
+    const action: Command = if (opt.positional_args.items.len == 0)
         .Status
     else
-        Action.FromString.get(opt.positional_args.items[0]) orelse .Status;
+        Command.FromString.get(opt.positional_args.items[0]) orelse .Status;
 
     const client = Client.init(allocator);
     var wtr = std.io.getStdOut().writer();
@@ -161,28 +202,11 @@ pub fn main() !void {
         .Status => {
             var status = try client.getStatus();
             defer client.destroyStatus(status);
-
-            if (!status.enabled) {
-                try wtr.writeAll("enabled: off");
-                return;
-            }
-
-            const schedule = switch (status.mode) {
-                0 => "Off",
-                1 => "SunsetToSunrise",
-                2 => try std.fmt.allocPrint(allocator, "Custom({d}:{d}-{d}:{d})", .{
-                    status.schedule.from_time.hour,
-                    status.schedule.from_time.minute,
-                    status.schedule.to_time.hour,
-                    status.schedule.to_time.minute,
-                }),
-                else => "Unknown",
-            };
+            try status.display(wtr);
             try wtr.print(
-                \\Enabled: on
-                \\Schedule: {s}
+                \\
                 \\Temperature: {d:.0}
-            , .{ schedule, try client.getStrength() * 100 });
+            , .{try client.getStrength() * 100});
         },
         .Temp => {
             if (opt.positional_args.items.len == 2) {
@@ -207,6 +231,9 @@ pub fn main() !void {
         },
         .Off => {
             try client.turnOff();
+        },
+        .Schedule => {
+            unreachable;
         },
     }
 }
