@@ -11,10 +11,35 @@ const c = @cImport({
 const Time = extern struct {
     hour: c_int,
     minute: c_int,
+
+    fn fromString(hhmm: []const u8) !@This() {
+        var iter = std.mem.splitSequence(u8, hhmm, ":");
+        const hour = iter.next() orelse return error.MissingHour;
+        const minute = iter.next() orelse return error.MissingMinute;
+
+        return .{
+            .hour = std.fmt.parseInt(c_int, hour, 10) catch return error.InvalidHour,
+            .minute = std.fmt.parseInt(c_int, minute, 10) catch return error.InvalidMinute,
+        };
+    }
 };
-const Schedule = extern struct {
+
+const CustomSchedule = extern struct {
     from_time: Time,
     to_time: Time,
+};
+
+const Schedule = union(enum) {
+    // false means schedule is off
+    SunSetToSunRise: bool,
+    Custom: CustomSchedule,
+
+    fn toMode(self: @This()) c_int {
+        return switch (self) {
+            .SunSetToSunRise => |v| if (v) 1 else 0,
+            .Custom => 2,
+        };
+    }
 };
 
 // Refer https://github.com/smudge/nightlight/blob/03595a642f0876388db11b9f5a3bd8261ab178d5/src/macos/status.rs#L21
@@ -23,9 +48,38 @@ const Status = extern struct {
     enabled: bool,
     sun_schedule_permitted: bool,
     mode: c_int,
-    schedule: Schedule,
+    custom_schedule: CustomSchedule,
     disable_flags: c_ulonglong,
     available: bool,
+
+    const Self = @This();
+
+    fn formatSchedule(self: Self, buf: []u8) ![]const u8 {
+        return switch (self.mode) {
+            0 => "Off",
+            1 => "SunsetToSunrise",
+            2 => try std.fmt.bufPrint(buf, "Custom({d}:{d}-{d}:{d})", .{
+                self.custom_schedule.from_time.hour,
+                self.custom_schedule.from_time.minute,
+                self.custom_schedule.to_time.hour,
+                self.custom_schedule.to_time.minute,
+            }),
+            else => "Unknown",
+        };
+    }
+
+    fn display(self: Self, wtr: anytype) !void {
+        if (!self.enabled) {
+            try wtr.writeAll("Enabled: off");
+            return;
+        }
+
+        var buf = std.mem.zeroes([32]u8);
+        try wtr.print(
+            \\Enabled: on
+            \\Schedule: {s}
+        , .{try self.formatSchedule(&buf)});
+    }
 };
 
 const Client = struct {
@@ -58,6 +112,29 @@ const Client = struct {
         }
 
         return status;
+    }
+
+    fn setSchedule(self: Self, schedule: Schedule) !void {
+        {
+            const call: *fn (c.id, c.SEL, c_int) callconv(.C) bool = @constCast(@ptrCast(&c.objc_msgSend));
+            const ret = call(self.inner, c.sel_registerName("setMode:"), schedule.toMode());
+            if (!ret) {
+                return error.setMode;
+            }
+        }
+
+        switch (schedule) {
+            .SunSetToSunRise => {},
+            .Custom => |custom| {
+                var ptr = try self.allocator.create(CustomSchedule);
+                ptr.* = custom;
+                const call: *fn (c.id, c.SEL, [*c]CustomSchedule) callconv(.C) bool = @constCast(@ptrCast(&c.objc_msgSend));
+                const ret = call(self.inner, c.sel_registerName("setSchedule:"), ptr);
+                if (!ret) {
+                    return error.setSchedule;
+                }
+            },
+        }
     }
 
     fn setEnabled(self: Self, enabled: bool) !void {
@@ -100,12 +177,13 @@ const Client = struct {
     }
 };
 
-const Action = enum {
+const Command = enum {
     Status,
     On,
     Off,
     Toggle,
     Temp,
+    Schedule,
 
     const FromString = std.ComptimeStringMap(@This(), .{
         .{ "status", .Status },
@@ -113,6 +191,7 @@ const Action = enum {
         .{ "off", .Off },
         .{ "toggle", .Toggle },
         .{ "temp", .Temp },
+        .{ "schedule", .Schedule },
     });
 };
 
@@ -139,60 +218,52 @@ pub fn main() !void {
         \\
         \\ Available commands by category:
         \\ Manual on/off control:
-        \\   on                Turn Night Shift on
-        \\   off               Turn Night Shift off
-        \\   toggle            Toggle Night Shift
+        \\   status                   View current Night Shift status
+        \\   on                       Turn Night Shift on
+        \\   off                      Turn Night Shift off
+        \\   toggle                   Toggle Night Shift
         \\
         \\ Color temperature:
-        \\   temp              View temperature preference
-        \\   temp  <0-100>     Set temperature preference
+        \\   temp                     View temperature preference
+        \\   temp  <0-100>            Set temperature preference
+        \\
+        \\ Schedule:
+        \\   schedule                 View current schedule
+        \\   schedule sun             Start schedule from sunset to sunrise
+        \\   schedule off             Stop the current schedule
+        \\   schedule <from> <to>     Start a custom schedule(HH:mm, 24-hour format)
     , util.get_build_info());
     defer opt.deinit();
 
-    const action: Action = if (opt.positional_args.items.len == 0)
-        .Status
+    var args_iter = util.SliceIter([]const u8).init(opt.positional_args.items);
+    const cmd: Command = if (args_iter.next()) |v|
+        Command.FromString.get(v) orelse return error.UnknownCommand
     else
-        Action.FromString.get(opt.positional_args.items[0]) orelse .Status;
+        .Status;
 
     const client = Client.init(allocator);
     var wtr = std.io.getStdOut().writer();
 
-    switch (action) {
+    switch (cmd) {
         .Status => {
             var status = try client.getStatus();
             defer client.destroyStatus(status);
-
-            if (!status.enabled) {
-                try wtr.writeAll("enabled: off");
-                return;
+            try status.display(wtr);
+            if (status.enabled) {
+                try wtr.print(
+                    \\
+                    \\Temperature: {d:.0}
+                , .{try client.getStrength() * 100});
             }
-
-            const schedule = switch (status.mode) {
-                0 => "Off",
-                1 => "SunsetToSunrise",
-                2 => try std.fmt.allocPrint(allocator, "Custom({d}:{d}-{d}:{d})", .{
-                    status.schedule.from_time.hour,
-                    status.schedule.from_time.minute,
-                    status.schedule.to_time.hour,
-                    status.schedule.to_time.minute,
-                }),
-                else => "Unknown",
-            };
-            try wtr.print(
-                \\Enabled: on
-                \\Schedule: {s}
-                \\Temperature: {d:.0}
-            , .{ schedule, try client.getStrength() * 100 });
         },
         .Temp => {
-            if (opt.positional_args.items.len == 2) {
-                const strength = try std.fmt.parseFloat(f32, opt.positional_args.items[1]);
+            if (args_iter.next()) |v| {
+                const strength = try std.fmt.parseFloat(f32, v);
                 try client.setStrength(strength / 100.0);
-                return;
+            } else {
+                const strength = try client.getStrength();
+                try wtr.print("{d:.0}\n", .{strength * 100});
             }
-
-            const strength = try client.getStrength();
-            try wtr.print("{d:.0}\n", .{strength * 100});
         },
         .Toggle => {
             var status = try client.getStatus();
@@ -207,6 +278,29 @@ pub fn main() !void {
         },
         .Off => {
             try client.turnOff();
+        },
+        .Schedule => {
+            const sub_cmd = args_iter.next() orelse {
+                var status = try client.getStatus();
+                defer client.destroyStatus(status);
+                var buf = std.mem.zeroes([32]u8);
+                try wtr.writeAll(try status.formatSchedule(&buf));
+                return;
+            };
+
+            if (std.mem.eql(u8, "off", sub_cmd)) {
+                try client.setSchedule(.{ .SunSetToSunRise = false });
+            } else if (std.mem.eql(u8, "sun", sub_cmd)) {
+                try client.setSchedule(.{ .SunSetToSunRise = true });
+            } else {
+                const from = sub_cmd;
+                const to = args_iter.next() orelse return error.MissingTo;
+                const schedule = .{ .Custom = .{
+                    .from_time = try Time.fromString(from),
+                    .to_time = try Time.fromString(to),
+                } };
+                try client.setSchedule(schedule);
+            }
         },
     }
 }

@@ -1,6 +1,6 @@
 #+TITLE: Zigcli
 #+DATE: 2022-09-20T22:55:17+0800
-#+LASTMOD: 2023-07-04T22:26:07+0800
+#+LASTMOD: 2023-07-05T21:12:47+0800
 #+AUTHOR: Jiacai Liu
 #+EMAIL: dev@liujiacai.net
 #+OPTIONS: toc:nil num:nil
@@ -76,13 +76,20 @@ Total    17   1260 1072 42      146   34.46K
 
  Available commands by category:
  Manual on/off control:
-   on                Turn Night Shift on
-   off               Turn Night Shift off
-   toggle            Toggle Night Shift
+   status                   View current Night Shift status
+   on                       Turn Night Shift on
+   off                      Turn Night Shift off
+   toggle                   Toggle Night Shift
 
  Color temperature:
-   temp              View temperature preference
-   temp  <0-100>     Set temperature preference
+   temp                     View temperature preference
+   temp  <0-100>            Set temperature preference
+
+ Schedule:
+   schedule                 View current schedule
+   schedule sun             Start schedule from sunset to sunrise
+   schedule off             Stop the current schedule
+   schedule <from> <to>     Start a custom schedule(HH:mm, 24-hour format)
 
  OPTIONS:
 	-v, --version                     Print version
