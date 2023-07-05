@@ -30,3 +30,28 @@ pub fn get_build_info() []const u8 {
         builtin.zig_backend,
     });
 }
+
+pub fn SliceIter(comptime T: type) type {
+    return struct {
+        slice: []const T,
+        idx: usize,
+
+        const Self = @This();
+
+        pub fn init(slice: []const T) Self {
+            return .{
+                .slice = slice,
+                .idx = 0,
+            };
+        }
+
+        pub fn next(self: *Self) ?T {
+            if (self.idx == self.slice.len) {
+                return null;
+            }
+            const value = self.slice[self.idx];
+            self.idx += 1;
+            return value;
+        }
+    };
+}
