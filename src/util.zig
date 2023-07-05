@@ -55,3 +55,11 @@ pub fn SliceIter(comptime T: type) type {
         }
     };
 }
+
+test "slice iter" {
+    var iter = SliceIter(u8).init(&[_]u8{ 1, 2, 3 });
+    try std.testing.expectEqual(iter.next().?, 1);
+    try std.testing.expectEqual(iter.next().?, 2);
+    try std.testing.expectEqual(iter.next().?, 3);
+    try std.testing.expectEqual(iter.next(), null);
+}

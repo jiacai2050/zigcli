@@ -53,6 +53,7 @@ pub fn build(b: *Build) void {
     }
 
     const test_all_step = b.step("test", "Run all tests");
+    test_all_step.dependOn(buildTestStep(b, "util", target));
     for (all_tests.items) |step| {
         test_all_step.dependOn(step);
     }
