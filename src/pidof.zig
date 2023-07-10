@@ -47,6 +47,7 @@ pub fn findPids(allocator: std.mem.Allocator, opt: Options, program: []const u8)
     }
 
     var procList = try allocator.alloc(c.struct_kinfo_proc, procSize / @sizeOf(c.struct_kinfo_proc));
+    // https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man3/sysctl.3.html
     rc = c.sysctl(&mib, mib.len, @ptrCast(procList), &procSize, null, 0);
     if (rc != 0) {
         std.debug.print("get proc list failed, err:{any}", .{std.c.getErrno(rc)});

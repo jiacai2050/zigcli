@@ -1,6 +1,6 @@
 #+TITLE: Zigcli
 #+DATE: 2022-09-20T22:55:17+0800
-#+LASTMOD: 2023-07-05T21:12:47+0800
+#+LASTMOD: 2023-07-10T20:22:07+0800
 #+AUTHOR: Jiacai Liu
 #+EMAIL: dev@liujiacai.net
 #+OPTIONS: toc:nil num:nil
@@ -28,7 +28,7 @@ make build
 #+RESULTS:
 
 #+begin_quote
-Zigcli currently supports Zig master, which can be downloaded [[https://ziglang.org/download/][here]].
+To build zigcli locally, Zig master is required, which can be downloaded [[https://ziglang.org/download/][here]].
 #+end_quote
 * Tree
 #+begin_src bash :results verbatim code :exports both
@@ -55,14 +55,14 @@ zig-out
 #+begin_src bash
 Language File Line Code Comment Blank Size
 -------- ---- ---- ---- ------- ----- -------
-Zig      7    1057 896  32      129   29.91K
-YAML     6    164  154  2       8     3.96K
+Zig      8    1427 1210 45      172   41.19K
+YAML     6    195  182  5       8     5.03K
 Makefile 1    12   8    0       4     206.00B
 Python   1    10   7    2       1     166.00B
 C        1    9    2    4       3     34.00B
 Ruby     1    8    5    2       1     201.00B
 -------- ---- ---- ---- ------- ----- -------
-Total    17   1260 1072 42      146   34.46K
+Total    18   1661 1414 58      189   46.81K
 #+end_src
 * Night shift
 #+begin_src bash :results verbatim code :exports both
@@ -101,7 +101,5 @@ Total    17   1260 1072 42      146   34.46K
 - Performance, at least comparable with [[https://github.com/cgag/loc][cgag/loc]] [[https://github.com/jiacai2050/loc/issues/1][#1]]
 - More options, such as =--exclude <regex>=
 - Support multiline comment
-** Tree
-- ✅ Add file size
 * License
-zigcli is licensed under the GPL 3.0 or later, see [[file:LICENSE][LICENSE]] for details.
+Zigcli is licensed under the GPL 3.0 or later, see [[file:LICENSE][LICENSE]] for details.
