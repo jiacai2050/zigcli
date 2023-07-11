@@ -43,6 +43,7 @@ test "match iter" {
         .{ &[_]State{.{ .anything = true }}, "", true },
         .{ &[_]State{ .{ .anything = true }, .{ .exact = "b" } }, "a/a/b", true },
         .{ &[_]State{ .{ .anything = true }, .{ .exact = "b" } }, "a/a/b/c", false },
+        .{ &[_]State{ .{ .anything = true }, .{ .exact = "b" } }, "a/b/a/b", true },
         .{ &[_]State{ .{ .anything = true }, .{ .exact = "b" }, .{ .anything = true } }, "a/a/b/c", true },
     }) |case| {
         const states = case.@"0";
