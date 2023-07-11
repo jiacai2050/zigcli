@@ -1,12 +1,62 @@
 const std = @import("std");
 const fs = std.fs;
+const mem = std.mem;
 
 const testing = std.testing;
 
 const State = union(enum) { anything: bool, exact: []const u8 };
 const StateMachine = std.ArrayList(State);
+const PathIter = mem.SplitIterator(u8, .sequence);
+const CheckResult = enum { Ignore, Exclude, None };
 
-const CheckResult = enum { Ignore, Exclude };
+fn match_iter(states: []const State, paths: []const []const u8) bool {
+    if (states.len == 0) {
+        return paths.len == 0;
+    }
+
+    if (paths.len == 0) {
+        for (states) |s| {
+            if (.anything != s) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    switch (states[0]) {
+        .anything => return match_iter(states, paths[1..]) or
+            match_iter(states[1..], paths[1..]),
+        .exact => |expect| {
+            if (std.mem.eql(u8, expect, paths[0])) {
+                return match_iter(states[1..], paths[1..]);
+            }
+
+            return false;
+        },
+    }
+}
+
+test "match iter" {
+    inline for (.{
+        .{ &[_]State{.{ .anything = true }}, "aaa", true },
+        .{ &[_]State{.{ .anything = true }}, "b", true },
+        .{ &[_]State{.{ .anything = true }}, "", true },
+        .{ &[_]State{ .{ .anything = true }, .{ .exact = "b" } }, "a/a/b", true },
+        .{ &[_]State{ .{ .anything = true }, .{ .exact = "b" } }, "a/a/b/c", false },
+        .{ &[_]State{ .{ .anything = true }, .{ .exact = "b" }, .{ .anything = true } }, "a/a/b/c", true },
+    }) |case| {
+        const states = case.@"0";
+        const input = case.@"1";
+        const expected = case.@"2";
+        var path_iter = mem.splitSequence(u8, input, "/");
+        var paths = std.ArrayList([]const u8).init(testing.allocator);
+        defer paths.deinit();
+        while (path_iter.next()) |v| {
+            paths.append(v) catch @panic("OOM");
+        }
+        try testing.expectEqual(match_iter(states, paths.items), expected);
+    }
+}
 
 const IgnoreRule = struct {
     is_dir: bool,
@@ -33,20 +83,23 @@ const IgnoreRule = struct {
         try self.state_machine.append(state);
     }
 
-    fn check(self: Self, path: []const u8, file_entry: fs.IterableDir.Entry) CheckResult {
+    fn check(self: Self, path: []const u8, file_entry: fs.IterableDir.Entry) !CheckResult {
         if (self.is_dir and file_entry.kind != .directory) {
             return if (self.is_exclude) .Exclude else .Ignore;
         }
 
-        const remainings = std.mem.trimLeft(u8, path, self.dir);
-        for(self.state_machine.items) |state| {
-            switch (state) {
-                .anything => {},
-                .exact => {
-                    unreachable,
-                },
-            }
+        const remainings = mem.trimLeft(u8, path, self.dir);
+        var path_iter = mem.splitSequence(u8, remainings, "/");
+        var paths = std.ArrayList([]const u8);
+        while (path_iter.next()) |v| {
+            try paths.append(v);
         }
+        const match = match_iter(self.state_machine.items, paths);
+        if (match) {
+            return if (self.is_exclude) .Exclude else .Ignore;
+        }
+
+        return .None;
     }
 
     fn printState(self: Self, buf: anytype) !void {
