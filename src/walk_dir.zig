@@ -1,21 +1,27 @@
 const std = @import("std");
+const fs = std.fs;
+
 const testing = std.testing;
 
 const State = union(enum) { anything: bool, exact: []const u8 };
 const StateMachine = std.ArrayList(State);
 
+const CheckResult = enum { Ignore, Exclude };
+
 const IgnoreRule = struct {
     is_dir: bool,
     is_exclude: bool,
     state_machine: StateMachine,
+    dir: []const u8,
 
     const Self = @This();
 
-    fn init(allocator: std.mem.Allocator) Self {
+    fn init(allocator: std.mem.Allocator, dir: []const u8) Self {
         return .{
             .is_dir = false,
             .is_exclude = false,
             .state_machine = StateMachine.init(allocator),
+            .dir = dir,
         };
     }
 
@@ -25,6 +31,22 @@ const IgnoreRule = struct {
 
     fn pushState(self: *Self, state: State) !void {
         try self.state_machine.append(state);
+    }
+
+    fn check(self: Self, path: []const u8, file_entry: fs.IterableDir.Entry) CheckResult {
+        if (self.is_dir and file_entry.kind != .directory) {
+            return if (self.is_exclude) .Exclude else .Ignore;
+        }
+
+        const remainings = std.mem.trimLeft(u8, path, self.dir);
+        for(self.state_machine.items) |state| {
+            switch (state) {
+                .anything => {},
+                .exact => {
+                    unreachable,
+                },
+            }
+        }
     }
 
     fn printState(self: Self, buf: anytype) !void {
@@ -44,10 +66,14 @@ const IgnoreRule = struct {
 
 const IgnoreParser = struct {
     allocator: std.mem.Allocator,
+    dir: []const u8,
 
     const Self = @This();
-    fn init(allocator: std.mem.Allocator) Self {
-        return .{ .allocator = allocator };
+    fn init(allocator: std.mem.Allocator, dir: []const u8) Self {
+        return .{
+            .allocator = allocator,
+            .dir = dir,
+        };
     }
 
     fn parse(self: Self, input: []const u8) !?IgnoreRule {
@@ -55,7 +81,7 @@ const IgnoreParser = struct {
             return null;
         }
 
-        var rule = IgnoreRule.init(self.allocator);
+        var rule = IgnoreRule.init(self.allocator, self.dir);
         var start: usize = 0;
         var end: usize = input.len;
         if (std.mem.startsWith(u8, input, "!")) {
@@ -87,7 +113,7 @@ const IgnoreParser = struct {
 };
 
 test "parser rule" {
-    const parser = IgnoreParser.init(std.testing.allocator);
+    const parser = IgnoreParser.init(std.testing.allocator, "/tmp");
 
     // https://www.atlassian.com/git/tutorials/saving-changes/gitignore#git-ignore-patterns
     // https://git-scm.com/docs/gitignore
