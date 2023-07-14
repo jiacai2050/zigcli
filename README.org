@@ -1,6 +1,6 @@
 #+TITLE: Zigcli
 #+DATE: 2022-09-20T22:55:17+0800
-#+LASTMOD: 2023-07-10T20:22:07+0800
+#+LASTMOD: 2023-07-14T23:52:55+0800
 #+AUTHOR: Jiacai Liu
 #+EMAIL: dev@liujiacai.net
 #+OPTIONS: toc:nil num:nil
@@ -15,6 +15,7 @@ Command line programs written in Zig. Currently there are:
 - =yes=, output a string repeatedly until killed.
 - =pidof=, like [[https://man7.org/linux/man-pages/man1/pidof.1.html][pidof]], but for macOS.
 - =night-shift=, control [[https://support.apple.com/guide/mac-help/use-night-shift-mchl97bc676d/mac][Night Shift]] in cli, build for macOS.
+- =repeat=, repeat a command until it succeeds.
 
 Prebuilt binaries can be found in [[https://github.com/jiacai2050/loc/actions/workflows/binary.yml][CI's artifacts]], or you can build from source:
 #+begin_src bash
