@@ -33,6 +33,7 @@ pub fn build(b: *Build) void {
         "pidof",
         "yes",
         "night-shift",
+        "repeat",
     }) |prog_name| {
         if (buildCli(b, prog_name, optimize, target, is_ci)) |exe| {
             var deps = b.modules.iterator();
