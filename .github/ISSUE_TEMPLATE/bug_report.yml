@@ -16,7 +16,7 @@ body:
   - type: textarea
     id: version
     attributes:
-      label: OS Version
-      description: Which OS version are you using when this issue arises.
+      label: Version
+      description: Which version are you using when this issue arises.
     validations:
       required: true
