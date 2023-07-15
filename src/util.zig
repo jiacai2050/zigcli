@@ -2,6 +2,7 @@ const std = @import("std");
 const info = @import("build_info");
 const builtin = @import("builtin");
 const mem = std.mem;
+const fmt = std.fmt;
 
 pub const StringUtil = struct {
     const SIZE_UNIT = [_][]const u8{ "B", "K", "M", "G", "T" };
@@ -13,19 +14,19 @@ pub const StringUtil = struct {
             remaining /= 1024;
             i += 1;
         }
-        return std.fmt.allocPrint(allocator, "{d:.2}{s}", .{ remaining, SIZE_UNIT[i] });
+        return fmt.allocPrint(allocator, "{d:.2}{s}", .{ remaining, SIZE_UNIT[i] });
     }
 };
 
 pub fn get_build_info() []const u8 {
-    return std.fmt.comptimePrint(
+    return fmt.comptimePrint(
         \\Git commit: {s}
         \\Build date: {s}
         \\Zig version: {s}
         \\Zig backend: {s}
     , .{
-        info.build_date,
         info.git_commit,
+        info.build_date,
         builtin.zig_version_string,
         builtin.zig_backend,
     });

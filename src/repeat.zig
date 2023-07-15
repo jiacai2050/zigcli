@@ -6,6 +6,7 @@ const util = @import("util.zig");
 const os = std.os;
 const process = std.process;
 const mem = std.mem;
+const is_windows = @import("builtin").os.tag == .windows;
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -57,7 +58,8 @@ pub fn main() !void {
             else => {},
         }
 
-        if (keep_running) {
+        // Workaround for https://github.com/ziglang/zig/issues/16410
+        if (!is_windows and keep_running) {
             if (opt.args.interval) |pause| {
                 os.nanosleep(pause, 0);
             }
