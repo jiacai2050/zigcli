@@ -1,6 +1,6 @@
 const std = @import("std");
 const Build = std.Build;
-const FileSource = Build.FileSource;
+const LazyPath = Build.LazyPath;
 
 pub fn build(b: *Build) void {
     const optimize = b.standardOptimizeOption(.{});
@@ -97,14 +97,14 @@ fn buildCli(
 
     const exe = b.addExecutable(.{
         .name = name,
-        .root_source_file = FileSource.relative("src/" ++ name ++ ".zig"),
+        .root_source_file = LazyPath.relative("src/" ++ name ++ ".zig"),
         .target = target,
         .optimize = optimize,
     });
 
     if (std.mem.eql(u8, name, "night-shift")) {
         exe.linkSystemLibrary("objc");
-        exe.addFrameworkPath("/System/Library/PrivateFrameworks");
+        exe.addFrameworkPath(.{ .path = "/System/Library/PrivateFrameworks" });
         exe.linkFramework("CoreBrightness");
     }
     return exe;
