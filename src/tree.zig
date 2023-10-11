@@ -122,14 +122,14 @@ fn stringLessThan(a: []const u8, b: []const u8) bool {
 }
 
 test "testing string lessThan" {
-    const testcases = [_]std.meta.Tuple(&[_]type{ []const u8, []const u8, bool }){
+    const testcases = .{
         .{ "a", "a", false },
         .{ "a", "aa", true },
         .{ "a", "b", true },
         .{ "b", "a", false },
         .{ "a", "A", false }, // A > a
     };
-    for (testcases) |case| {
+    inline for (testcases) |case| {
         try testing.expectEqual(case.@"2", stringLessThan(case.@"0", case.@"1"));
     }
 }
