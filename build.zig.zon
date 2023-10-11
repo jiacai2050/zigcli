@@ -1,6 +1,7 @@
 .{
     .name = "zigcli",
     .version = "0.1.0",
+    .paths = .{""},
     .dependencies = .{
         .simargs = .{
             .url = "https://github.com/jiacai2050/simargs/archive/1003b5c.tar.gz",
