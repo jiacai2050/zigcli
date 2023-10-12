@@ -161,8 +161,17 @@ fn walk(
 
     var it = iter_dir.iterate();
     var files = std.ArrayList(fs.IterableDir.Entry).init(allocator);
+    defer {
+        for (files.items) |entry| {
+            allocator.free(entry.name);
+        }
+        files.deinit();
+    }
+
     while (try it.next()) |entry| {
         const dupe_name = try allocator.dupe(u8, entry.name);
+        errdefer allocator.free(dupe_name);
+
         if (walk_ctx.directory) {
             if (entry.kind != .directory) {
                 continue;
@@ -196,6 +205,7 @@ fn walk(
         }
     }.lessThan);
 
+    var buf: [fs.MAX_PATH_BYTES]u8 = undefined;
     for (files.items, 0..) |entry, i| {
         _ = try writer.write(prefix);
 
@@ -229,14 +239,14 @@ fn walk(
             },
             .sym_link => {
                 ret.files += 1;
-                const real_file = try iter_dir.dir.realpathAlloc(allocator, entry.name);
+                const linked_name = try iter_dir.dir.readLink(entry.name, &buf);
                 _ = try writer.write(" -> ");
-                _ = try writer.write(real_file);
+                _ = try writer.write(linked_name);
                 _ = try writer.write("\n");
             },
             else => {
-                _ = try writer.write("\n");
                 ret.files += 1;
+                _ = try writer.write("\n");
             },
         }
     }
