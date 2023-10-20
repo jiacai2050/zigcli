@@ -35,11 +35,11 @@ jobs:
         if: matrix.os == 'windows-latest'
         run: |
           zig.exe fmt --check .
-          zig.exe build test
-          zig.exe build
+          zig.exe build test -Dis_ci=true
+          zig.exe build -Dis_ci=true
       - name: fmt and test(unix)
         if: matrix.os != 'windows-latest'
         run: |
           zig fmt --check .
-          zig build test
-          zig build
+          zig build test -Dis_ci=true
+          zig build -Dis_ci=true

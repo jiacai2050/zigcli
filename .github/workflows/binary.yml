@@ -84,4 +84,4 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: zigcli-${{ matrix.targets }}
-          path: zigcli.tar
+          path: zigcli-${{ env.GIT_INFO }}.tar
