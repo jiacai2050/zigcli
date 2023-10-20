@@ -23,7 +23,7 @@ pub fn build(b: *Build) void {
     b.modules.put("build_info", opt.createModule()) catch @panic("OOM");
     b.modules.put("simargs", simargs_dep.module("simargs")) catch @panic("OOM");
     _ = b.addModule("pretty-table", .{
-        .source_file = .{ .path = "src/mod/pretty_table.zig" },
+        .source_file = .{ .path = "src/mod/pretty-table.zig" },
     });
     const is_ci = b.option(bool, "is_ci", "Build in CI") orelse false;
 
@@ -39,6 +39,13 @@ const Source = union(enum) {
         return switch (self) {
             .bin => |v| v,
             .mod => |v| v,
+        };
+    }
+
+    fn path(self: Self) []const u8 {
+        return switch (self) {
+            .bin => |_| "bin",
+            .mod => |_| "mod",
         };
     }
 };
@@ -62,7 +69,14 @@ fn buildBinariesAndModules(
     }
 
     const test_all_step = b.step("test", "Run all tests");
-    test_all_step.dependOn(buildTestStep(b, "util", target));
+    // TODO: move util out of `bin`
+    test_all_step.dependOn(buildTestStep(b, .{ .bin = "util" }, target));
+
+    inline for (.{
+        "pretty-table",
+    }) |name| {
+        test_all_step.dependOn(buildTestStep(b, .{ .mod = name }, target));
+    }
     for (all_tests.items) |step| {
         test_all_step.dependOn(step);
     }
@@ -91,13 +105,19 @@ fn buildBinaries(
         b.step("run-" ++ prog_name, "Run " ++ prog_name)
             .dependOn(&run_cmd.step);
 
-        all_tests.append(buildTestStep(b, prog_name, target)) catch @panic("OOM");
+        all_tests.append(buildTestStep(b, source, target)) catch @panic("OOM");
     }
 }
 
-fn buildTestStep(b: *std.Build, comptime name: []const u8, target: std.zig.CrossTarget) *Build.Step {
+fn buildTestStep(
+    b: *std.Build,
+    comptime source: Source,
+    target: std.zig.CrossTarget,
+) *Build.Step {
+    const name = comptime source.name();
+    const path = comptime source.path();
     const exe_tests = b.addTest(.{
-        .root_source_file = .{ .path = "src/bin/" ++ name ++ ".zig" },
+        .root_source_file = .{ .path = "src/" ++ path ++ "/" ++ name ++ ".zig" },
         .target = target,
     });
     const test_step = b.step("test-" ++ name, "Run " ++ name ++ " tests");
