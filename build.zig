@@ -6,7 +6,6 @@ pub fn build(b: *Build) void {
     const optimize = b.standardOptimizeOption(.{});
     const target = b.standardTargetOptions(.{});
     const simargs_dep = b.dependency("simargs", .{});
-    const table_dep = b.dependency("table-helper", .{});
 
     const opt = b.addOptions();
     opt.addOption(
@@ -23,9 +22,33 @@ pub fn build(b: *Build) void {
     );
     b.modules.put("build_info", opt.createModule()) catch @panic("OOM");
     b.modules.put("simargs", simargs_dep.module("simargs")) catch @panic("OOM");
-    b.modules.put("table-helper", table_dep.module("table-helper")) catch @panic("OOM");
+    _ = b.addModule("pretty-table", .{
+        .source_file = .{ .path = "src/mod/pretty_table.zig" },
+    });
     const is_ci = b.option(bool, "is_ci", "Build in CI") orelse false;
 
+    try buildBinariesAndModules(b, optimize, target, is_ci);
+}
+
+const Source = union(enum) {
+    bin: []const u8,
+    mod: []const u8,
+
+    const Self = @This();
+    fn name(self: Self) []const u8 {
+        return switch (self) {
+            .bin => |v| v,
+            .mod => |v| v,
+        };
+    }
+};
+
+fn buildBinariesAndModules(
+    b: *std.Build,
+    optimize: std.builtin.Mode,
+    target: std.zig.CrossTarget,
+    is_ci: bool,
+) !void {
     var all_tests = std.ArrayList(*Build.Step).init(b.allocator);
     inline for (.{
         "tree",
@@ -34,23 +57,8 @@ pub fn build(b: *Build) void {
         "yes",
         "night-shift",
         "repeat",
-    }) |prog_name| {
-        if (buildCli(b, prog_name, optimize, target, is_ci)) |exe| {
-            var deps = b.modules.iterator();
-            while (deps.next()) |dep| {
-                exe.addModule(dep.key_ptr.*, dep.value_ptr.*);
-            }
-
-            b.installArtifact(exe);
-            const run_cmd = b.addRunArtifact(exe);
-            if (b.args) |args| {
-                run_cmd.addArgs(args);
-            }
-            b.step("run-" ++ prog_name, "Run " ++ prog_name)
-                .dependOn(&run_cmd.step);
-
-            all_tests.append(buildTestStep(b, prog_name, target)) catch @panic("OOM");
-        }
+    }) |name| {
+        try buildBinaries(.{ .bin = name }, b, optimize, target, is_ci, &all_tests);
     }
 
     const test_all_step = b.step("test", "Run all tests");
@@ -60,9 +68,36 @@ pub fn build(b: *Build) void {
     }
 }
 
+fn buildBinaries(
+    comptime source: Source,
+    b: *std.Build,
+    optimize: std.builtin.Mode,
+    target: std.zig.CrossTarget,
+    is_ci: bool,
+    all_tests: *std.ArrayList(*Build.Step),
+) !void {
+    const prog_name = comptime source.name();
+    if (makeCompileStep(b, prog_name, optimize, target, is_ci)) |exe| {
+        var deps = b.modules.iterator();
+        while (deps.next()) |dep| {
+            exe.addModule(dep.key_ptr.*, dep.value_ptr.*);
+        }
+
+        b.installArtifact(exe);
+        const run_cmd = b.addRunArtifact(exe);
+        if (b.args) |args| {
+            run_cmd.addArgs(args);
+        }
+        b.step("run-" ++ prog_name, "Run " ++ prog_name)
+            .dependOn(&run_cmd.step);
+
+        all_tests.append(buildTestStep(b, prog_name, target)) catch @panic("OOM");
+    }
+}
+
 fn buildTestStep(b: *std.Build, comptime name: []const u8, target: std.zig.CrossTarget) *Build.Step {
     const exe_tests = b.addTest(.{
-        .root_source_file = .{ .path = "src/" ++ name ++ ".zig" },
+        .root_source_file = .{ .path = "src/bin/" ++ name ++ ".zig" },
         .target = target,
     });
     const test_step = b.step("test-" ++ name, "Run " ++ name ++ " tests");
@@ -71,7 +106,7 @@ fn buildTestStep(b: *std.Build, comptime name: []const u8, target: std.zig.Cross
     return test_step;
 }
 
-fn buildCli(
+fn makeCompileStep(
     b: *std.Build,
     comptime name: []const u8,
     optimize: std.builtin.Mode,
@@ -97,7 +132,7 @@ fn buildCli(
 
     const exe = b.addExecutable(.{
         .name = name,
-        .root_source_file = LazyPath.relative("src/" ++ name ++ ".zig"),
+        .root_source_file = LazyPath.relative("src/bin/" ++ name ++ ".zig"),
         .target = target,
         .optimize = optimize,
     });

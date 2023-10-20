@@ -7,9 +7,5 @@
             .url = "https://github.com/jiacai2050/simargs/archive/1003b5c.tar.gz",
             .hash = "1220b5dafa54081ce54f108d0b7fa9451149bde7dc7c20f4e14e322fdeeb7a1dfd9e",
         },
-        .@"table-helper" = .{
-            .url = "https://github.com/jiacai2050/table-helper/archive/f0c8eb9.tar.gz",
-            .hash = "1220a9727955240d359a5a3e04b7f6ee073523d61b60bde8fbda2736eb8772c41cda",
-        },
     },
 }
