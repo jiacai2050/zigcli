@@ -1,5 +1,6 @@
 const std = @import("std");
-const Table = @import("table-helper").Table;
+const Table = @import("pretty-table").Table;
+const Separator = @import("pretty-table").Separator;
 const simargs = @import("simargs");
 const util = @import("util.zig");
 const StringUtil = util.StringUtil;
@@ -125,7 +126,7 @@ const LinesOfCode = struct {
         }
         break :b names;
     };
-    const LOCTable = Table(&Self.header);
+    const LOCTable = Table(Self.header.len);
     const LOCTableData = [Self.header.len][]const u8;
 
     fn merge(self: *Self, other: Self) void {
@@ -182,17 +183,20 @@ pub fn main() !void {
 
     const opt = try simargs.parse(allocator, struct {
         sort: Column = .line,
+        mode: Separator.Mode = .box,
         version: bool = false,
         help: bool = false,
 
         pub const __shorts__ = .{
             .sort = .s,
+            .mode = .m,
             .version = .v,
             .help = .h,
         };
 
         pub const __messages__ = .{
             .help = "Print help information",
+            .mode = "Line drawing characters",
             .version = "Print version",
             .sort = "Column to sort by",
         };
@@ -209,17 +213,17 @@ pub fn main() !void {
         fs.cwd().openIterableDir(file_or_dir, .{}) catch |err| switch (err) {
         error.NotDir => {
             try populateLoc(allocator, &loc_map, fs.cwd(), file_or_dir);
-            return printLocMap(allocator, &loc_map, opt.args.sort);
+            return printLocMap(allocator, &loc_map, opt.args.sort, opt.args.mode);
         },
         else => return err,
     };
     defer iter_dir.close();
 
     try walk(allocator, &loc_map, iter_dir);
-    try printLocMap(allocator, &loc_map, opt.args.sort);
+    try printLocMap(allocator, &loc_map, opt.args.sort, opt.args.mode);
 }
 
-fn printLocMap(allocator: std.mem.Allocator, loc_map: *LocMap, sort_col: Column) !void {
+fn printLocMap(allocator: std.mem.Allocator, loc_map: *LocMap, sort_col: Column, mode: Separator.Mode) !void {
     var iter = loc_map.iterator();
     var list = std.ArrayList(*LinesOfCode).init(allocator);
     var total_entry = LinesOfCode{
@@ -242,8 +246,10 @@ fn printLocMap(allocator: std.mem.Allocator, loc_map: *LocMap, sort_col: Column)
         try table_data.append(entry.toTableData(allocator));
     }
     const table = LinesOfCode.LOCTable{
-        .data = table_data.items,
+        .header = LinesOfCode.header,
         .footer = total_entry.toTableData(allocator),
+        .rows = table_data.items,
+        .mode = mode,
     };
     try std.io.getStdOut().writer().print("{}\n", .{table});
 }
