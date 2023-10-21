@@ -1,4 +1,77 @@
 #+TITLE: Introduction
 #+DATE: 2023-10-21T12:09:48+0800
-#+LASTMOD: 2023-10-21T12:50:46+0800
+#+LASTMOD: 2023-10-21T12:54:48+0800
 #+TYPE: docs
+
+* Zigcli
+[[https://github.com/jiacai2050/loc/actions/workflows/CI.yml][https://github.com/jiacai2050/loc/actions/workflows/CI.yml/badge.svg]]
+[[https://github.com/jiacai2050/loc/actions/workflows/binary.yml][https://github.com/jiacai2050/loc/actions/workflows/binary.yml/badge.svg]]
+
+[[https://github.com/jiacai2050/zigcli/][Zigcli]] is a toolkit for building command lines programs in Zig. This package provides:
+- Modules :: Developers can use to build their awesome cli programs.
+- Binaries :: Various practical command line programs which can be used directly.
+* Install
+** Binaries
+Prebuilt binaries can be found in [[https://github.com/jiacai2050/loc/actions/workflows/binary.yml][CI's artifacts]], or you can build from source:
+#+begin_src bash
+git clone https://github.com/jiacai2050/zigcli.git
+#+end_src
+Then build with
+#+begin_src bash
+make build
+#+end_src
+
+#+begin_quote
+To build zigcli locally, Zig master is required, which can be downloaded [[https://ziglang.org/download/][here]].
+#+end_quote
+
+Currently there are:
+- =loc=, lines of code.
+- =tree=, list contents of directories in a tree-like format.
+- =yes=, output a string repeatedly until killed.
+- =pidof=, like [[https://man7.org/linux/man-pages/man1/pidof.1.html][pidof]], but for macOS.
+- =night-shift=, control [[https://support.apple.com/guide/mac-help/use-night-shift-mchl97bc676d/mac][Night Shift]] in cli, build for macOS.
+- =repeat=, repeat a command until it succeeds.
+
+** Modules
+=zigcli= support [[https://ziglang.org/download/0.11.0/release-notes.html#Package-Management][module]] introduced in Zig 0.11.
+
+First add it to =build.zig.zon= of your project like this:
+#+begin_src zig
+.{
+    .dependencies = .{
+        .zigcli = .{
+            .url = "https://github.com/jiacai2050/zigcli/archive/${COMMIT}.tar.gz",
+            .hash = "${HASH}",
+        },
+    },
+}
+#+end_src
+Replace =${COMMIT}= with a real one, =.hash= field is difficult to get now, you can fill in a fake one like =1220b5dafa54081ce54f108d0b7fa9451149bde7dc7c20f4e14e322fdeeb7a1dfd9d=, then run =zig build=, it should throw following similar error:
+#+begin_example
+Fetch Packages [1/1] zigcli... ~/demo/build.zig.zon:7:21: error: hash mismatch: expected: 1220b5dafa54081ce54f108d0b7fa9451149bde7dc7c20f4e14e322fdeeb7a1dfd9d, found: 122079741f4df43f426c87585058123be0e0fa3fda3985d9d88341d3d03f8484e105
+            .hash = "1220b5dafa54081ce54f108d0b7fa9451149bde7dc7c20f4e14e322fdeeb7a1dfd9d",
+                    ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#+end_example
+
+The =found:= section output the real hash, copy that to =build.zig.zon=.
+
+Then in your =build.zig=, access =zigcli= like this:
+#+begin_src zig
+const zigcli = b.dependency("zigcli", .{});
+
+// Currently zigcli provide two modules
+exe.addModule("simargs", zigcli.module("simargs"));
+exe.addModule("pretty-table", zigcli.module("pretty-table"));
+#+end_src
+
+* Who's Using
+If you’d like to be added to this list, welcome to [[https://github.com/jiacai2050/zigcli/pulls][open a PR]].
+
+* Roadmap
+** Loc
+- Performance, at least comparable with [[https://github.com/cgag/loc][cgag/loc]] [[https://github.com/jiacai2050/loc/issues/1][#1]]
+- More options, such as =--exclude <regex>=
+- Support multiline comment
+* License
+Zigcli is licensed under the GPL 3.0 or later, see [[file:LICENSE][LICENSE]] for details.
