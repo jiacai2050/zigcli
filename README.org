@@ -1,6 +1,5 @@
-#+TITLE: Introduction
 #+DATE: 2023-10-21T12:09:48+0800
-#+LASTMOD: 2023-10-21T12:54:48+0800
+#+LASTMOD: 2023-10-21T13:03:57+0800
 #+TYPE: docs
 
 * Zigcli
@@ -60,7 +59,7 @@ Then in your =build.zig=, access =zigcli= like this:
 #+begin_src zig
 const zigcli = b.dependency("zigcli", .{});
 
-// Currently zigcli provide two modules
+// Currently zigcli provide two modules.
 exe.addModule("simargs", zigcli.module("simargs"));
 exe.addModule("pretty-table", zigcli.module("pretty-table"));
 #+end_src
@@ -74,4 +73,4 @@ If you’d like to be added to this list, welcome to [[https://github.com/jiacai
 - More options, such as =--exclude <regex>=
 - Support multiline comment
 * License
-Zigcli is licensed under the GPL 3.0 or later, see [[file:LICENSE][LICENSE]] for details.
+MIT, see [[https://github.com/jiacai2050/zigcli/blob/main/LICENSE][LICENSE]] for details.

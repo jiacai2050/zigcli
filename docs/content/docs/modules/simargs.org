@@ -1,6 +1,6 @@
 #+TITLE: Simargs
 #+DATE: 2023-10-21T12:04:40+0800
-#+LASTMOD: 2023-10-21T12:11:26+0800
+#+LASTMOD: 2023-10-21T13:04:19+0800
 #+WEIGTH: 1
 
 * Simargs
@@ -17,7 +17,7 @@ Blog post explaining how =simargs= is implemented:
 - Use =comptime= as possible as I can
 - Provide =print_help()= out of the box
 * Usage
-See [[https://github.com/jiacai2050/zigcli/blob/main/examples/simargs-demo.zig]]
+See [[https://github.com/jiacai2050/zigcli/blob/main/examples/simargs-demo.zig][simargs-demo.zig]].
 
 #+begin_src bash :results verbatim :exports both
 # Run demo
