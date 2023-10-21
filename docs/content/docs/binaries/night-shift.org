@@ -1,0 +1,31 @@
+* Night shift
+#+begin_src bash :results verbatim code :exports both
+./zig-out/bin/night-shift -h
+#+end_src
+
+#+RESULTS:
+#+begin_src bash
+ USAGE:
+     ./zig-out/bin/night-shift [OPTIONS] [--] <command>
+
+ Available commands by category:
+ Manual on/off control:
+   status                   View current Night Shift status
+   on                       Turn Night Shift on
+   off                      Turn Night Shift off
+   toggle                   Toggle Night Shift
+
+ Color temperature:
+   temp                     View temperature preference
+   temp  <0-100>            Set temperature preference
+
+ Schedule:
+   schedule                 View current schedule
+   schedule sun             Start schedule from sunset to sunrise
+   schedule off             Stop the current schedule
+   schedule <from> <to>     Start a custom schedule(HH:mm, 24-hour format)
+
+ OPTIONS:
+	-v, --version                     Print version
+	-h, --help                        Print help information
+#+end_src

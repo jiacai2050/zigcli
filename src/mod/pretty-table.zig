@@ -127,7 +127,7 @@ pub fn Table(comptime len: usize) type {
             _ = fmt;
             _ = options;
             _ = fmt;
-            try writer.writeAll("\n");
+
             const column_lens = self.calculateColumnLens();
 
             try self.writeRowDelimiter(writer, .First, column_lens);
@@ -170,7 +170,7 @@ test "normal usage" {
     defer out.deinit();
     try out.writer().print("{}", .{t});
 
-    try std.testing.expectEqualStrings(out.items,
+    try std.testing.expectEqualStrings(
         \\+-------+----------+
         \\|Version|Date      |
         \\+-------+----------+
@@ -180,7 +180,7 @@ test "normal usage" {
         \\|0.5.0  |2019-09-30|
         \\+-------+----------+
         \\
-    );
+    , out.items);
 }
 
 test "footer usage" {
@@ -197,7 +197,7 @@ test "footer usage" {
     defer out.deinit();
     try out.writer().print("{}", .{t});
 
-    try std.testing.expectEqualStrings(out.items,
+    try std.testing.expectEqualStrings(
         \\+--------+-----+
         \\|Language|Files|
         \\+--------+-----+
@@ -207,5 +207,5 @@ test "footer usage" {
         \\|Total   |5    |
         \\+--------+-----+
         \\
-    );
+    , out.items);
 }

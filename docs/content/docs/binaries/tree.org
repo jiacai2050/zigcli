@@ -1,0 +1,17 @@
+
+* Tree
+#+begin_src bash :results verbatim code :exports both
+./zig-out/bin/tree zig-out
+#+end_src
+
+#+RESULTS:
+#+begin_src bash
+zig-out
+└──bin
+   ├──loc
+   ├──pidof
+   ├──tree
+   └──yes
+
+1 directories, 4 files
+#+end_src

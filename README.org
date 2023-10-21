@@ -1,22 +1,17 @@
-#+TITLE: Zigcli
-#+DATE: 2022-09-20T22:55:17+0800
-#+LASTMOD: 2023-07-14T23:52:55+0800
-#+AUTHOR: Jiacai Liu
-#+EMAIL: dev@liujiacai.net
-#+OPTIONS: toc:nil num:nil
-#+STARTUP: content
+#+TITLE: Introduction
+#+DATE: 2023-10-21T12:09:48+0800
+#+LASTMOD: 2023-10-21T12:54:48+0800
+#+TYPE: docs
 
+* Zigcli
 [[https://github.com/jiacai2050/loc/actions/workflows/CI.yml][https://github.com/jiacai2050/loc/actions/workflows/CI.yml/badge.svg]]
 [[https://github.com/jiacai2050/loc/actions/workflows/binary.yml][https://github.com/jiacai2050/loc/actions/workflows/binary.yml/badge.svg]]
 
-Command line programs written in Zig. Currently there are:
-- =loc=, lines of code.
-- =tree=, list contents of directories in a tree-like format.
-- =yes=, output a string repeatedly until killed.
-- =pidof=, like [[https://man7.org/linux/man-pages/man1/pidof.1.html][pidof]], but for macOS.
-- =night-shift=, control [[https://support.apple.com/guide/mac-help/use-night-shift-mchl97bc676d/mac][Night Shift]] in cli, build for macOS.
-- =repeat=, repeat a command until it succeeds.
-
+[[https://github.com/jiacai2050/zigcli/][Zigcli]] is a toolkit for building command lines programs in Zig. This package provides:
+- Modules :: Developers can use to build their awesome cli programs.
+- Binaries :: Various practical command line programs which can be used directly.
+* Install
+** Binaries
 Prebuilt binaries can be found in [[https://github.com/jiacai2050/loc/actions/workflows/binary.yml][CI's artifacts]], or you can build from source:
 #+begin_src bash
 git clone https://github.com/jiacai2050/zigcli.git
@@ -26,76 +21,52 @@ Then build with
 make build
 #+end_src
 
-#+RESULTS:
-
 #+begin_quote
 To build zigcli locally, Zig master is required, which can be downloaded [[https://ziglang.org/download/][here]].
 #+end_quote
-* Tree
-#+begin_src bash :results verbatim code :exports both
-./zig-out/bin/tree zig-out
+
+Currently there are:
+- =loc=, lines of code.
+- =tree=, list contents of directories in a tree-like format.
+- =yes=, output a string repeatedly until killed.
+- =pidof=, like [[https://man7.org/linux/man-pages/man1/pidof.1.html][pidof]], but for macOS.
+- =night-shift=, control [[https://support.apple.com/guide/mac-help/use-night-shift-mchl97bc676d/mac][Night Shift]] in cli, build for macOS.
+- =repeat=, repeat a command until it succeeds.
+
+** Modules
+=zigcli= support [[https://ziglang.org/download/0.11.0/release-notes.html#Package-Management][module]] introduced in Zig 0.11.
+
+First add it to =build.zig.zon= of your project like this:
+#+begin_src zig
+.{
+    .dependencies = .{
+        .zigcli = .{
+            .url = "https://github.com/jiacai2050/zigcli/archive/${COMMIT}.tar.gz",
+            .hash = "${HASH}",
+        },
+    },
+}
+#+end_src
+Replace =${COMMIT}= with a real one, =.hash= field is difficult to get now, you can fill in a fake one like =1220b5dafa54081ce54f108d0b7fa9451149bde7dc7c20f4e14e322fdeeb7a1dfd9d=, then run =zig build=, it should throw following similar error:
+#+begin_example
+Fetch Packages [1/1] zigcli... ~/demo/build.zig.zon:7:21: error: hash mismatch: expected: 1220b5dafa54081ce54f108d0b7fa9451149bde7dc7c20f4e14e322fdeeb7a1dfd9d, found: 122079741f4df43f426c87585058123be0e0fa3fda3985d9d88341d3d03f8484e105
+            .hash = "1220b5dafa54081ce54f108d0b7fa9451149bde7dc7c20f4e14e322fdeeb7a1dfd9d",
+                    ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#+end_example
+
+The =found:= section output the real hash, copy that to =build.zig.zon=.
+
+Then in your =build.zig=, access =zigcli= like this:
+#+begin_src zig
+const zigcli = b.dependency("zigcli", .{});
+
+// Currently zigcli provide two modules
+exe.addModule("simargs", zigcli.module("simargs"));
+exe.addModule("pretty-table", zigcli.module("pretty-table"));
 #+end_src
 
-#+RESULTS:
-#+begin_src bash
-zig-out
-└──bin
-   ├──loc
-   ├──pidof
-   ├──tree
-   └──yes
-
-1 directories, 4 files
-#+end_src
-* Loc
-#+begin_src bash :results verbatim code :exports both
-./zig-out/bin/loc
-#+end_src
-
-#+RESULTS:
-#+begin_src bash
-Language File Line Code Comment Blank Size
--------- ---- ---- ---- ------- ----- -------
-Zig      8    1427 1210 45      172   41.19K
-YAML     6    195  182  5       8     5.03K
-Makefile 1    12   8    0       4     206.00B
-Python   1    10   7    2       1     166.00B
-C        1    9    2    4       3     34.00B
-Ruby     1    8    5    2       1     201.00B
--------- ---- ---- ---- ------- ----- -------
-Total    18   1661 1414 58      189   46.81K
-#+end_src
-* Night shift
-#+begin_src bash :results verbatim code :exports both
-./zig-out/bin/night-shift -h
-#+end_src
-
-#+RESULTS:
-#+begin_src bash
- USAGE:
-     ./zig-out/bin/night-shift [OPTIONS] [--] <command>
-
- Available commands by category:
- Manual on/off control:
-   status                   View current Night Shift status
-   on                       Turn Night Shift on
-   off                      Turn Night Shift off
-   toggle                   Toggle Night Shift
-
- Color temperature:
-   temp                     View temperature preference
-   temp  <0-100>            Set temperature preference
-
- Schedule:
-   schedule                 View current schedule
-   schedule sun             Start schedule from sunset to sunrise
-   schedule off             Stop the current schedule
-   schedule <from> <to>     Start a custom schedule(HH:mm, 24-hour format)
-
- OPTIONS:
-	-v, --version                     Print version
-	-h, --help                        Print help information
-#+end_src
+* Who's Using
+If you’d like to be added to this list, welcome to [[https://github.com/jiacai2050/zigcli/pulls][open a PR]].
 
 * Roadmap
 ** Loc
