@@ -12,7 +12,7 @@ title = 'Zigcli'
 [languages]
 [languages.en]
   languageName = 'English'
-  contentDir = 'content.en'
+  contentDir = 'content'
   weight = 1
 
 [languages.zh]
@@ -22,6 +22,8 @@ title = 'Zigcli'
 
 [params]
   BookTheme = 'auto'
+  BookRepo = 'https://github.com/jiacai2050/zigcli'
+  BookEditPath = 'edit/main/docs'
 
 [module]
 [[module.imports]]

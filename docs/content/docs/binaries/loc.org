@@ -1,0 +1,19 @@
+
+* Loc
+#+begin_src bash :results verbatim code :exports both
+./zig-out/bin/loc
+#+end_src
+
+#+RESULTS:
+#+begin_src bash
+Language File Line Code Comment Blank Size
+-------- ---- ---- ---- ------- ----- -------
+Zig      8    1427 1210 45      172   41.19K
+YAML     6    195  182  5       8     5.03K
+Makefile 1    12   8    0       4     206.00B
+Python   1    10   7    2       1     166.00B
+C        1    9    2    4       3     34.00B
+Ruby     1    8    5    2       1     201.00B
+-------- ---- ---- ---- ------- ----- -------
+Total    18   1661 1414 58      189   46.81K
+#+end_src

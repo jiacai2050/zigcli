@@ -24,11 +24,10 @@ const Source = union(enum) {
     ex: []const u8,
 
     const Self = @This();
+
     fn name(self: Self) []const u8 {
         return switch (self) {
-            .bin => |v| v,
-            .mod => |v| v,
-            .ex => |v| v,
+            .bin, .mod, .ex => |v| v,
         };
     }
 
@@ -42,9 +41,8 @@ const Source = union(enum) {
 
     fn need_test(self: Self) bool {
         return switch (self) {
-            .bin => |_| true,
-            .mod => |_| true,
-            .ex => |_| false,
+            .bin, .mod => true,
+            .ex => false,
         };
     }
 };
@@ -75,7 +73,7 @@ fn addModules(
         b.option([]const u8, "git_commit", "Git commit") orelse
             "Unknown",
     );
-    b.modules.put("build_info", opt.createModule()) catch @panic("OOM");
+    try b.modules.put("build_info", opt.createModule());
 }
 
 fn buildExamples(
@@ -86,6 +84,7 @@ fn buildExamples(
 ) !void {
     inline for (.{
         "simargs-demo",
+        "pretty-table-demo",
     }) |name| {
         try buildBinary(b, .{ .ex = name }, optimize, target, false, all_tests);
     }
@@ -138,7 +137,7 @@ fn buildBinary(
             .dependOn(&run_cmd.step);
 
         if (source.need_test()) {
-            all_tests.append(buildTestStep(b, source, target)) catch @panic("OOM");
+            try all_tests.append(buildTestStep(b, source, target));
         }
     }
 }

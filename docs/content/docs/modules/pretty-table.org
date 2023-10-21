@@ -1,0 +1,35 @@
+* Pretty Table
+A formatted and aligned table printer library for Zig.
+* Features
+- Many box-drawing character to choose
+
+* Usage
+See [[https://github.com/jiacai2050/zigcli/blob/main/examples/pretty-table-demo.zig][pretty-table-demo.zig]]
+
+#+begin_src zig
+    const t = Table(2){
+        .header = [_]String{ "Language", "Files" },
+        .rows = &[_][2]String{
+            .{ "Zig", "3" },
+            .{ "Python", "2" },
+        },
+        .footer = [2]String{ "Total", "5" },
+        .mode = .box, // or .ascii
+    };
+
+    const out = std.io.getStdOut();
+    try out.writer().print("{}", .{t});
+#+end_src
+
+#+begin_src plaintext
+┌────────┬─────┐
+│Language│Files│
+├────────┼─────┤
+│Zig     │3    │
+│Python  │2    │
+│C       │12   │
+│Ruby    │5    │
+├────────┼─────┤
+│Total   │22   │
+└────────┴─────┘
+#+end_src

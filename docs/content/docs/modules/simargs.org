@@ -1,0 +1,59 @@
+#+TITLE: Simargs
+#+DATE: 2023-10-21T12:04:40+0800
+#+LASTMOD: 2023-10-21T12:11:26+0800
+#+WEIGTH: 1
+
+* Simargs
+A simple, opinionated, struct-based argument parser in Zig, taking full advantage of [[https://kristoff.it/blog/what-is-zig-comptime/][comptime]].
+
+Blog post explaining how =simargs= is implemented:
+- [[https://en.liujiacai.net/2022/12/14/argparser-in-zig/][What I learn by implementing argparser in Zig]]
+* Features
+- Supported data type:
+  - All [[https://ziglang.org/documentation/master/#Primitive-Types][primitive types]], such as =i8=, =f32=, =bool=
+  - =[]const u8=
+  - =Enum=
+- Optional fields and fields with default value mean they are optional arguments
+- Use =comptime= as possible as I can
+- Provide =print_help()= out of the box
+* Usage
+See [[https://github.com/jiacai2050/zigcli/blob/main/examples/simargs-demo.zig]]
+
+#+begin_src bash :results verbatim :exports both
+# Run demo
+zig build && ./zig-out/bin/simargs-demo -o /tmp/a.out --user-agent Firefox hello world 2>&1
+#+end_src
+
+#+RESULTS:
+#+begin_example
+------------------------------Program------------------------------
+./zig-out/bin/simargs-demo
+
+------------------------------Arguments------------------------------
+   verbose: null
+user-agent: demo.main__struct_1677.main__struct_1677__enum_1777.Firefox
+   timeout: 30
+    output: /tmp/a.out
+      help: false
+
+------------------------------Positionals------------------------------
+1: hello
+2: world
+
+------------------------------print_help------------------------------
+ USAGE:
+     ./zig-out/bin/demo [OPTIONS] [--] [file]
+
+ OPTIONS:
+	-v, --verbose                     Make the operation more talkative
+	-A, --user-agent STRING            (valid: Chrome|Firefox|Safari)(default: Firefox)
+	    --timeout INTEGER             Max time this request can cost(default: 30)
+	-o, --output STRING               Write to file instead of stdout(required)
+	-h, --help
+#+end_example
+* Acknowledgment
+When implement =simargs=, I refer following projects to learn how to write
+idiomatic Zig code. Big Thanks!
+- [[https://github.com/MasterQ32/zig-args/][MasterQ32/zig-args]]
+- [[https://github.com/Hejsil/zig-clap][Hejsil/zig-clap]]
+- [[https://github.com/evangrayk/zig-argparse][evangrayk/zig-argparse]]
