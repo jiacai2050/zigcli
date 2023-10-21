@@ -1,5 +1,4 @@
-# Sample workflow for building and deploying a Hugo site to GitHub Pages
-name: Deploy Hugo site to Pages
+name: Deploy docs
 
 on:
   # Runs on pushes targeting the default branch
@@ -30,9 +29,6 @@ jobs:
   # Build job
   build:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: docs
     env:
       HUGO_VERSION: 0.114.0
     steps:
@@ -49,6 +45,7 @@ jobs:
           hugo-version: '0.111.3'
           extended: true
       - name: Build with Hugo
+        working-directory: docs
         env:
           # For maximum backward compatibility with Hugo modules
           HUGO_ENVIRONMENT: production
@@ -61,7 +58,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v2
         with:
-          path: ./public
+          path: ./docs/public
 
   # Deployment job
   deploy:
