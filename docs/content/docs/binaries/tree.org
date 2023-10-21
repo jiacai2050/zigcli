@@ -1,17 +1,37 @@
 
-* Tree
-#+begin_src bash :results verbatim code :exports both
-./zig-out/bin/tree zig-out
+* tree
+#+begin_src
+$ ./zig-out/bin/tree -h
+ USAGE:
+     ./zig-out/bin/tree [OPTIONS] [--] [directory]
+
+ OPTIONS:
+	-m, --mode STRING                 Line drawing characters. (valid: ascii|box|dos)(default: box)
+	-a, --all                         All files are printed.
+	-s, --size                        Print the size of each file in bytes along with the name.
+	-d, --directory                   List directories only.
+	-L, --level INTEGER               Max display depth of the directory tree.
+	-v, --version                     Print version.
+	-h, --help                        Print help information.
+
+
 #+end_src
 
-#+RESULTS:
+** Demo
 #+begin_src bash
-zig-out
-└──bin
-   ├──loc
-   ├──pidof
-   ├──tree
-   └──yes
+$ ./zig-out/bin/tree src
+src
+├──bin
+│  ├──loc.zig
+│  ├──night-shift.zig
+│  ├──pidof.zig
+│  ├──repeat.zig
+│  ├──tree.zig
+│  ├──util.zig
+│  └──yes.zig
+└──mod
+   ├──pretty-table.zig
+   └──simargs.zig
 
 1 directories, 4 files
 #+end_src

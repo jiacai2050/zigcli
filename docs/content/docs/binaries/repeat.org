@@ -1,0 +1,12 @@
+* repeat
+#+begin_src bash
+ $ ./zig-out/bin/repeat -h
+ USAGE:
+     ./zig-out/bin/repeat [OPTIONS] [--] command
+
+ OPTIONS:
+	-m, --max INTEGER                 Max times to repeat
+	-i, --interval INTEGER            Pause interval(in seconds) between repeats
+	-v, --version                     Print version
+	-h, --help                        Print help information
+#+end_src

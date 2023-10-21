@@ -1,0 +1,15 @@
+* pidof
+Linux has this command, but not macOS, so I write it for you.
+
+#+begin_src bash
+$ ./zig-out/bin/pidof -h
+ USAGE:
+     ./zig-out/bin/pidof [OPTIONS] [--] [program]
+
+ OPTIONS:
+	-s, --single                      Single shot - this instructs the program to only return one pid.
+	-S, --separator STRING            Use separator as a separator put between pids.(default:  )
+	-u, --user_only                   Only show process belonging to current user.
+	-v, --version                     Print version.
+	-h, --help                        Print help message.
+#+end_src

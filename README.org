@@ -1,12 +1,17 @@
 #+DATE: 2023-10-21T12:09:48+0800
-#+LASTMOD: 2023-10-21T13:03:57+0800
+#+LASTMOD: 2023-10-21T13:59:36+0800
 #+TYPE: docs
 
 * Zigcli
 [[https://github.com/jiacai2050/loc/actions/workflows/CI.yml][https://github.com/jiacai2050/loc/actions/workflows/CI.yml/badge.svg]]
 [[https://github.com/jiacai2050/loc/actions/workflows/binary.yml][https://github.com/jiacai2050/loc/actions/workflows/binary.yml/badge.svg]]
 
-[[https://github.com/jiacai2050/zigcli/][Zigcli]] is a toolkit for building command lines programs in Zig. This package provides:
+#+begin_quote
+[[https://github.com/jiacai2050/zigcli/][Zigcli]] is a toolkit for building command lines programs in Zig.
+
+#+end_quote
+
+This package provides:
 - Modules :: Developers can use to build their awesome cli programs.
 - Binaries :: Various practical command line programs which can be used directly.
 * Install
