@@ -184,12 +184,14 @@ pub fn main() !void {
     const opt = try simargs.parse(allocator, struct {
         sort: Column = .line,
         mode: Separator.Mode = .box,
+        padding: usize = 3,
         version: bool = false,
         help: bool = false,
 
         pub const __shorts__ = .{
             .sort = .s,
             .mode = .m,
+            .padding = .p,
             .version = .v,
             .help = .h,
         };
@@ -197,6 +199,7 @@ pub fn main() !void {
         pub const __messages__ = .{
             .help = "Print help information",
             .mode = "Line drawing characters",
+            .padding = "Column padding",
             .version = "Print version",
             .sort = "Column to sort by",
         };
@@ -213,17 +216,35 @@ pub fn main() !void {
         fs.cwd().openIterableDir(file_or_dir, .{}) catch |err| switch (err) {
         error.NotDir => {
             try populateLoc(allocator, &loc_map, fs.cwd(), file_or_dir);
-            return printLocMap(allocator, &loc_map, opt.args.sort, opt.args.mode);
+            return printLocMap(
+                allocator,
+                &loc_map,
+                opt.args.sort,
+                opt.args.mode,
+                opt.args.padding,
+            );
         },
         else => return err,
     };
     defer iter_dir.close();
 
     try walk(allocator, &loc_map, iter_dir);
-    try printLocMap(allocator, &loc_map, opt.args.sort, opt.args.mode);
+    try printLocMap(
+        allocator,
+        &loc_map,
+        opt.args.sort,
+        opt.args.mode,
+        opt.args.padding,
+    );
 }
 
-fn printLocMap(allocator: std.mem.Allocator, loc_map: *LocMap, sort_col: Column, mode: Separator.Mode) !void {
+fn printLocMap(
+    allocator: std.mem.Allocator,
+    loc_map: *LocMap,
+    sort_col: Column,
+    mode: Separator.Mode,
+    padding: usize,
+) !void {
     var iter = loc_map.iterator();
     var list = std.ArrayList(*LinesOfCode).init(allocator);
     var total_entry = LinesOfCode{
@@ -250,6 +271,7 @@ fn printLocMap(allocator: std.mem.Allocator, loc_map: *LocMap, sort_col: Column,
         .footer = total_entry.toTableData(allocator),
         .rows = table_data.items,
         .mode = mode,
+        .padding = padding,
     };
     try std.io.getStdOut().writer().print("{}\n", .{table});
 }

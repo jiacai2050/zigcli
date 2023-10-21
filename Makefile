@@ -11,3 +11,11 @@ test:
 	zig build test
 
 ci: fmt test
+
+init-docs:
+	cd docs && hugo mod get -u
+
+serve:
+	cd docs && hugo serve -D
+
+.PHONY: init-docs serve test fmt build

@@ -6,6 +6,11 @@ pub fn Row(comptime num: usize) type {
 }
 
 pub const Separator = struct {
+    pub const Mode = enum {
+        ascii,
+        box,
+    };
+
     const box = [_][4]String{
         .{ "┌", "─", "┬", "┐" },
         .{ "│", "─", "│", "│" },
@@ -16,24 +21,19 @@ pub const Separator = struct {
     const ascii = [_][4]String{
         .{ "+", "-", "+", "+" },
         .{ "|", "-", "|", "|" },
-        .{ "+", "-", "+", "|" },
+        .{ "+", "-", "+", "+" },
         .{ "+", "-", "+", "+" },
     };
 
-    const RowPos = enum { First, Text, Sep, Last };
-    const ColPos = enum { First, Middle, Sep, Last };
-    pub const Mode = enum {
-        ascii,
-        box,
-    };
+    const Position = enum { First, Text, Sep, Last };
 
-    fn get(mode: Mode, row_pos: RowPos, col_pos: ColPos) []const u8 {
-        const prefix = switch (mode) {
+    fn get(mode: Mode, row_pos: Position, col_pos: Position) []const u8 {
+        const sep_table = switch (mode) {
             .ascii => ascii,
             .box => box,
         };
 
-        return prefix[@intFromEnum(row_pos)][@intFromEnum(col_pos)];
+        return sep_table[@intFromEnum(row_pos)][@intFromEnum(col_pos)];
     }
 };
 
@@ -43,10 +43,11 @@ pub fn Table(comptime len: usize) type {
         footer: ?Row(len) = null,
         rows: []const Row(len),
         mode: Separator.Mode = .ascii,
+        padding: usize = 0,
 
         const Self = @This();
 
-        fn writeRowDelimiter(self: Self, writer: anytype, row_pos: Separator.RowPos, col_lens: [len]usize) !void {
+        fn writeRowDelimiter(self: Self, writer: anytype, row_pos: Separator.Position, col_lens: [len]usize) !void {
             inline for (0..len, col_lens) |col_idx, max_len| {
                 const first_col = col_idx == 0;
                 if (first_col) {
@@ -56,7 +57,7 @@ pub fn Table(comptime len: usize) type {
                 }
 
                 for (0..max_len) |_| {
-                    try writer.writeAll(Separator.get(self.mode, row_pos, .Middle));
+                    try writer.writeAll(Separator.get(self.mode, row_pos, .Text));
                 }
             }
 
@@ -110,6 +111,9 @@ pub fn Table(comptime len: usize) type {
                 }
             }
 
+            for (&lens) |*n| {
+                n.* += self.padding;
+            }
             return lens;
         }
 
@@ -123,6 +127,7 @@ pub fn Table(comptime len: usize) type {
             _ = fmt;
             _ = options;
             _ = fmt;
+            try writer.writeAll("\n");
             const column_lens = self.calculateColumnLens();
 
             try self.writeRowDelimiter(writer, .First, column_lens);
@@ -134,8 +139,8 @@ pub fn Table(comptime len: usize) type {
                 );
             }
 
+            try self.writeRowDelimiter(writer, .Sep, column_lens);
             for (self.rows) |row| {
-                try self.writeRowDelimiter(writer, .Sep, column_lens);
                 try self.writeRow(writer, &row, column_lens);
             }
 
@@ -168,13 +173,10 @@ test "normal usage" {
     try std.testing.expectEqualStrings(out.items,
         \\+-------+----------+
         \\|Version|Date      |
-        \\+-------+----------|
+        \\+-------+----------+
         \\|0.7.1  |2020-12-13|
-        \\+-------+----------|
         \\|0.7.0  |2020-11-08|
-        \\+-------+----------|
         \\|0.6.0  |2020-04-13|
-        \\+-------+----------|
         \\|0.5.0  |2019-09-30|
         \\+-------+----------+
         \\
@@ -198,11 +200,10 @@ test "footer usage" {
     try std.testing.expectEqualStrings(out.items,
         \\+--------+-----+
         \\|Language|Files|
-        \\+--------+-----|
+        \\+--------+-----+
         \\|Zig     |3    |
-        \\+--------+-----|
         \\|Python  |2    |
-        \\+--------+-----|
+        \\+--------+-----+
         \\|Total   |5    |
         \\+--------+-----+
         \\
