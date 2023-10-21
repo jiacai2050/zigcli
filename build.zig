@@ -2,10 +2,65 @@ const std = @import("std");
 const Build = std.Build;
 const LazyPath = Build.LazyPath;
 
-pub fn build(b: *Build) void {
+pub fn build(b: *Build) !void {
     const optimize = b.standardOptimizeOption(.{});
     const target = b.standardTargetOptions(.{});
-    const simargs_dep = b.dependency("simargs", .{});
+
+    var all_tests = std.ArrayList(*Build.Step).init(b.allocator);
+
+    try addModules(b, target, &all_tests);
+    try buildBinaries(b, optimize, target, &all_tests);
+    try buildExamples(b, optimize, target, &all_tests);
+
+    const test_all_step = b.step("test", "Run all tests");
+    for (all_tests.items) |step| {
+        test_all_step.dependOn(step);
+    }
+}
+
+const Source = union(enum) {
+    bin: []const u8,
+    mod: []const u8,
+    ex: []const u8,
+
+    const Self = @This();
+    fn name(self: Self) []const u8 {
+        return switch (self) {
+            .bin => |v| v,
+            .mod => |v| v,
+            .ex => |v| v,
+        };
+    }
+
+    fn path(self: Self) []const u8 {
+        return switch (self) {
+            .bin => |_| "src/bin",
+            .mod => |_| "src/mod",
+            .ex => |_| "examples",
+        };
+    }
+
+    fn need_test(self: Self) bool {
+        return switch (self) {
+            .bin => |_| true,
+            .mod => |_| true,
+            .ex => |_| false,
+        };
+    }
+};
+
+fn addModules(
+    b: *std.Build,
+    target: std.zig.CrossTarget,
+    all_tests: *std.ArrayList(*Build.Step),
+) !void {
+    inline for (.{ "pretty-table", "simargs" }) |name| {
+        _ = b.addModule(name, .{
+            .source_file = .{ .path = "src/mod/" ++ name ++ ".zig" },
+        });
+
+        try all_tests.append(buildTestStep(b, .{ .mod = name }, target));
+    }
 
     const opt = b.addOptions();
     opt.addOption(
@@ -21,42 +76,29 @@ pub fn build(b: *Build) void {
             "Unknown",
     );
     b.modules.put("build_info", opt.createModule()) catch @panic("OOM");
-    b.modules.put("simargs", simargs_dep.module("simargs")) catch @panic("OOM");
-    _ = b.addModule("pretty-table", .{
-        .source_file = .{ .path = "src/mod/pretty-table.zig" },
-    });
-    const is_ci = b.option(bool, "is_ci", "Build in CI") orelse false;
-
-    try buildBinariesAndModules(b, optimize, target, is_ci);
 }
 
-const Source = union(enum) {
-    bin: []const u8,
-    mod: []const u8,
-
-    const Self = @This();
-    fn name(self: Self) []const u8 {
-        return switch (self) {
-            .bin => |v| v,
-            .mod => |v| v,
-        };
-    }
-
-    fn path(self: Self) []const u8 {
-        return switch (self) {
-            .bin => |_| "bin",
-            .mod => |_| "mod",
-        };
-    }
-};
-
-fn buildBinariesAndModules(
+fn buildExamples(
     b: *std.Build,
     optimize: std.builtin.Mode,
     target: std.zig.CrossTarget,
-    is_ci: bool,
+    all_tests: *std.ArrayList(*Build.Step),
 ) !void {
-    var all_tests = std.ArrayList(*Build.Step).init(b.allocator);
+    inline for (.{
+        "simargs-demo",
+    }) |name| {
+        try buildBinary(b, .{ .ex = name }, optimize, target, false, all_tests);
+    }
+}
+
+fn buildBinaries(
+    b: *std.Build,
+    optimize: std.builtin.Mode,
+    target: std.zig.CrossTarget,
+    all_tests: *std.ArrayList(*Build.Step),
+) !void {
+    const is_ci = b.option(bool, "is_ci", "Build in CI") orelse false;
+
     inline for (.{
         "tree",
         "loc",
@@ -65,33 +107,22 @@ fn buildBinariesAndModules(
         "night-shift",
         "repeat",
     }) |name| {
-        try buildBinaries(.{ .bin = name }, b, optimize, target, is_ci, &all_tests);
+        try buildBinary(b, .{ .bin = name }, optimize, target, is_ci, all_tests);
     }
 
-    const test_all_step = b.step("test", "Run all tests");
     // TODO: move util out of `bin`
-    test_all_step.dependOn(buildTestStep(b, .{ .bin = "util" }, target));
-
-    inline for (.{
-        "pretty-table",
-    }) |name| {
-        test_all_step.dependOn(buildTestStep(b, .{ .mod = name }, target));
-    }
-    for (all_tests.items) |step| {
-        test_all_step.dependOn(step);
-    }
+    try all_tests.append(buildTestStep(b, .{ .bin = "util" }, target));
 }
 
-fn buildBinaries(
-    comptime source: Source,
+fn buildBinary(
     b: *std.Build,
+    comptime source: Source,
     optimize: std.builtin.Mode,
     target: std.zig.CrossTarget,
     is_ci: bool,
     all_tests: *std.ArrayList(*Build.Step),
 ) !void {
-    const prog_name = comptime source.name();
-    if (makeCompileStep(b, prog_name, optimize, target, is_ci)) |exe| {
+    if (makeCompileStep(b, source, optimize, target, is_ci)) |exe| {
         var deps = b.modules.iterator();
         while (deps.next()) |dep| {
             exe.addModule(dep.key_ptr.*, dep.value_ptr.*);
@@ -102,10 +133,13 @@ fn buildBinaries(
         if (b.args) |args| {
             run_cmd.addArgs(args);
         }
+        const prog_name = comptime source.name();
         b.step("run-" ++ prog_name, "Run " ++ prog_name)
             .dependOn(&run_cmd.step);
 
-        all_tests.append(buildTestStep(b, source, target)) catch @panic("OOM");
+        if (source.need_test()) {
+            all_tests.append(buildTestStep(b, source, target)) catch @panic("OOM");
+        }
     }
 }
 
@@ -117,7 +151,7 @@ fn buildTestStep(
     const name = comptime source.name();
     const path = comptime source.path();
     const exe_tests = b.addTest(.{
-        .root_source_file = .{ .path = "src/" ++ path ++ "/" ++ name ++ ".zig" },
+        .root_source_file = .{ .path = path ++ "/" ++ name ++ ".zig" },
         .target = target,
     });
     const test_step = b.step("test-" ++ name, "Run " ++ name ++ " tests");
@@ -128,11 +162,13 @@ fn buildTestStep(
 
 fn makeCompileStep(
     b: *std.Build,
-    comptime name: []const u8,
+    comptime source: Source,
     optimize: std.builtin.Mode,
     target: std.zig.CrossTarget,
     is_ci: bool,
 ) ?*Build.CompileStep {
+    const name = comptime source.name();
+    const path = comptime source.path();
     if (std.mem.eql(u8, name, "night-shift") or std.mem.eql(u8, name, "pidof")) {
         if (target.getOsTag() != .macos) {
             return null;
@@ -152,7 +188,7 @@ fn makeCompileStep(
 
     const exe = b.addExecutable(.{
         .name = name,
-        .root_source_file = LazyPath.relative("src/bin/" ++ name ++ ".zig"),
+        .root_source_file = .{ .path = path ++ "/" ++ name ++ ".zig" },
         .target = target,
         .optimize = optimize,
     });

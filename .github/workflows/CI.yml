@@ -43,3 +43,20 @@ jobs:
           zig fmt --check .
           zig build test -Dis_ci=true
           zig build -Dis_ci=true
+
+  cross-compile:
+    timeout-minutes: 10
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        targets: [x86_64-windows, x86_64-linux, x86_64-macos, aarch64-macos]
+    steps:
+      - uses: actions/checkout@v2
+      - uses: goto-bus-stop/setup-zig@v1
+        with:
+          version: master
+      - name: Build
+        run: |
+          zig build -Dtarget=${{ matrix.targets }}

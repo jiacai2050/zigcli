@@ -1,5 +1,5 @@
 name: Bug Report
-labels: ['bug']
+labels: ["bug"]
 description: Report to help us improve
 body:
   - type: markdown

@@ -2,10 +2,5 @@
     .name = "zigcli",
     .version = "0.1.0",
     .paths = .{ "src/bin/*.zig", "src/mod/*.zig" },
-    .dependencies = .{
-        .simargs = .{
-            .url = "https://github.com/jiacai2050/simargs/archive/1003b5c.tar.gz",
-            .hash = "1220b5dafa54081ce54f108d0b7fa9451149bde7dc7c20f4e14e322fdeeb7a1dfd9e",
-        },
-    },
+    .dependencies = .{},
 }
