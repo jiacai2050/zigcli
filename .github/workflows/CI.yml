@@ -59,4 +59,4 @@ jobs:
           version: master
       - name: Build
         run: |
-          zig build -Dtarget=${{ matrix.targets }}
+          zig build -Dtarget=${{ matrix.targets }} -Dis_ci
