@@ -1,6 +1,7 @@
 baseURL = 'https://zigcli.liujiacai.net/'
 languageCode = 'en-us'
 title = 'Zigcli'
+enableGitInfo = true
 
 [markup]
 [markup.goldmark.renderer]
@@ -24,6 +25,7 @@ title = 'Zigcli'
   BookTheme = 'auto'
   BookRepo = 'https://github.com/jiacai2050/zigcli'
   BookEditPath = 'edit/main/docs'
+  BookDateFormat = '2006-01-02T15:04:05 -0700'
 
 [module]
 [[module.imports]]

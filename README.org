@@ -1,14 +1,15 @@
 #+DATE: 2023-10-21T12:09:48+0800
-#+LASTMOD: 2023-10-22T19:41:16+0800
+#+LASTMOD: 2023-10-22T22:40:34+0800
 #+TYPE: docs
 
 * Zigcli
+[[https://github.com/jiacai2050/zigcli/stargazers][https://img.shields.io/github/stars/jiacai2050/zigcli.svg]]
+[[https://github.com/jiacai2050/zigcli/blob/main/LICENSE][https://img.shields.io/github/license/jiacai2050/zigcli.svg]]
 [[https://github.com/jiacai2050/loc/actions/workflows/CI.yml][https://github.com/jiacai2050/loc/actions/workflows/CI.yml/badge.svg]]
 [[https://github.com/jiacai2050/loc/actions/workflows/binary.yml][https://github.com/jiacai2050/loc/actions/workflows/binary.yml/badge.svg]]
-[[https://github.com/jiacai2050/loc/actions/workflows/docs.yml][https://github.com/jiacai2050/loc/actions/workflows/docs.yml/badge.svg]]
 
 #+begin_quote
-[[https://github.com/jiacai2050/zigcli/][Zigcli]] is a toolkit for building command lines programs in Zig.
+[[/][Zigcli]] is a toolkit for building command lines programs in Zig.
 #+end_quote
 
 This package provides:
