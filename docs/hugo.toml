@@ -15,10 +15,10 @@ title = 'Zigcli'
   contentDir = 'content'
   weight = 1
 
-[languages.zh]
-  languageName = 'Chinese'
-  contentDir = 'content.zh'
-  weight = 2
+# [languages.zh]
+#   languageName = 'Chinese'
+#   contentDir = 'content.zh'
+#   weight = 2
 
 [params]
   BookTheme = 'auto'

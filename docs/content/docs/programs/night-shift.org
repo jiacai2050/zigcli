@@ -1,4 +1,6 @@
 * Night shift
+A CLI for configuring "Night Shift" on macOS. 🌕🌖🌗🌘🌑
+
 #+begin_src bash :results verbatim code :exports both
 ./zig-out/bin/night-shift -h
 #+end_src
@@ -29,3 +31,6 @@
 	-v, --version                     Print version
 	-h, --help                        Print help information
 #+end_src
+
+* Acknowledgment
+- https://github.com/smudge/nightlight

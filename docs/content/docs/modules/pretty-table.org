@@ -1,7 +1,7 @@
 * Pretty Table
 A formatted and aligned table printer library for Zig.
 * Features
-- Many box-drawing character to choose
+- Many box-drawing character to choose(=ascii=, =box=, =dos=).
 
 * Usage
 See [[https://github.com/jiacai2050/zigcli/blob/main/examples/pretty-table-demo.zig][pretty-table-demo.zig]]
@@ -14,7 +14,7 @@ See [[https://github.com/jiacai2050/zigcli/blob/main/examples/pretty-table-demo.
             .{ "Python", "2" },
         },
         .footer = [2]String{ "Total", "5" },
-        .mode = .box, // or .ascii
+        .mode = .box, // or .ascii, .dos
     };
 
     const out = std.io.getStdOut();

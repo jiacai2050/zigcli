@@ -9,6 +9,7 @@ pub const Separator = struct {
     pub const Mode = enum {
         ascii,
         box,
+        dos,
     };
 
     const box = [_][4]String{
@@ -25,12 +26,20 @@ pub const Separator = struct {
         .{ "+", "-", "+", "+" },
     };
 
+    const dos = [_][4]String{
+        .{ "╔", "═", "╦", "╗" },
+        .{ "║", "═", "║", "║" },
+        .{ "╠", "═", "╬", "╣" },
+        .{ "╚", "═", "╩", "╝" },
+    };
+
     const Position = enum { First, Text, Sep, Last };
 
     fn get(mode: Mode, row_pos: Position, col_pos: Position) []const u8 {
         const sep_table = switch (mode) {
             .ascii => ascii,
             .box => box,
+            .dos => dos,
         };
 
         return sep_table[@intFromEnum(row_pos)][@intFromEnum(col_pos)];

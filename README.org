@@ -1,21 +1,31 @@
 #+DATE: 2023-10-21T12:09:48+0800
-#+LASTMOD: 2023-10-21T13:59:36+0800
+#+LASTMOD: 2023-10-22T19:41:16+0800
 #+TYPE: docs
 
 * Zigcli
 [[https://github.com/jiacai2050/loc/actions/workflows/CI.yml][https://github.com/jiacai2050/loc/actions/workflows/CI.yml/badge.svg]]
 [[https://github.com/jiacai2050/loc/actions/workflows/binary.yml][https://github.com/jiacai2050/loc/actions/workflows/binary.yml/badge.svg]]
+[[https://github.com/jiacai2050/loc/actions/workflows/docs.yml][https://github.com/jiacai2050/loc/actions/workflows/docs.yml/badge.svg]]
 
 #+begin_quote
 [[https://github.com/jiacai2050/zigcli/][Zigcli]] is a toolkit for building command lines programs in Zig.
-
 #+end_quote
 
 This package provides:
-- Modules :: Developers can use to build their awesome cli programs.
-- Binaries :: Various practical command line programs which can be used directly.
+- Modules :: Zig [[https://ziglang.org/download/0.11.0/release-notes.html#Package-Management][modules]] to help developers build their awesome cli programs. Currently there are:
+  - =simargs=, which is used to parse arguments
+  - =pretty-table=, which is used to print aligned and formatted tables
+
+- Programs :: Practical command line programs which can be used directly. Currently there are:
+  - =loc=, lines of code.
+  - =tree=, list contents of directories in a tree-like format.
+  - =yes=, output a string repeatedly until killed.
+  - =pidof=, like [[https://man7.org/linux/man-pages/man1/pidof.1.html][pidof]], but for macOS.
+  - =night-shift=, control [[https://support.apple.com/guide/mac-help/use-night-shift-mchl97bc676d/mac][Night Shift]] in cli, build for macOS.
+  - =repeat=, repeat a command until it succeeds.
+
 * Install
-** Binaries
+** Programs
 Prebuilt binaries can be found in [[https://github.com/jiacai2050/loc/actions/workflows/binary.yml][CI's artifacts]], or you can build from source:
 #+begin_src bash
 git clone https://github.com/jiacai2050/zigcli.git
@@ -29,16 +39,8 @@ make build
 To build zigcli locally, Zig master is required, which can be downloaded [[https://ziglang.org/download/][here]].
 #+end_quote
 
-Currently there are:
-- =loc=, lines of code.
-- =tree=, list contents of directories in a tree-like format.
-- =yes=, output a string repeatedly until killed.
-- =pidof=, like [[https://man7.org/linux/man-pages/man1/pidof.1.html][pidof]], but for macOS.
-- =night-shift=, control [[https://support.apple.com/guide/mac-help/use-night-shift-mchl97bc676d/mac][Night Shift]] in cli, build for macOS.
-- =repeat=, repeat a command until it succeeds.
-
 ** Modules
-=zigcli= support [[https://ziglang.org/download/0.11.0/release-notes.html#Package-Management][module]] introduced in Zig 0.11.
+=zigcli= support [[https://ziglang.org/download/0.11.0/release-notes.html#Package-Management][package manager]] introduced in Zig 0.11.
 
 First add it to =build.zig.zon= of your project like this:
 #+begin_src zig
@@ -70,7 +72,7 @@ exe.addModule("pretty-table", zigcli.module("pretty-table"));
 #+end_src
 
 * Who's Using
-If you’d like to be added to this list, welcome to [[https://github.com/jiacai2050/zigcli/pulls][open a PR]].
+If you're using =zigcli=, and would like to be added here, welcome to [[https://github.com/jiacai2050/zigcli/pulls][open a PR]].
 
 * Roadmap
 ** Loc
