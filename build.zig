@@ -104,6 +104,7 @@ fn buildBinaries(
         "pidof",
         "yes",
         "night-shift",
+        "dark-mode",
         "repeat",
     }) |name| {
         try buildBinary(b, .{ .bin = name }, optimize, target, is_ci, all_tests);
@@ -196,6 +197,9 @@ fn makeCompileStep(
         exe.linkSystemLibrary("objc");
         exe.addFrameworkPath(.{ .path = "/System/Library/PrivateFrameworks" });
         exe.linkFramework("CoreBrightness");
+    } else if (std.mem.eql(u8, name, "dark-mode")) {
+        exe.linkSystemLibrary("objc");
+        exe.linkFramework("AppKit");
     }
     return exe;
 }
