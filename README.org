@@ -1,5 +1,5 @@
 #+DATE: 2023-10-21T12:09:48+0800
-#+LASTMOD: 2023-10-22T22:40:34+0800
+#+LASTMOD: 2023-11-09T22:26:31+0800
 #+TYPE: docs
 
 * Zigcli
@@ -21,9 +21,10 @@ This package provides:
   - =loc=, lines of code.
   - =tree=, list contents of directories in a tree-like format.
   - =yes=, output a string repeatedly until killed.
-  - =pidof=, like [[https://man7.org/linux/man-pages/man1/pidof.1.html][pidof]], but for macOS.
-  - =night-shift=, control [[https://support.apple.com/guide/mac-help/use-night-shift-mchl97bc676d/mac][Night Shift]] in cli, build for macOS.
   - =repeat=, repeat a command until it succeeds.
+  - =pidof=, like [[https://man7.org/linux/man-pages/man1/pidof.1.html][pidof]], but for macOS.
+  - =night-shift=, control [[https://support.apple.com/guide/mac-help/use-night-shift-mchl97bc676d/mac][Night Shift]] in macOS.
+  - =dark-mode=, Get dark mode status in macOS.
 
 * Install
 ** Programs

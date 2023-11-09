@@ -104,6 +104,7 @@ fn buildBinaries(
         "pidof",
         "yes",
         "night-shift",
+        "dark-mode",
         "repeat",
     }) |name| {
         try buildBinary(b, .{ .bin = name }, optimize, target, is_ci, all_tests);
@@ -168,7 +169,7 @@ fn makeCompileStep(
 ) ?*Build.CompileStep {
     const name = comptime source.name();
     const path = comptime source.path();
-    if (std.mem.eql(u8, name, "night-shift") or std.mem.eql(u8, name, "pidof")) {
+    if (std.mem.eql(u8, name, "night-shift") or std.mem.eql(u8, name, "dark-mode") or std.mem.eql(u8, name, "pidof")) {
         if (target.getOsTag() != .macos) {
             return null;
         }
@@ -196,6 +197,9 @@ fn makeCompileStep(
         exe.linkSystemLibrary("objc");
         exe.addFrameworkPath(.{ .path = "/System/Library/PrivateFrameworks" });
         exe.linkFramework("CoreBrightness");
+    } else if (std.mem.eql(u8, name, "dark-mode")) {
+        exe.linkSystemLibrary("objc");
+        exe.linkFramework("AppKit");
     }
     return exe;
 }

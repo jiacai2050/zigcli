@@ -1,0 +1,2 @@
+* Dark mode
+Get dark mode status for macOS.
