@@ -24,8 +24,8 @@ pub fn main() !void {
     };
 
     if (std.mem.eql(u8, darkValue, std.mem.span(appearanceValue.?))) {
-        std.debug.print("on\n", .{});
+        std.debug.print("on", .{});
     } else {
-        std.debug.print("off\n", .{});
+        std.debug.print("off", .{});
     }
 }

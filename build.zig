@@ -169,7 +169,7 @@ fn makeCompileStep(
 ) ?*Build.CompileStep {
     const name = comptime source.name();
     const path = comptime source.path();
-    if (std.mem.eql(u8, name, "night-shift") or std.mem.eql(u8, name, "pidof")) {
+    if (std.mem.eql(u8, name, "night-shift") or std.mem.eql(u8, name, "dark-mode") or std.mem.eql(u8, name, "pidof")) {
         if (target.getOsTag() != .macos) {
             return null;
         }
