@@ -170,20 +170,17 @@ fn makeCompileStep(
     const name = comptime source.name();
     const path = comptime source.path();
     if (std.mem.eql(u8, name, "night-shift") or std.mem.eql(u8, name, "dark-mode") or std.mem.eql(u8, name, "pidof")) {
-        if (target.getOsTag() != .macos) {
+        // if (target.getOsTag() != .macos) {
+        if (is_ci) {
+            // zig build -Dtarget=aarch64-macos  will throw error
+            // error: warning(link): library not found for '-lobjc'
+            // warning(link): Library search paths:
+            // warning(link): framework not found for '-framework CoreBrightness'
+            // warning(link): Framework search paths:
+            // warning(link):   /System/Library/PrivateFrameworks
+            // so disable this in CI environment.
             return null;
         }
-    }
-
-    if (is_ci and std.mem.eql(u8, name, "night-shift")) {
-        // zig build -Dtarget=aarch64-macos  will throw error
-        // error: warning(link): library not found for '-lobjc'
-        // warning(link): Library search paths:
-        // warning(link): framework not found for '-framework CoreBrightness'
-        // warning(link): Framework search paths:
-        // warning(link):   /System/Library/PrivateFrameworks
-        // so disable this in CI environment.
-        return null;
     }
 
     const exe = b.addExecutable(.{

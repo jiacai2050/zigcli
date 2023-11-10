@@ -20,7 +20,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        zig-version: ["0.11.0"]
+        zig-version: ["master"]
         targets:
           - "x86-windows"
           - "x86_64-windows"
@@ -43,7 +43,7 @@ jobs:
         run: |
           zig build -Dtarget=${{ matrix.targets }} -Doptimize=ReleaseSafe \
           -Dgit_commit=${{ github.head_ref }}-${{ github.sha }} \
-          -Dbuild_date=${{ env.BUILD_DATE }}
+          -Dbuild_date=${{ env.BUILD_DATE }} -Dis_ci=true
           # https://github.com/actions/upload-artifact#maintaining-file-permissions-and-case-sensitive-files
           tar -cvf zigcli.tar zig-out/bin/
       - name: Upload
@@ -58,7 +58,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        zig-version: ["0.11.0"]
+        zig-version: ["master"]
         targets:
           - "x86_64-macos"
           - "aarch64-macos"
