@@ -198,8 +198,8 @@ fn makeCompileStep(
         exe.addFrameworkPath(.{ .path = "/System/Library/PrivateFrameworks" });
         exe.linkFramework("CoreBrightness");
     } else if (std.mem.eql(u8, name, "dark-mode")) {
-        exe.linkSystemLibrary("objc");
-        exe.linkFramework("AppKit");
+        exe.addFrameworkPath(.{ .path = "/System/Library/PrivateFrameworks" });
+        exe.linkFramework("SkyLight");
     }
     return exe;
 }

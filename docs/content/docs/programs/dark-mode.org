@@ -1,2 +1,17 @@
 * Dark mode
 Get dark mode status for macOS.
+#+begin_src bash
+ $ dark-mode -h
+ USAGE:
+     dark-mode [OPTIONS] [--] <command>
+
+ Available commands:
+   status                   View dark mode status
+   on                       Turn dark mode on
+   off                      Turn dark mode off
+   toggle                   Toggle dark mode
+
+ OPTIONS:
+	-v, --version                     Print version
+	-h, --help                        Print help information
+#+end_src

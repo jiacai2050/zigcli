@@ -1,31 +1,80 @@
 //! Dark mode status, built for macOS.
 //!
 const std = @import("std");
-const c = @cImport({
-    @cInclude("objc/objc.h");
-    @cInclude("objc/message.h");
-});
+const simargs = @import("simargs");
+const util = @import("util.zig");
 
-// https://developer.apple.com/documentation/appkit/nsappearancenamedarkaqua
-const darkValue = "NSAppearanceNameDarkAqua";
+// https://saagarjha.com/blog/2018/12/01/scheduling-dark-mode/
+extern "c" fn SLSSetAppearanceThemeLegacy(bool) void;
+extern "c" fn SLSGetAppearanceThemeLegacy() bool;
+
+const Command = enum {
+    Status,
+    On,
+    Off,
+    Toggle,
+
+    const FromString = std.ComptimeStringMap(@This(), .{
+        .{ "status", .Status },
+        .{ "on", .On },
+        .{ "off", .Off },
+        .{ "toggle", .Toggle },
+    });
+};
 
 pub fn main() !void {
-    const clazz = c.objc_getClass("NSAppearance");
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
 
-    const appearanceName = blk: {
-        const call: *fn (c.id, c.SEL) callconv(.C) c.id = @constCast(@ptrCast(&c.objc_msgSend));
-        const appearance = call(@alignCast(@ptrCast(clazz.?)), c.sel_registerName("currentDrawingAppearance"));
-        break :blk call(appearance, c.sel_registerName("name"));
-    };
+    const opt = try simargs.parse(allocator, struct {
+        version: bool = false,
+        help: bool = false,
 
-    const appearanceValue = blk: {
-        const call: *fn (c.id, c.SEL) callconv(.C) [*c]const u8 = @constCast(@ptrCast(&c.objc_msgSend));
-        break :blk call(appearanceName, c.sel_registerName("UTF8String"));
-    };
+        pub const __shorts__ = .{
+            .version = .v,
+            .help = .h,
+        };
 
-    if (std.mem.eql(u8, darkValue, std.mem.span(appearanceValue.?))) {
-        std.debug.print("on", .{});
-    } else {
-        std.debug.print("off", .{});
+        pub const __messages__ = .{
+            .help = "Print help information",
+            .version = "Print version",
+        };
+    },
+        \\<command>
+        \\
+        \\ Available commands:
+        \\   status                   View dark mode status
+        \\   on                       Turn dark mode on
+        \\   off                      Turn dark mode off
+        \\   toggle                   Toggle dark mode
+    , util.get_build_info());
+    defer opt.deinit();
+
+    var args_iter = util.SliceIter([]const u8).init(opt.positional_args.items);
+    const cmd: Command = if (args_iter.next()) |v|
+        Command.FromString.get(v) orelse return error.UnknownCommand
+    else
+        .Status;
+
+    switch (cmd) {
+        .Status => {
+            const is_dark = SLSGetAppearanceThemeLegacy();
+            if (is_dark) {
+                std.debug.print("on", .{});
+            } else {
+                std.debug.print("off", .{});
+            }
+        },
+        .On => {
+            SLSSetAppearanceThemeLegacy(true);
+        },
+        .Off => {
+            SLSSetAppearanceThemeLegacy(false);
+        },
+        .Toggle => {
+            const is_dark = SLSGetAppearanceThemeLegacy();
+            SLSSetAppearanceThemeLegacy(!is_dark);
+        },
     }
 }

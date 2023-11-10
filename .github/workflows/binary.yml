@@ -20,7 +20,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        zig-version: [master]
+        zig-version: ["0.11.0"]
         targets:
           - "x86-windows"
           - "x86_64-windows"
@@ -58,7 +58,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        zig-version: [master]
+        zig-version: ["0.11.0"]
         targets:
           - "x86_64-macos"
           - "aarch64-macos"
