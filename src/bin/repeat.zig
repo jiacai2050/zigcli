@@ -48,7 +48,7 @@ pub fn main() !void {
                 keep_running = false;
             }
         }
-        var term = try run(allocator, argv);
+        const term = try run(allocator, argv);
         switch (term) {
             .Exited => |rc| {
                 if (rc == 0) {

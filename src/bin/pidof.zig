@@ -46,7 +46,7 @@ pub fn findPids(allocator: std.mem.Allocator, opt: Options, program: []const u8)
         return error.sysctl;
     }
 
-    var procList = try allocator.alloc(c.struct_kinfo_proc, procSize / @sizeOf(c.struct_kinfo_proc));
+    const procList = try allocator.alloc(c.struct_kinfo_proc, procSize / @sizeOf(c.struct_kinfo_proc));
     // https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man3/sysctl.3.html
     rc = c.sysctl(&mib, mib.len, @ptrCast(procList), &procSize, null, 0);
     if (rc != 0) {

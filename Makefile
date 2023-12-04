@@ -1,6 +1,7 @@
 
 build:
 	zig build -Doptimize=ReleaseFast \
+	-Dis_ci \
 	-Dbuild_date=$(shell date +"%Y-%m-%dT%H:%M:%S%z") \
 	-Dgit_commit=$(shell git rev-parse --short HEAD) \
 	--summary all

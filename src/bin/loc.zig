@@ -212,8 +212,7 @@ pub fn main() !void {
         opt.positional_args.items[0];
 
     var loc_map = LocMap{};
-    var iter_dir =
-        fs.cwd().openIterableDir(file_or_dir, .{}) catch |err| switch (err) {
+    const dir = fs.cwd().openDir(file_or_dir, .{ .iterate = true }) catch |err| switch (err) {
         error.NotDir => {
             try populateLoc(allocator, &loc_map, fs.cwd(), file_or_dir);
             return printLocMap(
@@ -226,9 +225,7 @@ pub fn main() !void {
         },
         else => return err,
     };
-    defer iter_dir.close();
-
-    try walk(allocator, &loc_map, iter_dir);
+    try walk(allocator, &loc_map, dir);
     try printLocMap(
         allocator,
         &loc_map,
@@ -276,12 +273,12 @@ fn printLocMap(
     try std.io.getStdOut().writer().print("{}\n", .{table});
 }
 
-fn walk(allocator: std.mem.Allocator, loc_map: *LocMap, dir: fs.IterableDir) anyerror!void {
+fn walk(allocator: std.mem.Allocator, loc_map: *LocMap, dir: fs.Dir) anyerror!void {
     var it = dir.iterate();
     while (try it.next()) |e| {
         switch (e.kind) {
             .file => {
-                try populateLoc(allocator, loc_map, dir.dir, e.name);
+                try populateLoc(allocator, loc_map, dir, e.name);
             },
             .directory => {
                 var should_ignore = false;
@@ -292,9 +289,8 @@ fn walk(allocator: std.mem.Allocator, loc_map: *LocMap, dir: fs.IterableDir) any
                     }
                 }
                 if (!should_ignore) {
-                    var child_dir = try dir.dir.openIterableDir(e.name, .{});
-                    defer child_dir.close();
-                    try walk(allocator, loc_map, child_dir);
+                    const sub_dir = try dir.openDir(e.name, .{ .iterate = true });
+                    try walk(allocator, loc_map, sub_dir);
                 }
             },
             else => {},
@@ -468,7 +464,7 @@ test "trimWhitespace" {
 test "LOC Zig/Python/Ruby" {
     const allocator = std.testing.allocator;
     var loc_map = LocMap{};
-    var dir = fs.cwd();
+    const dir = fs.cwd();
 
     const testcases = .{
         .{

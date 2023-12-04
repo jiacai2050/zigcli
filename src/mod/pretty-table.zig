@@ -91,7 +91,7 @@ pub fn Table(comptime len: usize) type {
 
                 try writer.writeAll(column);
 
-                var left: usize = col_len - column.len;
+                const left: usize = col_len - column.len;
                 for (0..left) |_| {
                     try writer.writeAll(" ");
                 }

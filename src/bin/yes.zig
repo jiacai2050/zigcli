@@ -7,8 +7,8 @@ const std = @import("std");
 const BUFFER_CAP = 32 * 1024;
 
 fn fillBuffer(buf: []u8, text: []const u8) usize {
-    std.mem.copy(u8, buf, text);
-    std.mem.copy(u8, buf[text.len..], "\n");
+    std.mem.copyForwards(u8, buf, text);
+    std.mem.copyForwards(u8, buf[text.len..], "\n");
 
     if (text.len + 1 > buf.len / 2) { // plus one newline
         return buf.len;
@@ -16,7 +16,7 @@ fn fillBuffer(buf: []u8, text: []const u8) usize {
 
     var buffer_size = text.len + 1;
     while (buffer_size < buf.len / 2) {
-        std.mem.copy(u8, buf[buffer_size..], buf[0..buffer_size]);
+        std.mem.copyForwards(u8, buf[buffer_size..], buf[0..buffer_size]);
         buffer_size *= 2;
     }
 

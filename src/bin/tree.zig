@@ -97,11 +97,9 @@ pub fn main() anyerror!void {
     _ = try writer.write(root_dir);
     _ = try writer.write("\n");
 
-    var iter_dir =
-        try fs.cwd().openIterableDir(root_dir, .{});
-    defer iter_dir.close();
-
-    const ret = try walk(allocator, opt.args, &iter_dir, &writer, "", 1);
+    const dir = try fs.cwd().openDir(root_dir, .{ .iterate = true });
+    var iter = dir.iterate();
+    const ret = try walk(allocator, opt.args, &iter, &writer, "", 1);
 
     _ = try writer.write(try std.fmt.allocPrint(allocator, "\n{d} directories, {d} files\n", .{
         ret.directories,
@@ -147,7 +145,7 @@ const WalkResult = struct {
 fn walk(
     allocator: mem.Allocator,
     walk_ctx: anytype,
-    iter_dir: *fs.IterableDir,
+    iter: *fs.Dir.Iterator,
     writer: anytype,
     prefix: []const u8,
     level: usize,
@@ -159,8 +157,7 @@ fn walk(
         }
     }
 
-    var it = iter_dir.iterate();
-    var files = std.ArrayList(fs.IterableDir.Entry).init(allocator);
+    var files = std.ArrayList(fs.Dir.Entry).init(allocator);
     defer {
         for (files.items) |entry| {
             allocator.free(entry.name);
@@ -168,7 +165,7 @@ fn walk(
         files.deinit();
     }
 
-    while (try it.next()) |entry| {
+    while (try iter.next()) |entry| {
         const dupe_name = try allocator.dupe(u8, entry.name);
         errdefer allocator.free(dupe_name);
 
@@ -187,8 +184,8 @@ fn walk(
         try files.append(.{ .name = dupe_name, .kind = entry.kind });
     }
 
-    std.sort.heap(fs.IterableDir.Entry, files.items, {}, struct {
-        fn lessThan(ctx: void, a: fs.IterableDir.Entry, b: fs.IterableDir.Entry) bool {
+    std.sort.heap(fs.Dir.Entry, files.items, {}, struct {
+        fn lessThan(ctx: void, a: fs.Dir.Entry, b: fs.Dir.Entry) bool {
             _ = ctx;
 
             // file < directory
@@ -217,7 +214,7 @@ fn walk(
         _ = try writer.write(entry.name);
 
         if (walk_ctx.size) {
-            const stat = try iter_dir.dir.statFile(entry.name);
+            const stat = try iter.dir.statFile(entry.name);
             _ = try writer.write(" [");
             _ = try writer.write(try StringUtil.humanSize(allocator, stat.size));
             _ = try writer.write("]");
@@ -226,8 +223,8 @@ fn walk(
             .directory => {
                 _ = try writer.write("\n");
                 ret.directories += 1;
-                var sub_iter_dir = try iter_dir.dir.openIterableDir(entry.name, .{});
-                defer sub_iter_dir.close();
+                var sub_dir = try iter.dir.openDir(entry.name, .{ .iterate = true });
+                var sub_iter_dir = sub_dir.iterate();
 
                 const new_prefix =
                     if (i < files.items.len - 1)
@@ -239,7 +236,7 @@ fn walk(
             },
             .sym_link => {
                 ret.files += 1;
-                const linked_name = try iter_dir.dir.readLink(entry.name, &buf);
+                const linked_name = try iter.dir.readLink(entry.name, &buf);
                 _ = try writer.write(" -> ");
                 _ = try writer.write(linked_name);
                 _ = try writer.write("\n");
