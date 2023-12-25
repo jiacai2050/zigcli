@@ -1,6 +1,11 @@
 .{
     .name = "zigcli",
     .version = "0.1.0",
-    .paths = .{ "src/bin/*.zig", "src/mod/*.zig" },
+    .paths = .{
+        "src",
+        "build.zig",
+        "build.zig.zon",
+        "README.org",
+    },
     .dependencies = .{},
 }
