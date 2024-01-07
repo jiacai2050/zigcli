@@ -49,12 +49,12 @@ const Source = union(enum) {
 
 fn addModules(
     b: *std.Build,
-    target: std.zig.CrossTarget,
+    target: std.Build.ResolvedTarget,
     all_tests: *std.ArrayList(*Build.Step),
 ) !void {
     inline for (.{ "pretty-table", "simargs" }) |name| {
         _ = b.addModule(name, .{
-            .source_file = .{ .path = "src/mod/" ++ name ++ ".zig" },
+            .root_source_file = .{ .path = "src/mod/" ++ name ++ ".zig" },
         });
 
         try all_tests.append(buildTestStep(b, .{ .mod = name }, target));
@@ -79,7 +79,7 @@ fn addModules(
 fn buildExamples(
     b: *std.Build,
     optimize: std.builtin.Mode,
-    target: std.zig.CrossTarget,
+    target: std.Build.ResolvedTarget,
     all_tests: *std.ArrayList(*Build.Step),
 ) !void {
     inline for (.{
@@ -93,7 +93,7 @@ fn buildExamples(
 fn buildBinaries(
     b: *std.Build,
     optimize: std.builtin.Mode,
-    target: std.zig.CrossTarget,
+    target: std.Build.ResolvedTarget,
     all_tests: *std.ArrayList(*Build.Step),
 ) !void {
     const is_ci = b.option(bool, "is_ci", "Build in CI") orelse false;
@@ -118,14 +118,14 @@ fn buildBinary(
     b: *std.Build,
     comptime source: Source,
     optimize: std.builtin.Mode,
-    target: std.zig.CrossTarget,
+    target: std.Build.ResolvedTarget,
     is_ci: bool,
     all_tests: *std.ArrayList(*Build.Step),
 ) !void {
     if (makeCompileStep(b, source, optimize, target, is_ci)) |exe| {
         var deps = b.modules.iterator();
         while (deps.next()) |dep| {
-            exe.addModule(dep.key_ptr.*, dep.value_ptr.*);
+            exe.root_module.addImport(dep.key_ptr.*, dep.value_ptr.*);
         }
 
         b.installArtifact(exe);
@@ -146,7 +146,7 @@ fn buildBinary(
 fn buildTestStep(
     b: *std.Build,
     comptime source: Source,
-    target: std.zig.CrossTarget,
+    target: std.Build.ResolvedTarget,
 ) *Build.Step {
     const name = comptime source.name();
     const path = comptime source.path();
@@ -164,9 +164,9 @@ fn makeCompileStep(
     b: *std.Build,
     comptime source: Source,
     optimize: std.builtin.Mode,
-    target: std.zig.CrossTarget,
+    target: std.Build.ResolvedTarget,
     is_ci: bool,
-) ?*Build.CompileStep {
+) ?*Build.Step.Compile {
     const name = comptime source.name();
     const path = comptime source.path();
     if (std.mem.eql(u8, name, "night-shift") or std.mem.eql(u8, name, "dark-mode") or std.mem.eql(u8, name, "pidof")) {
