@@ -103,7 +103,7 @@ const Client = struct {
     }
 
     fn getStatus(self: Self) !*Status {
-        var status = try self.allocator.create(Status);
+        const status = try self.allocator.create(Status);
         const call: *fn (c.id, c.SEL, *Status) callconv(.C) bool =
             @constCast(@ptrCast(&c.objc_msgSend));
         const ret = call(self.inner, c.sel_registerName("getBlueLightStatus:"), status);
@@ -126,7 +126,7 @@ const Client = struct {
         switch (schedule) {
             .SunSetToSunRise => {},
             .Custom => |custom| {
-                var ptr = try self.allocator.create(CustomSchedule);
+                const ptr = try self.allocator.create(CustomSchedule);
                 ptr.* = custom;
                 const call: *fn (c.id, c.SEL, [*c]CustomSchedule) callconv(.C) bool = @constCast(@ptrCast(&c.objc_msgSend));
                 const ret = call(self.inner, c.sel_registerName("setSchedule:"), ptr);
@@ -266,7 +266,7 @@ pub fn main() !void {
             }
         },
         .Toggle => {
-            var status = try client.getStatus();
+            const status = try client.getStatus();
             if (status.enabled) {
                 try client.turnOff();
             } else {

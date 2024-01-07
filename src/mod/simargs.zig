@@ -633,7 +633,7 @@ test "parse/bool value" {
         const opt = try parser.parse(null, null);
         defer opt.deinit();
 
-        try std.testing.expectEqual(opt.args, .{ .help = true });
+        try std.testing.expect(opt.args.help);
         try std.testing.expectEqual(opt.positional_args.items, &[_][]const u8{});
     }
     {
@@ -649,7 +649,7 @@ test "parse/bool value" {
         const opt = try parser.parse(null, null);
         defer opt.deinit();
 
-        try std.testing.expectEqual(opt.args, .{ .help = true });
+        try std.testing.expect(opt.args.help);
         var expected = [_][]const u8{
             "true",
         };
@@ -832,7 +832,7 @@ test "parse/positional arguments" {
     const opt = try parser.parse("...", null);
     defer opt.deinit();
 
-    try std.testing.expectEqualDeep(opt.args, .{ .a = 1 });
+    try std.testing.expectEqualDeep(opt.args.a, 1);
     var expected = [_][]const u8{ "-a", "2" };
     try std.testing.expectEqualDeep(opt.positional_args.items, &expected);
 

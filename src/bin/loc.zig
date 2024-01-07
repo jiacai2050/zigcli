@@ -525,6 +525,11 @@ test "LOC Zig/Python/Ruby" {
                 loc.size = expected.size;
             }
         }
-        try std.testing.expectEqual(loc, expected);
+        inline for (std.meta.fields(@TypeOf(expected))) |field| {
+            try std.testing.expectEqual(
+                @field(loc, field.name),
+                @field(expected, field.name),
+            );
+        }
     }
 }

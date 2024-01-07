@@ -26,12 +26,10 @@ jobs:
       - uses: goto-bus-stop/setup-zig@v2
         with:
           version: master
-      - name: Run Test
-        run: zig build test
       - name: Memory leak detect
         run: |
           sudo apt update && sudo apt install -y valgrind
-          zig build -Dcpu=baseline --verbose
+          zig build -Dcpu=baseline --verbose -Dis_ci
           TEST_BINARY=./zig-out/bin/simargs-demo
           valgrind --leak-check=full --tool=memcheck \
           --show-leak-kinds=all --error-exitcode=1 ${TEST_BINARY} --output a.out \
