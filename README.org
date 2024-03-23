@@ -1,8 +1,8 @@
+#+TITLE: Zigcli
 #+DATE: 2023-10-21T12:09:48+0800
-#+LASTMOD: 2023-11-10T21:49:29+0800
+#+LASTMOD: 2024-03-23T15:36:18+0800
 #+TYPE: docs
 
-* Zigcli
 [[https://github.com/jiacai2050/zigcli/stargazers][https://img.shields.io/github/stars/jiacai2050/zigcli.svg]]
 [[https://github.com/jiacai2050/zigcli/blob/main/LICENSE][https://img.shields.io/github/license/jiacai2050/zigcli.svg]]
 [[https://github.com/jiacai2050/loc/actions/workflows/CI.yml][https://github.com/jiacai2050/loc/actions/workflows/CI.yml/badge.svg]]
@@ -44,33 +44,20 @@ To build zigcli locally, Zig master is required, which can be downloaded [[https
 ** Modules
 =zigcli= support [[https://ziglang.org/download/0.11.0/release-notes.html#Package-Management][package manager]] introduced in Zig 0.11.
 
-First add it to =build.zig.zon= of your project like this:
-#+begin_src zig
-.{
-    .dependencies = .{
-        .zigcli = .{
-            .url = "https://github.com/jiacai2050/zigcli/archive/${COMMIT}.tar.gz",
-            .hash = "${HASH}",
-        },
-    },
-}
+#+begin_src bash
+zig fetch --save=curl https://github.com/jiacai2050/zigcli/archive/${COMMIT}.tar.gz
 #+end_src
-Replace =${COMMIT}= with a real one, =.hash= field is difficult to get now, you can fill in a fake one like =1220b5dafa54081ce54f108d0b7fa9451149bde7dc7c20f4e14e322fdeeb7a1dfd9d=, then run =zig build=, it should throw following similar error:
-#+begin_example
-Fetch Packages [1/1] zigcli... ~/demo/build.zig.zon:7:21: error: hash mismatch: expected: 1220b5dafa54081ce54f108d0b7fa9451149bde7dc7c20f4e14e322fdeeb7a1dfd9d, found: 122079741f4df43f426c87585058123be0e0fa3fda3985d9d88341d3d03f8484e105
-            .hash = "1220b5dafa54081ce54f108d0b7fa9451149bde7dc7c20f4e14e322fdeeb7a1dfd9d",
-                    ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-#+end_example
 
-The =found:= section output the real hash, copy that to =build.zig.zon=.
+#+RESULTS:
 
-Then in your =build.zig=, access =zigcli= like this:
+Replace ~${COMMIT}~ with a real one, then in your =build.zig=, import the module like this:
+
 #+begin_src zig
 const zigcli = b.dependency("zigcli", .{});
 
 // Currently zigcli provide two modules.
-exe.addModule("simargs", zigcli.module("simargs"));
-exe.addModule("pretty-table", zigcli.module("pretty-table"));
+exe.root_module.addImport("simargs", zigcli.module("simargs"));
+exe.root_module.addImport("pretty-table", zigcli.module("pretty-table"));
 #+end_src
 
 * Who's Using
