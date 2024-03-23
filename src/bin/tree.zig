@@ -15,8 +15,8 @@ const mem = std.mem;
 const testing = std.testing;
 const fmt = std.fmt;
 
-pub const std_options = struct {
-    pub const log_level: std.log.Level = .info;
+pub const std_options = .{
+    .log_level = .info,
 };
 
 const Mode = enum {

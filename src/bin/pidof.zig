@@ -42,7 +42,7 @@ pub fn findPids(allocator: std.mem.Allocator, opt: Options, program: []const u8)
     var procSize: usize = 0;
     var rc = c.sysctl(&mib, mib.len, null, &procSize, null, 0);
     if (rc != 0) {
-        std.debug.print("get proc size, err:{any}", .{std.c.getErrno(rc)});
+        std.debug.print("get proc size, err:{any}", .{std.posix.errno(rc)});
         return error.sysctl;
     }
 
@@ -50,7 +50,7 @@ pub fn findPids(allocator: std.mem.Allocator, opt: Options, program: []const u8)
     // https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man3/sysctl.3.html
     rc = c.sysctl(&mib, mib.len, @ptrCast(procList), &procSize, null, 0);
     if (rc != 0) {
-        std.debug.print("get proc list failed, err:{any}", .{std.c.getErrno(rc)});
+        std.debug.print("get proc list failed, err:{any}", .{std.posix.errno(rc)});
         return error.sysctl;
     }
 
@@ -91,14 +91,14 @@ pub fn main() !void {
 
     if (opt.positional_args.items.len == 0) {
         std.debug.print("program is not given", .{});
-        std.os.exit(1);
+        std.posix.exit(1);
     }
 
     const program = opt.positional_args.items[0];
 
     const pids = try findPids(allocator, opt.args, program);
     if (pids.items.len == 0) {
-        std.os.exit(1);
+        std.posix.exit(1);
     }
 
     var stdout = std.io.getStdOut().writer();

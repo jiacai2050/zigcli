@@ -6,6 +6,10 @@ const util = @import("util.zig");
 const StringUtil = util.StringUtil;
 const fs = std.fs;
 
+pub const std_options = .{
+    .log_level = .info,
+};
+
 const IGNORE_DIRS = [_][]const u8{ ".git", "zig-cache", "zig-out", "target", "vendor", "node_modules", "out" };
 
 const Language = enum {
@@ -171,10 +175,6 @@ const LinesOfCode = struct {
 };
 
 const LocMap = std.enums.EnumMap(Language, LinesOfCode);
-
-pub const std_options = struct {
-    pub const log_level: std.log.Level = .info;
-};
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -350,8 +350,16 @@ fn populateLoc(allocator: std.mem.Allocator, loc_map: *LocMap, dir: fs.Dir, base
             }
         },
         else => {
-            var ptr = try std.os.mmap(null, file_size, std.os.PROT.READ, std.os.MAP.PRIVATE, file.handle, 0);
-            defer std.os.munmap(ptr);
+            var ptr = try std.posix.mmap(
+                null,
+                file_size,
+                std.posix.PROT.READ,
+                .{ .TYPE = .PRIVATE },
+
+                file.handle,
+                0,
+            );
+            defer std.posix.munmap(ptr);
 
             var offset_so_far: usize = 0;
             while (offset_so_far < ptr.len) {

@@ -612,7 +612,7 @@ test "parse/valid option values" {
         \\
         \\ OPTIONS:
         \\	-h, --help                        print this help message(required)
-        \\	-r, --rate FLOAT                  (default: 2.0e+00)
+        \\	-r, --rate FLOAT                  (default: 2e0)
         \\	    --timeout INTEGER             (required)
         \\	    --user-agent STRING           (default: Brave)
         \\
@@ -773,8 +773,8 @@ test "parse/default value" {
         \\	    --a2 STRING                   (default: A2)
         \\	    --b1 INTEGER                  (default: 1)
         \\	    --b2 INTEGER                  (default: 11)
-        \\	    --c1 FLOAT                    (default: 1.5e+00)
-        \\	    --c2 FLOAT                    (default: 2.5e+00)
+        \\	    --c1 FLOAT                    (default: 1.5e0)
+        \\	    --c2 FLOAT                    (default: 2.5e0)
         \\	    --d1                          (default: true)
         \\	    --d2                          padding message
         \\

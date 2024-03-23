@@ -1,8 +1,8 @@
 const std = @import("std");
 const simargs = @import("simargs");
 
-pub const std_options = struct {
-    pub const log_level: std.log.Level = .info;
+pub const std_options = .{
+    .log_level = .info,
 };
 
 pub fn main() !void {
