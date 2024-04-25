@@ -1,6 +1,5 @@
 const std = @import("std");
 const Build = std.Build;
-const LazyPath = Build.LazyPath;
 
 pub fn build(b: *Build) !void {
     const optimize = b.standardOptimizeOption(.{});
@@ -185,7 +184,7 @@ fn makeCompileStep(
 
     const exe = b.addExecutable(.{
         .name = name,
-        .root_source_file = .{ .path = path ++ "/" ++ name ++ ".zig" },
+        .root_source_file = b.path(path ++ "/" ++ name ++ ".zig"),
         .target = target,
         .optimize = optimize,
     });

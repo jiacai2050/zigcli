@@ -1,0 +1,11 @@
+steps:
+  - name: zig
+    image: ziglings/ziglang:latest
+    pull: true
+    commands:
+      - zig version
+      - apk add --update make
+      - make fmt test
+    when:
+      - event: [push, cron]
+        cron: ci*
