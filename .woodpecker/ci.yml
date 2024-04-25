@@ -4,8 +4,9 @@ steps:
     pull: true
     commands:
       - zig version
-      - apk add --update make
-      - make fmt test
-    when:
-      - event: [push, cron]
-        cron: ci*
+      - zig fmt --check .
+      - zig build test --summary all
+
+when:
+  - event: [push, cron]
+    cron: ci*
