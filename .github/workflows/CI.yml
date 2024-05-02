@@ -15,6 +15,9 @@ on:
       - '**.zig'
       - '.github/workflows/CI.yml'
 
+env:
+  ZIG_VERSION: 0.12.0
+
 jobs:
   test:
     timeout-minutes: 10
@@ -23,14 +26,13 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        zig-version: [master]
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
       - uses: goto-bus-stop/setup-zig@v2
         with:
-          version: ${{ matrix.zig-version }}
+          version: ${{ env.ZIG_VERSION }}
       - name: fmt and test(windows)
         if: matrix.os == 'windows-latest'
         run: |
@@ -53,10 +55,10 @@ jobs:
         os: [ubuntu-latest]
         targets: [x86_64-windows, x86_64-linux, x86_64-macos, aarch64-macos]
     steps:
-      - uses: actions/checkout@v2
-      - uses: goto-bus-stop/setup-zig@v1
+      - uses: actions/checkout@v4
+      - uses: goto-bus-stop/setup-zig@v2
         with:
-          version: master
+          version: ${{ env.ZIG_VERSION }}
       - name: Build
         run: |
           zig build -Dtarget=${{ matrix.targets }} -Dis_ci

@@ -1,12 +1,13 @@
 #+TITLE: Zigcli
 #+DATE: 2023-10-21T12:09:48+0800
-#+LASTMOD: 2024-03-23T15:36:18+0800
+#+LASTMOD: 2024-05-02T18:01:55+0800
 #+TYPE: docs
 
 [[https://github.com/jiacai2050/zigcli/stargazers][https://img.shields.io/github/stars/jiacai2050/zigcli.svg]]
 [[https://github.com/jiacai2050/zigcli/blob/main/LICENSE][https://img.shields.io/github/license/jiacai2050/zigcli.svg]]
 [[https://github.com/jiacai2050/loc/actions/workflows/CI.yml][https://github.com/jiacai2050/loc/actions/workflows/CI.yml/badge.svg]]
 [[https://github.com/jiacai2050/loc/actions/workflows/binary.yml][https://github.com/jiacai2050/loc/actions/workflows/binary.yml/badge.svg]]
+[[https://img.shields.io/badge/zig%20version-0.12.0-blue.svg]]
 
 #+begin_quote
 [[/][Zigcli]] is a toolkit for building command lines programs in Zig.
@@ -45,7 +46,7 @@ To build zigcli locally, Zig master is required, which can be downloaded [[https
 =zigcli= support [[https://ziglang.org/download/0.11.0/release-notes.html#Package-Management][package manager]] introduced in Zig 0.11.
 
 #+begin_src bash
-zig fetch --save=curl https://github.com/jiacai2050/zigcli/archive/${COMMIT}.tar.gz
+zig fetch --save=zigcli https://github.com/jiacai2050/zigcli/archive/${COMMIT}.tar.gz
 #+end_src
 
 #+RESULTS:
