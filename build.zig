@@ -53,7 +53,7 @@ fn addModules(
 ) !void {
     inline for (.{ "pretty-table", "simargs" }) |name| {
         _ = b.addModule(name, .{
-            .root_source_file = .{ .path = "src/mod/" ++ name ++ ".zig" },
+            .root_source_file = b.path("src/mod/" ++ name ++ ".zig"),
         });
 
         try all_tests.append(buildTestStep(b, .{ .mod = name }, target));
@@ -150,7 +150,7 @@ fn buildTestStep(
     const name = comptime source.name();
     const path = comptime source.path();
     const exe_tests = b.addTest(.{
-        .root_source_file = .{ .path = path ++ "/" ++ name ++ ".zig" },
+        .root_source_file = b.path(path ++ "/" ++ name ++ ".zig"),
         .target = target,
     });
     const test_step = b.step("test-" ++ name, "Run " ++ name ++ " tests");
@@ -191,10 +191,10 @@ fn makeCompileStep(
 
     if (std.mem.eql(u8, name, "night-shift")) {
         exe.linkSystemLibrary("objc");
-        exe.addFrameworkPath(.{ .path = "/System/Library/PrivateFrameworks" });
+        exe.addFrameworkPath(.{ .cwd_relative = "/System/Library/PrivateFrameworks" });
         exe.linkFramework("CoreBrightness");
     } else if (std.mem.eql(u8, name, "dark-mode")) {
-        exe.addFrameworkPath(.{ .path = "/System/Library/PrivateFrameworks" });
+        exe.addFrameworkPath(.{ .cwd_relative = "/System/Library/PrivateFrameworks" });
         exe.linkFramework("SkyLight");
     }
     return exe;
