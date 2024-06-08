@@ -438,7 +438,9 @@ fn OptionParser(
                             // short option
                             const short_name = arg[1..];
                             if (short_name.len != 1) {
-                                std.log.err("No such short option '{s}'", .{arg});
+                                if (!is_test) {
+                                    std.log.err("No such short option '{s}'", .{arg});
+                                }
                                 return error.NoOption;
                             }
                             for (&self.opt_fields) |*opt| {
@@ -452,7 +454,9 @@ fn OptionParser(
                         }
 
                         var opt = current_opt orelse {
-                            std.log.err("Unknown option '{s}'", .{arg});
+                            if (!is_test) {
+                                std.log.err("Unknown option '{s}'", .{arg});
+                            }
                             return error.NoOption;
                         };
 
@@ -502,7 +506,9 @@ fn OptionParser(
             inline for (self.opt_fields) |opt| {
                 if (opt.opt_type.is_required()) {
                     if (!opt.is_set) {
-                        std.log.err("Missing required option '{s}'", .{opt.long_name});
+                        if (!is_test) {
+                            std.log.err("Missing required option '{s}'", .{opt.long_name});
+                        }
                         return error.MissingRequiredOption;
                     }
                 }
