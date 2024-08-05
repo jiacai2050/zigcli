@@ -202,7 +202,7 @@ fn walk(
         }
     }.lessThan);
 
-    var buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+    var buf: [fs.max_path_bytes]u8 = undefined;
     for (files.items, 0..) |entry, i| {
         _ = try writer.write(prefix);
 
