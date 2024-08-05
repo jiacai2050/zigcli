@@ -13,8 +13,6 @@ on:
       - 'src/mod/simargs.zig'
       - ".github/workflows/simargs.yml"
 
-env:
-  ZIG_VERSION: 0.12.0
 
 jobs:
   memory-leak:
@@ -24,11 +22,12 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
+        zig-version: [master, 0.13.0]
     steps:
       - uses: actions/checkout@v4
-      - uses: goto-bus-stop/setup-zig@v2
+      - uses: mlugg/setup-zig@v1
         with:
-          version: ${{ env.ZIG_VERSION }}
+          version: ${{ matrix.zig-version }}
       - name: Memory leak detect
         run: |
           sudo apt update && sudo apt install -y valgrind

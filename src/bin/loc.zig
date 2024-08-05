@@ -61,7 +61,7 @@ const Language = enum {
         };
     }
 
-    const ExtLangMap = std.ComptimeStringMap(Self, .{
+    const ExtLangMap = std.StaticStringMap(Self).initComptime(.{
         .{ ".zig", .Zig },
         .{ ".c", .C },
         .{ ".cpp", .CPP },
@@ -84,7 +84,7 @@ const Language = enum {
         .{ ".json", .JSON },
         .{ ".ts", .TypeScript },
     });
-    const FilenameLangMap = std.ComptimeStringMap(Self, .{
+    const FilenameLangMap = std.StaticStringMap(Self).initComptime(.{
         .{ "Makefile", .Makefile },
     });
 
