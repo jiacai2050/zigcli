@@ -215,7 +215,7 @@ fn StructArguments(
                 var curr_opt = std.ArrayList([]const u8).init(self.allocator);
                 defer curr_opt.deinit();
 
-                try curr_opt.append("\t");
+                try curr_opt.append("  ");
                 if (opt_fld.short_name) |sn| {
                     try curr_opt.append("-");
                     try curr_opt.append(&[_]u8{sn});
@@ -617,10 +617,10 @@ test "parse/valid option values" {
         \\     awesome-cli [OPTIONS] [--] ...
         \\
         \\ OPTIONS:
-        \\	-h, --help                        print this help message(required)
-        \\	-r, --rate FLOAT                  (default: 2e0)
-        \\	    --timeout INTEGER             (required)
-        \\	    --user-agent STRING           (default: Brave)
+        \\  -h, --help                       print this help message(required)
+        \\  -r, --rate FLOAT                 (default: 2e0)
+        \\      --timeout INTEGER            (required)
+        \\      --user-agent STRING          (default: Brave)
         \\
     , help_msg.items);
 }
@@ -775,14 +775,14 @@ test "parse/default value" {
         \\     awesome-cli [OPTIONS] [--] ...
         \\
         \\ OPTIONS:
-        \\	    --a1 STRING                   (default: A1)
-        \\	    --a2 STRING                   (default: A2)
-        \\	    --b1 INTEGER                  (default: 1)
-        \\	    --b2 INTEGER                  (default: 11)
-        \\	    --c1 FLOAT                    (default: 1.5e0)
-        \\	    --c2 FLOAT                    (default: 2.5e0)
-        \\	    --d1                          (default: true)
-        \\	    --d2                          padding message
+        \\      --a1 STRING                  (default: A1)
+        \\      --a2 STRING                  (default: A2)
+        \\      --b1 INTEGER                 (default: 1)
+        \\      --b2 INTEGER                 (default: 11)
+        \\      --c1 FLOAT                   (default: 1.5e0)
+        \\      --c2 FLOAT                   (default: 2.5e0)
+        \\      --d1                         (default: true)
+        \\      --d2                         padding message
         \\
     , help_msg.items);
 }
@@ -814,9 +814,9 @@ test "parse/enum option" {
         \\     awesome-cli [OPTIONS] [--] ...
         \\
         \\ OPTIONS:
-        \\	    --a1 STRING                    (valid: A|B)(default: A)
-        \\	    --a2 STRING                    (valid: C|D)(default: D)
-        \\	    --a3 STRING                    (valid: X|Y)(required)
+        \\      --a1 STRING                   (valid: A|B)(default: A)
+        \\      --a2 STRING                   (valid: C|D)(default: D)
+        \\      --a3 STRING                   (valid: X|Y)(required)
         \\
     , help_msg.items);
 }
@@ -850,7 +850,7 @@ test "parse/positional arguments" {
         \\     awesome-cli [OPTIONS] [--] ...
         \\
         \\ OPTIONS:
-        \\	    --a INTEGER                   (default: 1)
+        \\      --a INTEGER                  (default: 1)
         \\
     , help_msg.items);
 }
