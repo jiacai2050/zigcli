@@ -17,8 +17,8 @@ pub fn parse(
     version: ?[]const u8,
 ) OptionError!StructArguments(T, arg_prompt) {
     const args = try std.process.argsAlloc(allocator);
-    var parser = OptionParser(T).init(allocator, args);
-    return parser.parse(arg_prompt, version);
+    var parser = OptionParser(T).init(allocator);
+    return parser.parse(arg_prompt, version, args);
 }
 
 const OptionField = struct {
@@ -39,14 +39,12 @@ fn parseOptionFields(comptime T: type) [std.meta.fields(T).len]OptionField {
     var opt_fields: [std.meta.fields(T).len]OptionField = undefined;
     inline for (option_type_info.Struct.fields, 0..) |fld, idx| {
         const long_name = fld.name;
-        const opt_type = OptionType.from_zig_type(
-            fld.type,
-        );
+        const opt_type = OptionType.from_zig_type(fld.type);
         opt_fields[idx] = .{
             .long_name = long_name,
             .opt_type = opt_type,
             // option with default value is set automatically
-            .is_set = !(fld.default_value == null),
+            .is_set = fld.default_value != null,
         };
     }
 
@@ -348,16 +346,18 @@ fn OptionParser(
 ) type {
     return struct {
         allocator: std.mem.Allocator,
-        args: [][:0]u8,
         opt_fields: [std.meta.fields(T).len]OptionField,
+        opt_cmds: if (@hasDecl(T, "__commands__")) blk: {
+            break :blk i8;
+        } else void,
 
         const Self = @This();
 
-        fn init(allocator: std.mem.Allocator, args: [][:0]u8) Self {
+        fn init(allocator: std.mem.Allocator) Self {
             return .{
                 .allocator = allocator,
-                .args = args,
                 .opt_fields = comptime parseOptionFields(T),
+                .opt_cmds = {},
             };
         }
 
@@ -376,8 +376,9 @@ fn OptionParser(
             self: *Self,
             comptime arg_prompt: ?[]const u8,
             version: ?[]const u8,
+            input_args: [][:0]u8,
         ) OptionError!StructArguments(T, arg_prompt) {
-            if (self.args.len == 0) {
+            if (input_args.len == 0) {
                 return error.NoProgram;
             }
 
@@ -395,11 +396,11 @@ fn OptionParser(
                 }
             }
             var result = StructArguments(T, arg_prompt){
-                .program = self.args[0],
+                .program = input_args[0],
                 .allocator = self.allocator,
                 .args = args,
                 .positional_args = std.ArrayList([]const u8).init(self.allocator),
-                .raw_args = self.args,
+                .raw_args = input_args,
             };
             errdefer result.deinit();
 
@@ -407,8 +408,8 @@ fn OptionParser(
             var current_opt: ?*OptionField = null;
 
             var arg_idx: usize = 1;
-            while (arg_idx < self.args.len) {
-                const arg = self.args[arg_idx];
+            while (arg_idx < input_args.len) {
+                const arg = input_args[arg_idx];
                 arg_idx += 1;
 
                 switch (state) {
@@ -591,8 +592,8 @@ test "parse/valid option values" {
         allocator.free(arg);
     };
 
-    var parser = OptionParser(TestArguments).init(allocator, &args);
-    const opt = try parser.parse("...", null);
+    var parser = OptionParser(TestArguments).init(allocator);
+    const opt = try parser.parse("...", null, &args);
     defer opt.deinit();
 
     try std.testing.expectEqualDeep(TestArguments{
@@ -635,8 +636,8 @@ test "parse/bool value" {
         defer for (args) |arg| {
             allocator.free(arg);
         };
-        var parser = OptionParser(struct { help: bool }).init(allocator, &args);
-        const opt = try parser.parse(null, null);
+        var parser = OptionParser(struct { help: bool }).init(allocator);
+        const opt = try parser.parse(null, null, &args);
         defer opt.deinit();
 
         try std.testing.expect(opt.args.help);
@@ -651,8 +652,8 @@ test "parse/bool value" {
         defer for (args) |arg| {
             allocator.free(arg);
         };
-        var parser = OptionParser(struct { help: bool }).init(allocator, &args);
-        const opt = try parser.parse(null, null);
+        var parser = OptionParser(struct { help: bool }).init(allocator);
+        const opt = try parser.parse(null, null, &args);
         defer opt.deinit();
 
         try std.testing.expect(opt.args.help);
@@ -675,9 +676,9 @@ test "parse/missing required arguments" {
     defer for (args) |arg| {
         allocator.free(arg);
     };
-    var parser = OptionParser(TestArguments).init(allocator, &args);
+    var parser = OptionParser(TestArguments).init(allocator);
 
-    try std.testing.expectError(error.MissingRequiredOption, parser.parse(null, null));
+    try std.testing.expectError(error.MissingRequiredOption, parser.parse(null, null, &args));
 }
 
 test "parse/invalid u16 values" {
@@ -691,9 +692,9 @@ test "parse/invalid u16 values" {
     defer for (args) |arg| {
         allocator.free(arg);
     };
-    var parser = OptionParser(TestArguments).init(allocator, &args);
+    var parser = OptionParser(TestArguments).init(allocator);
 
-    try std.testing.expectError(error.InvalidCharacter, parser.parse(null, null));
+    try std.testing.expectError(error.InvalidCharacter, parser.parse(null, null, &args));
 }
 
 test "parse/invalid f32 values" {
@@ -707,9 +708,9 @@ test "parse/invalid f32 values" {
     defer for (args) |arg| {
         allocator.free(arg);
     };
-    var parser = OptionParser(TestArguments).init(allocator, &args);
+    var parser = OptionParser(TestArguments).init(allocator);
 
-    try std.testing.expectError(error.InvalidCharacter, parser.parse(null, null));
+    try std.testing.expectError(error.InvalidCharacter, parser.parse(null, null, &args));
 }
 
 test "parse/unknown option" {
@@ -724,9 +725,9 @@ test "parse/unknown option" {
     defer for (args) |arg| {
         allocator.free(arg);
     };
-    var parser = OptionParser(TestArguments).init(allocator, &args);
+    var parser = OptionParser(TestArguments).init(allocator);
 
-    try std.testing.expectError(error.NoOption, parser.parse(null, null));
+    try std.testing.expectError(error.NoOption, parser.parse(null, null, &args));
 }
 
 test "parse/missing option value" {
@@ -739,9 +740,9 @@ test "parse/missing option value" {
     defer for (args) |arg| {
         allocator.free(arg);
     };
-    var parser = OptionParser(TestArguments).init(allocator, &args);
+    var parser = OptionParser(TestArguments).init(allocator);
 
-    try std.testing.expectError(error.MissingOptionValue, parser.parse(null, null));
+    try std.testing.expectError(error.MissingOptionValue, parser.parse(null, null, &args));
 }
 
 test "parse/default value" {
@@ -763,8 +764,8 @@ test "parse/default value" {
         d2: ?bool = false,
 
         const __messages__ = .{ .d2 = "padding message" };
-    }).init(allocator, &args);
-    const opt = try parser.parse("...", null);
+    }).init(allocator);
+    const opt = try parser.parse("...", null, &args);
     try std.testing.expectEqualStrings("A1", opt.args.a1);
     try std.testing.expectEqual(opt.positional_args.items.len, 0);
     var help_msg = std.ArrayList(u8).init(allocator);
@@ -801,8 +802,8 @@ test "parse/enum option" {
         a1: ?enum { A, B } = .A,
         a2: enum { C, D } = .D,
         a3: enum { X, Y },
-    }).init(allocator, &args);
-    const opt = try parser.parse("...", null);
+    }).init(allocator);
+    const opt = try parser.parse("...", null, &args);
     defer opt.deinit();
 
     try std.testing.expectEqual(opt.args.a1, .A);
@@ -834,8 +835,8 @@ test "parse/positional arguments" {
     };
     var parser = OptionParser(struct {
         a: u8 = 1,
-    }).init(allocator, &args);
-    const opt = try parser.parse("...", null);
+    }).init(allocator);
+    const opt = try parser.parse("...", null, &args);
     defer opt.deinit();
 
     try std.testing.expectEqualDeep(opt.args.a, 1);
