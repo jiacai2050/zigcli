@@ -88,10 +88,10 @@ pub fn main() anyerror!void {
     );
     defer opt.deinit();
 
-    const root_dir = if (opt.positional_args.items.len == 0)
+    const root_dir = if (opt.positional_args.len == 0)
         "."
     else
-        opt.positional_args.items[0];
+        opt.positional_args[0];
 
     var writer = std.io.bufferedWriter(std.io.getStdOut().writer());
     _ = try writer.write(root_dir);

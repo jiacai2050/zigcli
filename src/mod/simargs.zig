@@ -151,7 +151,7 @@ fn NonOptionType(comptime opt_type: type) type {
     };
 }
 
-const HelpMessage = struct {
+const MessageHelper = struct {
     allocator: std.mem.Allocator,
     program: []const u8,
     arg_prompt: ?[]const u8,
@@ -160,11 +160,11 @@ const HelpMessage = struct {
         allocator: std.mem.Allocator,
         program: []const u8,
         arg_prompt: ?[]const u8,
-    ) HelpMessage {
+    ) MessageHelper {
         return .{ .allocator = allocator, .program = program, .arg_prompt = arg_prompt };
     }
 
-    fn print_default(comptime f: std.builtin.Type.StructField, writer: anytype) !void {
+    fn printDefault(comptime f: std.builtin.Type.StructField, writer: anytype) !void {
         if (f.default_value == null) {
             if (@typeInfo(f.type) != .Optional) {
                 try writer.writeAll("(required)");
@@ -201,8 +201,9 @@ const HelpMessage = struct {
     }
 
     pub fn printHelp(
-        self: HelpMessage,
+        self: MessageHelper,
         comptime T: type,
+        sub_cmd_name: ?[]const u8,
         writer: anytype,
     ) !void {
         const fields = comptime buildOptionFields(T);
@@ -229,8 +230,12 @@ const HelpMessage = struct {
         defer arena.deinit();
         const aa = arena.allocator();
         const header = try std.fmt.allocPrint(aa, header_tmpl, .{
-            self.program,
-            if (sub_cmds) |cmds| blk: {
+            if (sub_cmd_name) |cmd| blk: {
+                break :blk try std.fmt.allocPrint(aa, "{s} {s}", .{ self.program, cmd });
+            } else self.program,
+
+            if (sub_cmds) |cmds|
+            blk: {
                 var lst = std.ArrayList([]const u8).init(aa);
                 try lst.append("[COMMANDS]\n\n COMMANDS:");
                 for (cmds) |cmd| {
@@ -238,7 +243,10 @@ const HelpMessage = struct {
                 }
                 break :blk try std.mem.join(aa, "\n", lst.items);
             } else if (self.arg_prompt) |p|
-                try std.fmt.allocPrint(aa, "[--] {s}", .{p})
+                if (sub_cmd_name == null)
+                    try std.fmt.allocPrint(aa, "[--] {s}", .{p})
+                else
+                    ""
             else
                 "",
         });
@@ -287,7 +295,7 @@ const HelpMessage = struct {
                         try writer.writeAll(")");
                     }
 
-                    try HelpMessage.print_default(
+                    try MessageHelper.printDefault(
                         f,
                         writer,
                     );
@@ -322,7 +330,7 @@ fn StructArguments(
         }
 
         pub fn printHelp(self: Self, writer: anytype) !void {
-            try HelpMessage.init(self.allocator, self.program, arg_prompt).printHelp(T, writer);
+            try MessageHelper.init(self.allocator, self.program, arg_prompt).printHelp(T, null, writer);
         }
     };
 }
@@ -522,9 +530,8 @@ fn OptionParser(
             comptime Args: type,
             input_args: [][:0]u8,
             arg_idx: *usize,
-            allocator: std.mem.Allocator,
-            program: []const u8,
-            comptime arg_prompt: ?[]const u8,
+            msg_helper: MessageHelper,
+            sub_cmd_name: ?[]const u8,
         ) !Args {
             var args: Args = undefined;
             var parser = CommandParser(Args){};
@@ -613,7 +620,7 @@ fn OptionParser(
                             if (!is_test) {
                                 if (std.mem.eql(u8, opt.long_name, "help")) {
                                     const stdout = std.io.getStdOut();
-                                    HelpMessage.init(allocator, program, arg_prompt).printHelp(Args, stdout.writer()) catch @panic("OOM");
+                                    msg_helper.printHelp(Args, sub_cmd_name, stdout.writer()) catch @panic("OOM");
                                     std.process.exit(0);
                                 } else if (std.mem.eql(u8, opt.long_name, "version")) {
                                     // if (version) |v| {
@@ -634,7 +641,13 @@ fn OptionParser(
                                 if (std.mem.eql(u8, fld.name, arg)) {
                                     inline for (std.meta.fields(@TypeOf(args.__commands__))) |union_fld| {
                                         if (comptime std.mem.eql(u8, union_fld.name, fld.name)) {
-                                            const value = try Self.parseCommand(union_fld.type, input_args, arg_idx, allocator, program, arg_prompt);
+                                            const value = try Self.parseCommand(
+                                                union_fld.type,
+                                                input_args,
+                                                arg_idx,
+                                                msg_helper,
+                                                fld.name,
+                                            );
                                             args.__commands__ = @unionInit(@TypeOf(args.__commands__), fld.name, value);
                                             sub_cmd_set = true;
                                             break :outer;
@@ -693,13 +706,13 @@ fn OptionParser(
 
             const parse_args = input_args[1..];
             var arg_idx: usize = 0;
+            const msg_helper = MessageHelper.init(self.allocator, input_args[0], arg_prompt);
             const parsed = try Self.parseCommand(
                 T,
                 parse_args,
                 &arg_idx,
-                self.allocator,
-                input_args[0],
-                arg_prompt,
+                msg_helper,
+                null,
             );
             var result = StructArguments(T, arg_prompt){
                 .program = input_args[0],

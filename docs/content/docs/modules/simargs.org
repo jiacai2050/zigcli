@@ -1,6 +1,6 @@
 #+TITLE: Simargs
 #+DATE: 2023-10-21T12:04:40+0800
-#+LASTMOD: 2023-10-22T19:30:17+0800
+#+LASTMOD: 2024-08-11T20:30:59+0800
 #+WEIGTH: 1
 
 * Simargs
@@ -12,26 +12,28 @@ A simple, opinionated, struct-based argument parser in Zig, taking full advantag
   - =Enum=
 - Optional fields and fields with default value mean they are optional arguments
 - Use =comptime= as possible as I can
-- Provide =print_help()= out of the box
+- Provide =printHelp()= out of the box
+- Support sub commands
 * Usage
 See [[https://github.com/jiacai2050/zigcli/blob/main/examples/simargs-demo.zig][simargs-demo.zig]].
 
 #+begin_src bash :results verbatim :exports both
 # Run demo
-zig build && ./zig-out/bin/simargs-demo -o /tmp/a.out --user-agent Firefox hello world 2>&1
+zig build run-simargs-demo -- -o /tmp/a.out --user-agent Firefox sub1 --a 123 hello world 2>&1
 #+end_src
 
 #+RESULTS:
 #+begin_example
 ------------------------------Program------------------------------
-./zig-out/bin/simargs-demo
+/Users/jiacai/gh/zigcli/.zig-cache/o/bd8a4fb104779110e787d579f1d9c6f0/simargs-demo
 
 ------------------------------Arguments------------------------------
    verbose: null
-user-agent: demo.main__struct_1677.main__struct_1677__enum_1777.Firefox
+user-agent: simargs-demo.main__struct_1700.main__struct_1700__enum_1707.Firefox
    timeout: 30
     output: /tmp/a.out
       help: false
+__commands__: simargs-demo.main__struct_1700.main__struct_1700__union_1708{ .sub1 = simargs-demo.main__struct_1700.main__struct_1700__union_1708.main__struct_1700__union_1708__struct_1710{ .a = 123, .help = false } }
 
 ------------------------------Positionals------------------------------
 1: hello
@@ -39,14 +41,18 @@ user-agent: demo.main__struct_1677.main__struct_1677__enum_1777.Firefox
 
 ------------------------------print_help------------------------------
  USAGE:
-     ./zig-out/bin/demo [OPTIONS] [--] [file]
+     /Users/jiacai/gh/zigcli/.zig-cache/o/bd8a4fb104779110e787d579f1d9c6f0/simargs-demo [OPTIONS] [COMMANDS]
+
+ COMMANDS:
+  sub1       Subcommand 1
+  sub2       Subcommand 2
 
  OPTIONS:
-	-v, --verbose                     Make the operation more talkative
-	-A, --user-agent STRING            (valid: Chrome|Firefox|Safari)(default: Firefox)
-	    --timeout INTEGER             Max time this request can cost(default: 30)
-	-o, --output STRING               Write to file instead of stdout(required)
-	-h, --help
+  -v, --verbose                    Make the operation more talkative
+  -A, --user-agent STRING           (valid: Chrome|Firefox|Safari)(default: Firefox)
+      --timeout INTEGER            Max time this request can cost(default: 30)
+  -o, --output STRING              Write to file instead of stdout(required)
+  -h, --help
 #+end_example
 
 * Acknowledgment

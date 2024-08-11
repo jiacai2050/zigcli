@@ -19,12 +19,16 @@ pub fn main() !void {
         output: []const u8,
         help: bool = false,
 
+        // This special field define sub_commands,
+        // Each union item is a config struct, which is similar with top-level config struct.
         __commands__: union(enum) {
             sub1: struct {
                 a: u64,
+                help: bool = false,
             },
             sub2: struct { name: []const u8 },
 
+            // Define help message for sub commands.
             pub const __messages__ = .{
                 .sub1 = "Subcommand 1",
                 .sub2 = "Subcommand 2",
