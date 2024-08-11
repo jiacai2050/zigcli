@@ -35,4 +35,4 @@ jobs:
           TEST_BINARY=./zig-out/bin/simargs-demo
           valgrind --leak-check=full --tool=memcheck \
           --show-leak-kinds=all --error-exitcode=1 ${TEST_BINARY} --output a.out \
-          hello world
+          sub1 --a 123 hello world
