@@ -19,6 +19,18 @@ pub fn main() !void {
         output: []const u8,
         help: bool = false,
 
+        __commands__: union(enum) {
+            sub1: struct {
+                a: u64,
+            },
+            sub2: struct { name: []const u8 },
+
+            pub const __messages__ = .{
+                .sub1 = "Subcommand 1",
+                .sub2 = "Subcommand 2",
+            };
+        },
+
         // This declares option's short name
         pub const __shorts__ = .{
             .verbose = .v,
@@ -49,12 +61,12 @@ pub fn main() !void {
     }
 
     std.debug.print("\n{s}Positionals{s}\n", .{ sep, sep });
-    for (opt.positional_args.items, 0..) |arg, idx| {
+    for (opt.positional_args, 0..) |arg, idx| {
         std.debug.print("{d}: {s}\n", .{ idx + 1, arg });
     }
 
     // Provide a print_help util method
     std.debug.print("\n{s}print_help{s}\n", .{ sep, sep });
     const stdout = std.io.getStdOut();
-    try opt.print_help(stdout.writer());
+    try opt.printHelp(stdout.writer());
 }
