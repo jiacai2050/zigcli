@@ -13,6 +13,8 @@ const ParseError = error{
     MissingSubCommand,
 };
 
+const COMMAND_FIELD_NAME = "__commands__";
+
 const OptionError = ParseError || std.mem.Allocator.Error || std.fmt.ParseIntError || std.fmt.ParseFloatError || std.process.ArgIterator.InitError;
 
 /// Parses arguments according to the given structure.
@@ -21,8 +23,8 @@ pub fn parse(
     allocator: std.mem.Allocator,
     comptime T: type,
     comptime arg_prompt: ?[]const u8,
-    version: ?[]const u8,
-) OptionError!StructArguments(T, arg_prompt) {
+    comptime version: ?[]const u8,
+) OptionError!StructArguments(T, version, arg_prompt) {
     const args = try std.process.argsAlloc(allocator);
     var parser = OptionParser(T).init(allocator);
     return parser.parse(arg_prompt, version, args);
@@ -43,7 +45,7 @@ fn getOptionLength(comptime T: type) usize {
         @compileError("option should be defined using struct, found " ++ @typeName(T));
     }
     inline for (std.meta.fields(T)) |fld| {
-        if (std.mem.eql(u8, fld.name, "__commands__")) {
+        if (std.mem.eql(u8, fld.name, COMMAND_FIELD_NAME)) {
             return std.meta.fields(T).len - 1;
         }
     }
@@ -60,7 +62,7 @@ fn buildOptionFields(comptime T: type) [getOptionLength(T)]OptionField {
     var opt_fields: [getOptionLength(T)]OptionField = undefined;
     inline for (option_type_info.Struct.fields, 0..) |fld, idx| {
         const long_name = fld.name;
-        if (std.mem.eql(u8, fld.name, "__commands__")) {
+        if (std.mem.eql(u8, fld.name, COMMAND_FIELD_NAME)) {
             continue;
         }
         const opt_type = OptionType.from_zig_type(fld.type);
@@ -155,13 +157,20 @@ const MessageHelper = struct {
     allocator: std.mem.Allocator,
     program: []const u8,
     arg_prompt: ?[]const u8,
+    version: ?[]const u8,
 
     fn init(
         allocator: std.mem.Allocator,
         program: []const u8,
+        version: ?[]const u8,
         arg_prompt: ?[]const u8,
     ) MessageHelper {
-        return .{ .allocator = allocator, .program = program, .arg_prompt = arg_prompt };
+        return .{
+            .allocator = allocator,
+            .program = program,
+            .version = version,
+            .arg_prompt = arg_prompt,
+        };
     }
 
     fn printDefault(comptime f: std.builtin.Type.StructField, writer: anytype) !void {
@@ -200,6 +209,16 @@ const MessageHelper = struct {
         }});
     }
 
+    pub fn printVersion(
+        self: MessageHelper,
+    ) !void {
+        const stdout = std.io.getStdOut();
+        if (self.version) |v| {
+            try stdout.writer().writeAll(v);
+        } else {
+            try stdout.writer().writeAll("Unknown");
+        }
+    }
     pub fn printHelp(
         self: MessageHelper,
         comptime T: type,
@@ -207,9 +226,9 @@ const MessageHelper = struct {
         writer: anytype,
     ) !void {
         const fields = comptime buildOptionFields(T);
-        const sub_cmds = if (@hasField(T, "__commands__")) blk: {
+        const sub_cmds = if (@hasField(T, COMMAND_FIELD_NAME)) blk: {
             inline for (std.meta.fields(T)) |fld| {
-                if (comptime std.mem.eql(u8, fld.name, "__commands__")) {
+                if (comptime std.mem.eql(u8, fld.name, COMMAND_FIELD_NAME)) {
                     break :blk subCommandsHelpMsg(
                         fld.type,
                         std.meta.fields(fld.type).len,
@@ -243,12 +262,13 @@ const MessageHelper = struct {
                 }
                 break :blk try std.mem.join(aa, "\n", lst.items);
             } else if (self.arg_prompt) |p|
-                if (sub_cmd_name == null)
-                    try std.fmt.allocPrint(aa, "[--] {s}", .{p})
-                else
-                    ""
-            else
-                "",
+            blk: {
+                if (sub_cmd_name == null) {
+                    break :blk try std.fmt.allocPrint(aa, "[--] {s}", .{p});
+                } else {
+                    break :blk "";
+                }
+            } else "",
         });
 
         try writer.writeAll(header);
@@ -309,6 +329,7 @@ const MessageHelper = struct {
 
 fn StructArguments(
     comptime T: type,
+    comptime version: ?[]const u8,
     comptime arg_prompt: ?[]const u8,
 ) type {
     return struct {
@@ -330,7 +351,12 @@ fn StructArguments(
         }
 
         pub fn printHelp(self: Self, writer: anytype) !void {
-            try MessageHelper.init(self.allocator, self.program, arg_prompt).printHelp(T, null, writer);
+            try MessageHelper.init(
+                self.allocator,
+                self.program,
+                version,
+                arg_prompt,
+            ).printHelp(T, null, writer);
         }
     };
 }
@@ -480,23 +506,15 @@ fn SubCommandsType(comptime T: type) type {
 fn CommandParser(comptime T: type) type {
     return struct {
         opt_fields: [getOptionLength(T)]OptionField = buildOptionFields(T),
-        opt_cmds: if (@hasField(T, "__commands__")) blk: {
+        opt_cmds: if (@hasField(T, COMMAND_FIELD_NAME)) blk: {
             for (std.meta.fields(T)) |fld| {
-                if (std.mem.eql(u8, fld.name, "__commands__")) {
+                if (std.mem.eql(u8, fld.name, COMMAND_FIELD_NAME)) {
                     break :blk SubCommandsType(fld.type);
                 }
             } else {
                 unreachable;
             }
-        } else void = if (@hasField(T, "__commands__")) .{} else {},
-    };
-}
-
-fn Parsed(comptime T: type) type {
-    return struct {
-        value: T,
-        /// Unparsed args index
-        idx: usize,
+        } else void = if (@hasField(T, COMMAND_FIELD_NAME)) .{} else {},
     };
 }
 
@@ -536,7 +554,7 @@ fn OptionParser(
             var args: Args = undefined;
             var parser = CommandParser(Args){};
             inline for (std.meta.fields(Args)) |fld| {
-                if (comptime std.mem.eql(u8, fld.name, "__commands__")) {
+                if (comptime std.mem.eql(u8, fld.name, COMMAND_FIELD_NAME)) {
                     continue;
                 }
 
@@ -623,11 +641,8 @@ fn OptionParser(
                                     msg_helper.printHelp(Args, sub_cmd_name, stdout.writer()) catch @panic("OOM");
                                     std.process.exit(0);
                                 } else if (std.mem.eql(u8, opt.long_name, "version")) {
-                                    // if (version) |v| {
-                                    //     const stdout = std.io.getStdOut();
-                                    //     stdout.writer().writeAll(v) catch @panic("OOM");
-                                    //     std.process.exit(0);
-                                    // }
+                                    msg_helper.printVersion() catch @panic("OOM");
+                                    std.process.exit(0);
                                 }
                             }
                         } else {
@@ -639,7 +654,8 @@ fn OptionParser(
                             // parse sub command
                             inline for (std.meta.fields(@TypeOf(parser.opt_cmds))) |fld| {
                                 if (std.mem.eql(u8, fld.name, arg)) {
-                                    inline for (std.meta.fields(@TypeOf(args.__commands__))) |union_fld| {
+                                    const CmdType = @TypeOf(@field(args, COMMAND_FIELD_NAME));
+                                    inline for (std.meta.fields(CmdType)) |union_fld| {
                                         if (comptime std.mem.eql(u8, union_fld.name, fld.name)) {
                                             const value = try Self.parseCommand(
                                                 union_fld.type,
@@ -648,7 +664,7 @@ fn OptionParser(
                                                 msg_helper,
                                                 fld.name,
                                             );
-                                            args.__commands__ = @unionInit(@TypeOf(args.__commands__), fld.name, value);
+                                            @field(args, COMMAND_FIELD_NAME) = @unionInit(CmdType, fld.name, value);
                                             sub_cmd_set = true;
                                             break :outer;
                                         }
@@ -696,17 +712,21 @@ fn OptionParser(
         fn parse(
             self: *Self,
             comptime arg_prompt: ?[]const u8,
-            version: ?[]const u8,
+            comptime version: ?[]const u8,
             input_args: [][:0]u8,
-        ) OptionError!StructArguments(T, arg_prompt) {
-            _ = version;
+        ) OptionError!StructArguments(T, version, arg_prompt) {
             if (input_args.len == 0) {
                 return error.NoProgram;
             }
 
             const parse_args = input_args[1..];
             var arg_idx: usize = 0;
-            const msg_helper = MessageHelper.init(self.allocator, input_args[0], arg_prompt);
+            const msg_helper = MessageHelper.init(
+                self.allocator,
+                input_args[0],
+                version,
+                arg_prompt,
+            );
             const parsed = try Self.parseCommand(
                 T,
                 parse_args,
@@ -714,7 +734,7 @@ fn OptionParser(
                 msg_helper,
                 null,
             );
-            var result = StructArguments(T, arg_prompt){
+            var result = StructArguments(T, version, arg_prompt){
                 .program = input_args[0],
                 .allocator = self.allocator,
                 .args = parsed,
@@ -737,7 +757,7 @@ fn OptionParser(
         // return true when set successfully
         fn setOptionValue(comptime Args: type, opt: *Args, long_name: []const u8, raw_value: []const u8) !bool {
             inline for (std.meta.fields(Args)) |field| {
-                if (comptime std.mem.eql(u8, field.name, "__commands__")) {
+                if (comptime std.mem.eql(u8, field.name, COMMAND_FIELD_NAME)) {
                     continue;
                 }
 

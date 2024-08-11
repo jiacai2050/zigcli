@@ -18,6 +18,7 @@ pub fn main() !void {
         timeout: ?u16 = 30, // default value
         output: []const u8,
         help: bool = false,
+        version: bool = false,
 
         // This special field define sub_commands,
         // Each union item is a config struct, which is similar with top-level config struct.
@@ -49,7 +50,7 @@ pub fn main() !void {
             .output = "Write to file instead of stdout",
             .timeout = "Max time this request can cost",
         };
-    }, "[file]", null);
+    }, "[file]", "0.1.0");
     defer opt.deinit();
 
     const sep = "-" ** 30;
