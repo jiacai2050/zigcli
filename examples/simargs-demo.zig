@@ -18,6 +18,23 @@ pub fn main() !void {
         timeout: ?u16 = 30, // default value
         output: []const u8,
         help: bool = false,
+        version: bool = false,
+
+        // This special field define sub_commands,
+        // Each union item is a config struct, which is similar with top-level config struct.
+        __commands__: union(enum) {
+            sub1: struct {
+                a: u64,
+                help: bool = false,
+            },
+            sub2: struct { name: []const u8 },
+
+            // Define help message for sub commands.
+            pub const __messages__ = .{
+                .sub1 = "Subcommand 1",
+                .sub2 = "Subcommand 2",
+            };
+        },
 
         // This declares option's short name
         pub const __shorts__ = .{
@@ -33,7 +50,7 @@ pub fn main() !void {
             .output = "Write to file instead of stdout",
             .timeout = "Max time this request can cost",
         };
-    }, "[file]", null);
+    }, "[file]", "0.1.0");
     defer opt.deinit();
 
     const sep = "-" ** 30;
@@ -49,12 +66,12 @@ pub fn main() !void {
     }
 
     std.debug.print("\n{s}Positionals{s}\n", .{ sep, sep });
-    for (opt.positional_args.items, 0..) |arg, idx| {
+    for (opt.positional_args, 0..) |arg, idx| {
         std.debug.print("{d}: {s}\n", .{ idx + 1, arg });
     }
 
     // Provide a print_help util method
     std.debug.print("\n{s}print_help{s}\n", .{ sep, sep });
     const stdout = std.io.getStdOut();
-    try opt.print_help(stdout.writer());
+    try opt.printHelp(stdout.writer());
 }

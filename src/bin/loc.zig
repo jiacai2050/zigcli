@@ -206,10 +206,10 @@ pub fn main() !void {
     }, "[file or directory]", util.get_build_info());
     defer opt.deinit();
 
-    const file_or_dir = if (opt.positional_args.items.len == 0)
+    const file_or_dir = if (opt.positional_args.len == 0)
         "."
     else
-        opt.positional_args.items[0];
+        opt.positional_args[0];
 
     var loc_map = LocMap{};
     const dir = fs.cwd().openDir(file_or_dir, .{ .iterate = true }) catch |err| switch (err) {

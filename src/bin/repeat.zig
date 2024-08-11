@@ -35,9 +35,9 @@ pub fn main() !void {
     }, "command", util.get_build_info());
     defer opt.deinit();
 
-    const argv = if (opt.positional_args.items.len == 0) {
+    const argv = if (opt.positional_args.len == 0) {
         return error.NoCommand;
-    } else opt.positional_args.items;
+    } else opt.positional_args;
 
     var keep_running = true;
     var i: usize = 0;
