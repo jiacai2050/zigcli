@@ -34,9 +34,9 @@ jobs:
         id: pages
         uses: actions/configure-pages@v3
       - name: Setup Hugo
-        uses: peaceiris/actions-hugo@v2
+        uses: peaceiris/actions-hugo@v3
         with:
-          hugo-version: '0.119.0'
+          hugo-version: 'latest'
           extended: true
       - name: Build with Hugo
         working-directory: docs
@@ -45,7 +45,7 @@ jobs:
           HUGO_ENVIRONMENT: production
           HUGO_ENV: production
         run: |
-          hugo mod get -u
+          hugo mod get
           hugo \
             --minify \
             --baseURL "${{ steps.pages.outputs.base_url }}/"
