@@ -1,10 +1,8 @@
 #+TITLE: pidof
 #+DATE: 2024-08-17T17:52:44+0800
-#+LASTMOD: 2024-08-17T18:19:01+0800
+#+LASTMOD: 2024-08-17T18:57:58+0800
 #+TYPE: docs
-#+AUTHOR: Jiacai Liu
-
-Linux has this command, but not macOS, so I write it for you.
+#+DESCRIPTION: Linux has this command, but not macOS, so I write it for you.
 
 #+begin_src bash
 $ ./zig-out/bin/pidof -h

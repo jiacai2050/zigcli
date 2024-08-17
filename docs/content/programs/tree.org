@@ -1,8 +1,8 @@
-#+TITLE: Tree
+#+TITLE: tree
 #+DATE: 2024-08-17T17:52:22+0800
-#+LASTMOD: 2024-08-17T18:19:15+0800
+#+LASTMOD: 2024-08-17T19:02:08+0800
 #+TYPE: docs
-#+AUTHOR: Jiacai Liu
+#+DESCRIPTION: Display the directory structure of a path in a tree-like format
 
 #+begin_src
 $ ./zig-out/bin/tree -h

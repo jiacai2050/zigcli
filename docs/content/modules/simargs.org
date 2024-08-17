@@ -1,10 +1,10 @@
-#+TITLE: Simargs
+#+TITLE: simargs
 #+DATE: 2023-10-21T12:04:40+0800
-#+LASTMOD: 2024-08-17T18:17:38+0800
+#+LASTMOD: 2024-08-17T19:03:45+0800
 #+TYPE: docs
-#+WEIGTH: 1
+#+WEIGHT: 10
+#+DESCRIPTION: A simple, opinionated, struct-based argument parser in Zig, taking full advantage of [[https://kristoff.it/blog/what-is-zig-comptime/][comptime]].
 
-A simple, opinionated, struct-based argument parser in Zig, taking full advantage of [[https://kristoff.it/blog/what-is-zig-comptime/][comptime]].
 * Features
 - Supported data type:
   - All [[https://ziglang.org/documentation/master/#Primitive-Types][primitive types]], such as =i8=, =f32=, =bool=
