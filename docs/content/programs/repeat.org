@@ -1,4 +1,9 @@
-* repeat
+#+TITLE: Repeat
+#+DATE: 2024-08-17T17:52:32+0800
+#+LASTMOD: 2024-08-17T18:19:06+0800
+#+TYPE: docs
+#+AUTHOR: Jiacai Liu
+
 #+begin_src bash
  $ ./zig-out/bin/repeat -h
  USAGE:

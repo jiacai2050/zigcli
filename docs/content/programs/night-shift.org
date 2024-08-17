@@ -1,4 +1,9 @@
-* Night shift
+#+TITLE: Night shift
+#+DATE: 2024-08-17T17:52:12+0800
+#+LASTMOD: 2024-08-17T18:18:58+0800
+#+TYPE: docs
+#+AUTHOR: Jiacai Liu
+
 A CLI for configuring "Night Shift" on macOS. 🌕🌖🌗🌘🌑
 
 #+begin_src bash :results verbatim code :exports both

@@ -1,4 +1,10 @@
-* Pretty Table
+#+TITLE: Pretty Table
+#+DATE: 2024-08-17T17:48:29+0800
+#+LASTMOD: 2024-08-17T18:17:41+0800
+#+TYPE: docs
+#+AUTHOR: Jiacai Liu
+
+
 A formatted and aligned table printer library for Zig.
 * Features
 - Many box-drawing character to choose(=ascii=, =box=, =dos=).

@@ -1,0 +1,22 @@
+#+TITLE: Programs
+#+DATE: 2023-10-21T12:26:45+0800
+#+LASTMOD: 2024-08-17T18:17:57+0800
+#+TYPE: docs
+#+WEIGHT: 20
+#+DESCRIPTION: Binary programs which can be used directly
+
+* Install
+Prebuilt binaries can be found in [[https://github.com/jiacai2050/zigcli/actions/workflows/binary.yml][CI's artifacts]], or you can build from source:
+#+begin_src bash
+git clone https://github.com/jiacai2050/zigcli.git
+#+end_src
+Then build with
+#+begin_src bash
+make build
+#+end_src
+
+#+begin_quote
+To build zigcli locally, Zig master is required, which can be downloaded [[https://ziglang.org/download/][here]].
+#+end_quote
+
+* Available Programs

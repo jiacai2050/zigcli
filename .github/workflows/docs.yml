@@ -45,6 +45,7 @@ jobs:
           HUGO_ENVIRONMENT: production
           HUGO_ENV: production
         run: |
+          npm i -D postcss postcss-cli autoprefixer
           hugo mod get
           hugo \
             --minify \

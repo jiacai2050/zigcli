@@ -1,4 +1,9 @@
-* Dark mode
+#+TITLE: Dark mode
+#+DATE: 2024-08-17T17:52:00+0800
+#+LASTMOD: 2024-08-17T18:18:44+0800
+#+TYPE: docs
+#+AUTHOR: Jiacai Liu
+
 Get dark mode status for macOS.
 #+begin_src bash
  $ dark-mode -h

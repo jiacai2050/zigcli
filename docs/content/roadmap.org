@@ -1,0 +1,10 @@
+#+TITLE: Roadmap
+#+DATE: 2024-08-17T18:07:20+0800
+#+LASTMOD: 2024-08-17T18:19:47+0800
+#+WEIGHT: 30
+#+TYPE: docs
+
+* Loc
+- Performance, at least comparable with [[https://github.com/cgag/loc][cgag/loc]] [[https://github.com/jiacai2050/loc/issues/1][#1]]
+- More options, such as =--exclude <regex>=
+- Support multiline comment

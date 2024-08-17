@@ -1,9 +1,9 @@
 #+TITLE: Simargs
 #+DATE: 2023-10-21T12:04:40+0800
-#+LASTMOD: 2024-08-11T20:30:59+0800
+#+LASTMOD: 2024-08-17T18:17:38+0800
+#+TYPE: docs
 #+WEIGTH: 1
 
-* Simargs
 A simple, opinionated, struct-based argument parser in Zig, taking full advantage of [[https://kristoff.it/blog/what-is-zig-comptime/][comptime]].
 * Features
 - Supported data type:

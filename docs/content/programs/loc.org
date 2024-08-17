@@ -1,4 +1,9 @@
-* Loc
+#+TITLE: loc
+#+DATE: 2024-08-17T17:52:51+0800
+#+LASTMOD: 2024-08-17T18:18:48+0800
+#+TYPE: docs
+#+AUTHOR: Jiacai Liu
+
 #+begin_src bash :results verbatim code :exports both
 ./zig-out/bin/loc
 #+end_src

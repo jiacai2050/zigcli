@@ -1,5 +1,9 @@
+#+TITLE: Tree
+#+DATE: 2024-08-17T17:52:22+0800
+#+LASTMOD: 2024-08-17T18:19:15+0800
+#+TYPE: docs
+#+AUTHOR: Jiacai Liu
 
-* tree
 #+begin_src
 $ ./zig-out/bin/tree -h
  USAGE:
