@@ -169,6 +169,11 @@ fn makeCompileStep(
 ) ?*Build.Step.Compile {
     const name = comptime source.name();
     const path = comptime source.path();
+    // 0.13.0\x64\lib\std\net.zig:756:5: error: std.net.if_nametoindex unimplemented for this OS
+    if (std.mem.eql(u8, name, "tcp-proxy") and target.result.os.tag == .windows) {
+        return null;
+    }
+
     if (std.mem.eql(u8, name, "night-shift") or std.mem.eql(u8, name, "dark-mode") or std.mem.eql(u8, name, "pidof")) {
         // if (target.getOsTag() != .macos) {
         if (is_ci) {
