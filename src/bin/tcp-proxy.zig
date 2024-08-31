@@ -23,7 +23,7 @@ pub fn main() !void {
     const allocator = arena.allocator();
 
     const opt = try simargs.parse(allocator, struct {
-        bind_address: []const u8,
+        bind_host: []const u8,
         local_port: u16,
         remote_host: []const u8,
         remote_port: u16,
@@ -34,7 +34,7 @@ pub fn main() !void {
         verbose: bool = false,
 
         pub const __shorts__ = .{
-            .bind_address = .b,
+            .bind_host = .b,
             .local_port = .p,
             .remote_host = .H,
             .remote_port = .P,
@@ -43,7 +43,7 @@ pub fn main() !void {
         };
 
         pub const __messages__ = .{
-            .bind_address = "Local bind address",
+            .bind_host = "Local bind host",
             .local_port = "Local bind port",
             .remote_host = "Remote host",
             .remote_port = "Remote port",
@@ -53,7 +53,7 @@ pub fn main() !void {
 
     verbose = opt.args.verbose;
 
-    const bind_addr = try net.Address.resolveIp(opt.args.bind_address, opt.args.local_port);
+    const bind_addr = try net.Address.resolveIp(opt.args.bind_host, opt.args.local_port);
     const remote_addr = try net.Address.resolveIp(opt.args.remote_host, opt.args.remote_port);
     var server = try bind_addr.listen(.{
         .kernel_backlog = 128,
