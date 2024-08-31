@@ -105,6 +105,7 @@ fn buildBinaries(
         "night-shift",
         "dark-mode",
         "repeat",
+        "tcp-proxy",
     }) |name| {
         try buildBinary(b, .{ .bin = name }, optimize, target, is_ci, all_tests);
     }
