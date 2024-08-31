@@ -59,6 +59,8 @@ pub fn main() !void {
         .kernel_backlog = 128,
         .reuse_address = true,
     });
+    std.log.info("Tcp proxy listen on {any}", .{bind_addr});
+
     var pool = try allocator.create(std.Thread.Pool);
     defer pool.deinit();
 
@@ -94,7 +96,7 @@ const Proxy = struct {
             .allocator = allocator,
             .conn = conn,
             .remote_conn = remote_conn,
-            .remote_addr = remote_addr,
+            .remote_addr = remote,
         };
     }
 
