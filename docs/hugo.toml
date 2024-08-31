@@ -28,4 +28,5 @@ showLightDarkModeMenu = true
     [markup.goldmark.renderer]
       unsafe = true
   [markup.highlight]
-    style = 'tango'
+    style = "pygments"
+    linenos = true

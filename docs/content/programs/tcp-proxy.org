@@ -1,0 +1,33 @@
+#+TITLE: tcp-proxy
+#+DATE: 2024-09-01T00:02:43+0800
+#+LASTMOD: 2024-09-01T00:14:17+0800
+#+TYPE: docs
+#+DESCRIPTION: Forward TCP requests hitting a specified port on the localhost to a different port on another host
+
+Both IPv4 and IPv6 are supported.
+
+#+begin_src bash :results verbatim :exports result :dir ../../..
+./zig-out/bin/tcp-proxy -h
+#+end_src
+
+#+RESULTS:
+#+begin_example
+ USAGE:
+     ./zig-out/bin/tcp-proxy [OPTIONS]
+
+ OPTIONS:
+  -b, --bind_address STRING        Local bind address(required)
+  -p, --local_port INTEGER         Local bind port(required)
+  -H, --remote_host STRING         Remote host(required)
+  -P, --remote_port INTEGER        Remote port(required)
+      --buf_size INTEGER           Buffer size for tcp read/write(default: 1024)
+      --thread_pool_size INTEGER   (default: 24)
+  -h, --help
+  -v, --version
+      --verbose
+#+end_example
+
+#+begin_src bash
+tcp-proxy -b 0.0.0.0 -p 8082 -H 192.168.0.2 -P 8082
+#+end_src
+This will forward tcp requests from =localhost:8082= to =192.168.0.2:8082=
