@@ -10,6 +10,7 @@ pub const std_options = .{
 };
 
 const isLinux = util.isLinux();
+const isWindows = util.isWindows();
 
 pub fn main() !void {
     const allocator = std.heap.page_allocator;
@@ -48,8 +49,8 @@ pub fn main() !void {
         util.enableVerbose.call();
     }
 
-    const bind_addr = try net.Address.resolveIp(opt.args.bind_host, opt.args.local_port);
-    const remote_addr = try net.Address.resolveIp(opt.args.remote_host, opt.args.remote_port);
+    const bind_addr = try parseIp(opt.args.bind_host, opt.args.local_port);
+    const remote_addr = try parseIp(opt.args.remote_host, opt.args.remote_port);
     var server = try bind_addr.listen(.{
         .kernel_backlog = 128,
         .reuse_address = true,
@@ -235,3 +236,13 @@ const Proxy = struct {
         }
     }
 };
+
+// resolveIp can't be used in windows, so add this hack!
+// 0.13.0\x64\lib\std\net.zig:756:5: error: std.net.if_nametoindex unimplemented for this OS
+fn parseIp(name: []const u8, port: u16) !net.Address {
+    return if (isWindows)
+        net.Address.parseIp4(name, port) catch
+            try net.Address.parseIp6(name, port)
+    else
+        try net.Address.resolveIp(name, port);
+}

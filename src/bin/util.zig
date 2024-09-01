@@ -92,6 +92,10 @@ pub fn isLinux() bool {
     return builtin.os.tag == .linux;
 }
 
+pub fn isWindows() bool {
+    return builtin.os.tag == .windows;
+}
+
 pub fn checkCErr(ret: isize) !isize {
     if (ret < 0) {
         return error.CErr;
