@@ -4,6 +4,7 @@ const builtin = @import("builtin");
 const mem = std.mem;
 const fmt = std.fmt;
 
+pub const MAX_I32: i32 = std.math.maxInt(i32);
 pub const StringUtil = struct {
     const SIZE_UNIT = [_][]const u8{ "B", "K", "M", "G", "T" };
 
@@ -79,10 +80,22 @@ pub fn debugPrint(
     args: anytype,
 ) void {
     if (verbose) {
-        std.debug.print(format, args);
+        std.log.debug(format, args);
     }
 }
 
 pub fn getCpuCount() u32 {
     return std.Thread.getCpuCount() orelse 1;
+}
+
+pub fn isLinux() bool {
+    return builtin.os.tag == .linux;
+}
+
+pub fn checkCErr(ret: isize) !isize {
+    if (ret < 0) {
+        return error.CErr;
+    }
+
+    return ret;
 }

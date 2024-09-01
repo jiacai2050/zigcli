@@ -202,6 +202,8 @@ fn makeCompileStep(
     } else if (std.mem.eql(u8, name, "dark-mode")) {
         exe.addFrameworkPath(.{ .cwd_relative = "/System/Library/PrivateFrameworks" });
         exe.linkFramework("SkyLight");
+    } else if (std.mem.eql(u8, name, "tcp-proxy")) {
+        exe.linkLibC();
     }
     return exe;
 }

@@ -1,6 +1,6 @@
 #+TITLE: tcp-proxy
 #+DATE: 2024-09-01T00:02:43+0800
-#+LASTMOD: 2024-09-01T11:57:00+0800
+#+LASTMOD: 2024-09-01T20:52:56+0800
 #+TYPE: docs
 #+DESCRIPTION: Forward TCP requests hitting a specified port on the localhost to a different port on another host
 
@@ -31,3 +31,37 @@ Both IPv4 and IPv6 are supported.
 tcp-proxy -b 0.0.0.0 -p 8082 -H 192.168.0.2 -P 8082
 #+end_src
 This will forward tcp requests from =localhost:8082= to =192.168.0.2:8082=
+
+* Benchmark
+[[https://iperf.fr/][iPerf3]] is used to benchmark proxy between zigcli and [[https://github.com/kklis/proxy][proxy]], which written in C.
+** All in one
+- server/client/proxy :: =192.168.31.142=, debian 12
+|            | sender | receiver |
+|------------+--------+----------|
+| zigcli     |   57.2 |     56.9 |
+| proxy in C |   56.1 |     55.9 |
+
+- Unit: Gbits/sec
+** Server/client separated
+- server :: 192.168.31.94, macOS
+- proxy/client :: 192.168.31.142, debian 12
+
+|            | sender | receiver |
+|------------+--------+----------|
+| zigcli     |    191 |      180 |
+| proxy in C |    210 |      198 |
+
+- Unit: Mbits/sec
+
+** Commands
+#+begin_src bash
+# start C proxy in foreground
+./proxy -b 0.0.0.0 -l 8081 -h 192.168.31.142 -p 5201 -f
+# start tcp-proxy
+./zig-out/bin/tcp-proxy -b 0.0.0.0 -p 8080 -H 192.168.31.142 -P 5201
+
+# server
+iperf3 -s
+# client
+iperf3 -c 192.168.31.142 -p 8080/8081
+#+end_src
