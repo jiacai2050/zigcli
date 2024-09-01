@@ -64,3 +64,25 @@ test "slice iter" {
     try std.testing.expectEqual(iter.next().?, 3);
     try std.testing.expectEqual(iter.next(), null);
 }
+
+// global var, used in one binary program.
+var verbose: bool = false;
+
+pub var enableVerbose = std.once(struct {
+    fn do() void {
+        verbose = true;
+    }
+}.do);
+
+pub fn debugPrint(
+    comptime format: []const u8,
+    args: anytype,
+) void {
+    if (verbose) {
+        std.debug.print(format, args);
+    }
+}
+
+pub fn getCpuCount() u32 {
+    return std.Thread.getCpuCount() orelse 1;
+}

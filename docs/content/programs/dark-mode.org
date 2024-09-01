@@ -1,14 +1,18 @@
 #+TITLE: dark-mode
 #+DATE: 2024-08-17T17:52:00+0800
-#+LASTMOD: 2024-08-17T19:01:59+0800
+#+LASTMOD: 2024-09-01T11:59:08+0800
 #+TYPE: docs
 #+AUTHOR: Jiacai Liu
 #+DESCRIPTION: Configuring "Dark mode" for macOS.
 
-#+begin_src bash
- $ dark-mode -h
+#+begin_src bash :results verbatim :exports results :wrap example :dir ../../..
+./zig-out/bin/dark-mode -h
+#+end_src
+
+#+RESULTS:
+#+begin_example
  USAGE:
-     dark-mode [OPTIONS] [--] <command>
+     ./zig-out/bin/dark-mode [OPTIONS] [--] <command>
 
  Available commands:
    status                   View dark mode status
@@ -19,4 +23,4 @@
  OPTIONS:
 	-v, --version                     Print version
 	-h, --help                        Print help information
-#+end_src
+#+end_example

@@ -1,17 +1,21 @@
 #+TITLE: repeat
 #+DATE: 2024-08-17T17:52:32+0800
-#+LASTMOD: 2024-08-17T18:58:53+0800
+#+LASTMOD: 2024-09-01T11:57:51+0800
 #+TYPE: docs
 #+DESCRIPTION: Execute a command repeatly until it succeeds.
 
-#+begin_src bash
- $ ./zig-out/bin/repeat -h
+#+begin_src bash :results verbatim :exports results :wrap example :dir ../../..
+./zig-out/bin/repeat -h
+#+end_src
+
+#+RESULTS:
+#+begin_example
  USAGE:
      ./zig-out/bin/repeat [OPTIONS] [--] command
 
  OPTIONS:
-	-m, --max INTEGER                 Max times to repeat
-	-i, --interval INTEGER            Pause interval(in seconds) between repeats
-	-v, --version                     Print version
-	-h, --help                        Print help information
-#+end_src
+  -m, --max INTEGER                Max times to repeat
+  -i, --interval INTEGER           Pause interval(in seconds) between repeats
+  -v, --version                    Print version
+  -h, --help                       Print help information
+#+end_example

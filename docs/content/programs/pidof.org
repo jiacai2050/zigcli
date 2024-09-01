@@ -1,11 +1,15 @@
 #+TITLE: pidof
 #+DATE: 2024-08-17T17:52:44+0800
-#+LASTMOD: 2024-08-17T18:57:58+0800
+#+LASTMOD: 2024-09-01T11:56:51+0800
 #+TYPE: docs
 #+DESCRIPTION: Linux has this command, but not macOS, so I write it for you.
 
-#+begin_src bash
-$ ./zig-out/bin/pidof -h
+#+begin_src bash :results verbatim :exports results :wrap example :dir ../../..
+./zig-out/bin/pidof -h
+#+end_src
+
+#+RESULTS:
+#+begin_example
  USAGE:
      ./zig-out/bin/pidof [OPTIONS] [--] [program]
 
@@ -15,4 +19,4 @@ $ ./zig-out/bin/pidof -h
 	-u, --user_only                   Only show process belonging to current user.
 	-v, --version                     Print version.
 	-h, --help                        Print help message.
-#+end_src
+#+end_example

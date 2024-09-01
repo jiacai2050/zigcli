@@ -1,25 +1,27 @@
 #+TITLE: tree
 #+DATE: 2024-08-17T17:52:22+0800
-#+LASTMOD: 2024-08-17T19:02:08+0800
+#+LASTMOD: 2024-09-01T11:56:26+0800
 #+TYPE: docs
 #+DESCRIPTION: Display the directory structure of a path in a tree-like format
 
-#+begin_src
-$ ./zig-out/bin/tree -h
+#+begin_src bash :results verbatim :exports results :wrap example :dir ../../..
+./zig-out/bin/tree -h
+#+end_src
+
+#+RESULTS:
+#+begin_example
  USAGE:
      ./zig-out/bin/tree [OPTIONS] [--] [directory]
 
  OPTIONS:
-	-m, --mode STRING                 Line drawing characters. (valid: ascii|box|dos)(default: box)
-	-a, --all                         All files are printed.
-	-s, --size                        Print the size of each file in bytes along with the name.
-	-d, --directory                   List directories only.
-	-L, --level INTEGER               Max display depth of the directory tree.
-	-v, --version                     Print version.
-	-h, --help                        Print help information.
-
-
-#+end_src
+  -m, --mode STRING                Line drawing characters. (valid: ascii|box|dos)(default: box)
+  -a, --all                        All files are printed.
+  -s, --size                       Print the size of each file in bytes along with the name.
+  -d, --directory                  List directories only.
+  -L, --level INTEGER              Max display depth of the directory tree.
+  -v, --version                    Print version.
+  -h, --help                       Print help information.
+#+end_example
 
 ** Demo
 #+begin_src bash

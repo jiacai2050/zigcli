@@ -1,26 +1,12 @@
 const std = @import("std");
 const simargs = @import("simargs");
 const util = @import("util.zig");
-const process = std.process;
-const fs = std.fs;
+const debugPrint = util.debugPrint;
 const net = std.net;
 const mem = std.mem;
 
-var verbose: bool = false;
-
-fn debugPrint(
-    comptime format: []const u8,
-    args: anytype,
-) void {
-    if (verbose) {
-        std.debug.print(format, args);
-    }
-}
-
 pub fn main() !void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = std.heap.page_allocator;
 
     const opt = try simargs.parse(allocator, struct {
         bind_host: []const u8,
@@ -28,7 +14,7 @@ pub fn main() !void {
         remote_host: []const u8,
         remote_port: u16,
         buf_size: usize = 1024,
-        thread_pool_size: u32 = 24,
+        server_threads: u32 = 24,
         help: bool = false,
         version: bool = false,
         verbose: bool = false,
@@ -48,10 +34,13 @@ pub fn main() !void {
             .remote_host = "Remote host",
             .remote_port = "Remote port",
             .buf_size = "Buffer size for tcp read/write",
+            .server_threads = "Server worker threads num",
         };
     }, null, util.get_build_info());
 
-    verbose = opt.args.verbose;
+    if (opt.args.verbose) {
+        util.enableVerbose.call();
+    }
 
     const bind_addr = try net.Address.resolveIp(opt.args.bind_host, opt.args.local_port);
     const remote_addr = try net.Address.resolveIp(opt.args.remote_host, opt.args.remote_port);
@@ -66,18 +55,18 @@ pub fn main() !void {
 
     try pool.init(.{
         .allocator = allocator,
-        .n_jobs = opt.args.thread_pool_size,
+        .n_jobs = opt.args.server_threads,
     });
     while (true) {
         const client = try server.accept();
         debugPrint("Got new connection, addr:{any}\n", .{client.address});
 
-        const proxy = Proxy.init(allocator, client, remote_addr) catch |e| {
+        const proxy = Proxy.init(allocator, client, remote_addr, opt.args.buf_size) catch |e| {
             std.log.err("Init proxy failed, remote:{any}, err:{any}", .{ remote_addr, e });
             client.stream.close();
             continue;
         };
-        proxy.nonblockingCommunicate(pool, opt.args.buf_size) catch |e| {
+        proxy.nonblockingCommunicate(pool) catch |e| {
             proxy.deinit();
             std.log.err("Communicate, remote:{any}, err:{any}", .{ remote_addr, e });
         };
@@ -90,82 +79,90 @@ const Proxy = struct {
     remote_addr: net.Address,
     allocator: mem.Allocator,
 
-    pub fn init(allocator: mem.Allocator, conn: net.Server.Connection, remote: net.Address) !Proxy {
+    doubled_buf: []u8,
+    buf_size: usize,
+
+    pub fn init(allocator: mem.Allocator, conn: net.Server.Connection, remote: net.Address, buf_size: usize) !Proxy {
         const remote_conn = try net.tcpConnectToAddress(remote);
+        const buf = try allocator.alloc(u8, buf_size * 2);
         return .{
             .allocator = allocator,
             .conn = conn,
             .remote_conn = remote_conn,
             .remote_addr = remote,
-        };
-    }
-
-    fn copyStreamNoError(
-        allocator: mem.Allocator,
-        src: net.Stream,
-        dst: net.Stream,
-        buf_size: usize,
-    ) void {
-        Proxy.copyStream(allocator, src, dst, buf_size) catch |e|
-            switch (e) {
-            error.NotOpenForReading => {},
-            else => {
-                std.log.err("copy stream error: {any}\n", .{e});
-            },
+            .doubled_buf = buf,
+            .buf_size = buf_size,
         };
     }
 
     fn copyStream(
-        allocator: mem.Allocator,
+        buf: []u8,
         src: net.Stream,
         dst: net.Stream,
-        buf_size: usize,
-    ) !void {
-        var buf = try allocator.alloc(u8, buf_size);
-        defer allocator.free(buf);
+    ) void {
+        while (true) {
+            const read = src.read(buf) catch |e|
+                switch (e) {
+                error.NotOpenForReading => return,
+                else => {
+                    std.log.err("Read stream failed, err:{any}", .{e});
+                    return;
+                },
+            };
 
-        var read = try src.read(buf);
-        while (read > 0) : (read = try src.read(buf)) {
-            _ = try dst.writeAll(buf[0..read]);
+            if (read == 0) {
+                return;
+            }
+
+            _ = dst.writeAll(buf[0..read]) catch |e| {
+                std.log.err("Write stream failed, err:{any}", .{e});
+                return;
+            };
         }
     }
 
     pub fn nonblockingCommunicate(
         self: Proxy,
         pool: *std.Thread.Pool,
-        buf_size: usize,
     ) !void {
         try pool.spawn(struct {
             fn run(
                 proxy: Proxy,
                 pool_inner: *std.Thread.Pool,
-                buf_size_inner: usize,
+                src_to_remote_buf: []u8,
+                remote_to_src_buf: []u8,
             ) void {
                 var wg = std.Thread.WaitGroup{};
-                defer {
-                    wg.wait();
-                    proxy.deinit();
-                }
-
-                // When conn.stream is closed, we close this proxy.
-                pool_inner.spawnWg(&wg, Proxy.copyStreamNoError, .{
-                    proxy.allocator,
+                pool_inner.spawnWg(&wg, Proxy.copyStream, .{
+                    src_to_remote_buf,
                     proxy.conn.stream,
                     proxy.remote_conn,
-                    buf_size_inner,
                 });
-                pool_inner.spawn(Proxy.copyStreamNoError, .{
-                    proxy.allocator,
+                pool_inner.spawn(Proxy.copyStream, .{
+                    remote_to_src_buf,
                     proxy.remote_conn,
                     proxy.conn.stream,
-                    buf_size_inner,
-                }) catch unreachable;
+                }) catch |e| {
+                    proxy.deinit();
+                    std.log.err("Spawn task failed, err:{any}", .{e});
+                    return;
+                };
+
+                // Bi-directional transmissions are established, we wait until conn.stream is closed.
+                wg.wait();
+                proxy.deinit();
             }
-        }.run, .{ self, pool, buf_size });
+        }.run, .{
+            self,
+            pool,
+            self.doubled_buf[0..self.buf_size],
+            self.doubled_buf[self.buf_size..],
+        });
     }
 
     fn deinit(self: Proxy) void {
         debugPrint("Close proxy, src:{any}\n", .{self.conn.address});
+
         self.conn.stream.close();
         self.remote_conn.close();
     }
