@@ -16,8 +16,8 @@ pub fn main() !void {
     const allocator = std.heap.page_allocator;
 
     const opt = try simargs.parse(allocator, struct {
-        bind_host: []const u8,
-        local_port: u16,
+        bind_host: []const u8 = "0.0.0.0",
+        local_port: u16 = 8081,
         remote_host: []const u8,
         remote_port: u16,
         buf_size: usize = 1024 * 16,

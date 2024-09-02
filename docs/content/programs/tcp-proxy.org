@@ -1,6 +1,6 @@
 #+TITLE: tcp-proxy
 #+DATE: 2024-09-01T00:02:43+0800
-#+LASTMOD: 2024-09-01T21:05:27+0800
+#+LASTMOD: 2024-09-02T22:06:56+0800
 #+TYPE: docs
 #+DESCRIPTION: Forward TCP requests hitting a specified port on the localhost to a different port on another host
 
@@ -16,11 +16,11 @@ Both IPv4 and IPv6 are supported. On Linux [[https://man7.org/linux/man-pages/ma
      ./zig-out/bin/tcp-proxy [OPTIONS]
 
  OPTIONS:
-  -b, --bind_host STRING           Local bind host(required)
-  -p, --local_port INTEGER         Local bind port(required)
+  -b, --bind_host STRING           Local bind host(default: 0.0.0.0)
+  -p, --local_port INTEGER         Local bind port(default: 8081)
   -H, --remote_host STRING         Remote host(required)
   -P, --remote_port INTEGER        Remote port(required)
-      --buf_size INTEGER           Buffer size for tcp read/write(default: 1024)
+      --buf_size INTEGER           Buffer size for tcp read/write(default: 16384)
       --server_threads INTEGER     Server worker threads num(default: 24)
   -h, --help
   -v, --version
@@ -33,7 +33,7 @@ tcp-proxy -b 0.0.0.0 -p 8082 -H 192.168.0.2 -P 8082
 This will forward tcp requests from =localhost:8082= to =192.168.0.2:8082=
 
 * Benchmark
-[[https://iperf.fr/][iPerf3]] is used to benchmark proxy between zigcli and [[https://github.com/kklis/proxy][proxy]], which written in C.
+[[https://iperf.fr/][iPerf3]] is used to benchmark performance between zigcli and [[https://github.com/kklis/proxy][this]], a proxy written in C.
 ** All in one
 - server/client/proxy :: =192.168.31.142=, debian 12
 |            | sender | receiver |
