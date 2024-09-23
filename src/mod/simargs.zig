@@ -3,6 +3,7 @@
 const std = @import("std");
 const testing = std.testing;
 const is_test = @import("builtin").is_test;
+const is_latest_zig = @import("builtin").zig_version.minor > 13;
 
 const ParseError = error{
     NoProgram,
@@ -41,7 +42,7 @@ const OptionField = struct {
 
 fn getOptionLength(comptime T: type) usize {
     const option_type_info = @typeInfo(T);
-    if (option_type_info != .Struct) {
+    if (!isStruct(option_type_info)) {
         @compileError("option should be defined using struct, found " ++ @typeName(T));
     }
     inline for (std.meta.fields(T)) |fld| {
@@ -55,12 +56,12 @@ fn getOptionLength(comptime T: type) usize {
 
 fn buildOptionFields(comptime T: type) [getOptionLength(T)]OptionField {
     const option_type_info = @typeInfo(T);
-    if (option_type_info != .Struct) {
+    if (!isStruct(option_type_info)) {
         @compileError("option should be defined using struct, found " ++ @typeName(T));
     }
 
     var opt_fields: [getOptionLength(T)]OptionField = undefined;
-    inline for (option_type_info.Struct.fields, 0..) |fld, idx| {
+    inline for (std.meta.fields(T), 0..) |fld, idx| {
         const long_name = fld.name;
         if (std.mem.eql(u8, fld.name, COMMAND_FIELD_NAME)) {
             continue;
@@ -77,7 +78,7 @@ fn buildOptionFields(comptime T: type) [getOptionLength(T)]OptionField {
     // parse short names
     if (@hasDecl(T, "__shorts__")) {
         const shorts_type = @TypeOf(T.__shorts__);
-        if (@typeInfo(shorts_type) != .Struct) {
+        if (!isStruct(@typeInfo(shorts_type))) {
             @compileError("__shorts__ should be defined using struct, found " ++ @typeName(@typeInfo(shorts_type)));
         }
 
@@ -86,7 +87,7 @@ fn buildOptionFields(comptime T: type) [getOptionLength(T)]OptionField {
             inline for (&opt_fields) |*opt_fld| {
                 if (std.mem.eql(u8, opt_fld.long_name, long_name)) {
                     const short_name = @field(T.__shorts__, long_name);
-                    if (@typeInfo(@TypeOf(short_name)) != .EnumLiteral) {
+                    if (@typeInfo(@TypeOf(short_name)) != if (is_latest_zig) .enum_literal else .EnumLiteral) {
                         @compileError("short option value must be literal enum, found " ++ @typeName(@typeInfo(@TypeOf(short_name))));
                     }
                     opt_fld.short_name = @tagName(short_name)[0];
@@ -102,7 +103,7 @@ fn buildOptionFields(comptime T: type) [getOptionLength(T)]OptionField {
     // parse messages
     if (@hasDecl(T, "__messages__")) {
         const messages_type = @TypeOf(T.__messages__);
-        if (@typeInfo(messages_type) != .Struct) {
+        if (!isStruct(@typeInfo(messages_type))) {
             @compileError("__messages__ should be defined using struct, found " ++ @typeName(@typeInfo(messages_type)));
         }
 
@@ -148,7 +149,7 @@ test "build option fields" {
 
 fn NonOptionType(comptime opt_type: type) type {
     return switch (@typeInfo(opt_type)) {
-        .Optional => |o| NonOptionType(o.child),
+        if (is_latest_zig) .optional else .Optional => |o| NonOptionType(o.child),
         else => opt_type,
     };
 }
@@ -175,7 +176,7 @@ const MessageHelper = struct {
 
     fn printDefault(comptime f: std.builtin.Type.StructField, writer: anytype) !void {
         if (f.default_value == null) {
-            if (@typeInfo(f.type) != .Optional) {
+            if (@typeInfo(f.type) != if (is_latest_zig) .optional else .Optional) {
                 try writer.writeAll("(required)");
             }
             return;
@@ -184,8 +185,8 @@ const MessageHelper = struct {
         // Don't print default for false (?)bool
         const default = @as(*align(1) const f.type, @ptrCast(f.default_value.?)).*;
         switch (@typeInfo(f.type)) {
-            .Bool => if (!default) return,
-            .Optional => |opt| if (@typeInfo(opt.child) == .Bool)
+            if (is_latest_zig) .bool else .Bool => if (!default) return,
+            if (is_latest_zig) .optional else .Optional => |opt| if (@typeInfo(opt.child) == if (is_latest_zig) .bool else .Bool)
                 if (!(default orelse false)) return,
             else => {},
         }
@@ -193,15 +194,15 @@ const MessageHelper = struct {
         const format = "(default: " ++ switch (f.type) {
             []const u8 => "{s}",
             ?[]const u8 => "{?s}",
-            else => if (@typeInfo(NonOptionType(f.type)) == .Enum)
+            else => if (@typeInfo(NonOptionType(f.type)) == if (is_latest_zig) .@"enum" else .Enum)
                 "{s}"
             else
                 "{any}",
         } ++ ")";
 
         try std.fmt.format(writer, format, .{switch (@typeInfo(f.type)) {
-            .Enum => @tagName(default),
-            .Optional => |opt| if (@typeInfo(opt.child) == .Enum)
+            if (is_latest_zig) .@"enum" else .Enum => @tagName(default),
+            if (is_latest_zig) .optional else .Optional => |opt| if (@typeInfo(opt.child) == if (is_latest_zig) .@"enum" else .Enum)
                 @tagName(default.?)
             else
                 default,
@@ -308,7 +309,7 @@ const MessageHelper = struct {
             inline for (std.meta.fields(T)) |f| {
                 if (std.mem.eql(u8, f.name, opt_fld.long_name)) {
                     const real_type = NonOptionType(f.type);
-                    if (@typeInfo(real_type) == .Enum) {
+                    if (@typeInfo(real_type) == if (is_latest_zig) .@"enum" else .Enum) {
                         const enum_opts = try std.mem.join(aa, "|", std.meta.fieldNames(real_type));
                         try writer.writeAll(" (valid: ");
                         try writer.writeAll(enum_opts);
@@ -385,18 +386,18 @@ const OptionType = enum(u32) {
 
     fn convert(comptime T: type, comptime is_optional: bool) OptionType {
         const base_type: Self = switch (@typeInfo(T)) {
-            .Int => .RequiredInt,
-            .Bool => .RequiredBool,
-            .Float => .RequiredFloat,
-            .Optional => |opt_info| return Self.convert(opt_info.child, true),
-            .Pointer => |ptr_info|
+            if (is_latest_zig) .int else .Int => .RequiredInt,
+            if (is_latest_zig) .bool else .Bool => .RequiredBool,
+            if (is_latest_zig) .float else .Float => .RequiredFloat,
+            if (is_latest_zig) .optional else .Optional => |opt_info| return Self.convert(opt_info.child, true),
+            if (is_latest_zig) .pointer else .Pointer => |ptr_info|
             // only support []const u8
             if (ptr_info.size == .Slice and ptr_info.child == u8 and ptr_info.is_const)
                 .RequiredString
             else {
                 @compileError("not supported option type:" ++ @typeName(T));
             },
-            .Enum => .RequiredEnum,
+            if (is_latest_zig) .@"enum" else .Enum => .RequiredEnum,
             else => {
                 @compileError("not supported option type:" ++ @typeName(T));
             },
@@ -443,14 +444,14 @@ const MessageWrapper = struct {
 
 fn subCommandsHelpMsg(comptime T: type, comptime len: usize) ?[len]MessageWrapper {
     const union_type_info = @typeInfo(T);
-    if (union_type_info != .Union) {
+    if (union_type_info != if (is_latest_zig) .@"union" else .Union) {
         @compileError("sub commands should be defined using Union(enum), found " ++ @typeName(T));
     }
 
     if (@hasDecl(T, "__messages__")) {
         const messages_type = @TypeOf(T.__messages__);
-        if (@typeInfo(messages_type) != .Struct) {
-            @compileError("__messages__ should be defined using struct, found " ++ @typeName(@typeInfo(messages_type)));
+        if (comptime !isStruct(@typeInfo(messages_type))) {
+            @compileError("__messages__ should be defined using struct");
         }
 
         var fields: [std.meta.fields(messages_type).len]MessageWrapper = undefined;
@@ -476,13 +477,13 @@ fn subCommandsHelpMsg(comptime T: type, comptime len: usize) ?[len]MessageWrappe
 
 fn SubCommandsType(comptime T: type) type {
     const union_type_info = @typeInfo(T);
-    if (union_type_info != .Union) {
+    if (union_type_info != if (is_latest_zig) .@"union" else .Union) {
         @compileError("sub commands should be defined using Union(enum), found " ++ @typeName(T));
     }
 
     var fields: [std.meta.fields(T).len]std.builtin.Type.StructField = undefined;
-    inline for (union_type_info.Union.fields, 0..) |fld, idx| {
-        comptime if (@typeInfo(fld.type) != .Struct) {
+    inline for (std.meta.fields(T), 0..) |fld, idx| {
+        comptime if (!isStruct(@typeInfo(fld.type))) {
             @compileError("sub command should be defined using struct, found " ++ @typeName(@typeInfo(fld.type)));
         };
         const FieldType = CommandParser(fld.type);
@@ -495,7 +496,12 @@ fn SubCommandsType(comptime T: type) type {
             .alignment = @alignOf(FieldType),
         };
     }
-    return @Type(.{ .Struct = .{
+    return if (is_latest_zig) @Type(.{ .@"struct" = .{
+        .layout = .auto,
+        .fields = &fields,
+        .decls = &.{},
+        .is_tuple = false,
+    } }) else @Type(.{ .Struct = .{
         .layout = .auto,
         .fields = &fields,
         .decls = &.{},
@@ -748,8 +754,8 @@ fn OptionParser(
 
         fn getSignedness(comptime opt_type: type) std.builtin.Signedness {
             return switch (@typeInfo(opt_type)) {
-                .Int => |i| i.signedness,
-                .Optional => |o| Self.getSignedness(o.child),
+                if (is_latest_zig) .int else .Int => |i| i.signedness,
+                if (is_latest_zig) .optional else .Optional => |o| Self.getSignedness(o.child),
                 else => @compileError("not int type, have no signedness"),
             };
         }
@@ -1139,4 +1145,8 @@ test "parse/sub commands" {
         \\      --a INTEGER                  (default: 1)
         \\
     , help_msg.items);
+}
+
+fn isStruct(info: std.builtin.Type) bool {
+    return if (is_latest_zig) info == .@"struct" else info == .Struct;
 }
