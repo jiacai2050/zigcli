@@ -169,7 +169,8 @@ fn makeCompileStep(
 ) ?*Build.Step.Compile {
     const name = comptime source.name();
     const path = comptime source.path();
-    if (std.mem.eql(u8, name, "night-shift") or std.mem.eql(u8, name, "dark-mode") or std.mem.eql(u8, name, "pidof")) {
+    const is_darwin = target.result.isDarwin();
+    if (std.mem.eql(u8, name, "night-shift") or std.mem.eql(u8, name, "dark-mode")) {
         // if (target.getOsTag() != .macos) {
         if (is_ci) {
             // zig build -Dtarget=aarch64-macos  will throw error
@@ -199,7 +200,15 @@ fn makeCompileStep(
         exe.linkFramework("SkyLight");
     } else if (std.mem.eql(u8, name, "tcp-proxy")) {
         exe.linkLibC();
+    } else if (std.mem.eql(u8, name, "pidof")) {
+        // only build for macOS
+        if (is_darwin) {
+            exe.linkLibC();
+        } else {
+            return null;
+        }
     }
+
     const install_step = b.step("install-" ++ name, "Install " ++ name);
     install_step.dependOn(&b.addInstallArtifact(exe, .{}).step);
     return exe;

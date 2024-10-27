@@ -89,12 +89,12 @@ pub fn main() !void {
     const opt = try simargs.parse(allocator, Options, "[program]", util.get_build_info());
     defer opt.deinit();
 
-    if (opt.positional_args.items.len == 0) {
+    if (opt.positional_args.len == 0) {
         std.debug.print("program is not given", .{});
         std.posix.exit(1);
     }
 
-    const program = opt.positional_args.items[0];
+    const program = opt.positional_args[0];
 
     const pids = try findPids(allocator, opt.args, program);
     if (pids.items.len == 0) {
