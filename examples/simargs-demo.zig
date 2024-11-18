@@ -1,7 +1,7 @@
 const std = @import("std");
 const simargs = @import("simargs");
 
-pub const std_options = .{
+pub const std_options: std.Options = .{
     .log_level = .info,
 };
 

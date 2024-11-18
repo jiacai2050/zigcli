@@ -5,7 +5,7 @@ const debugPrint = util.debugPrint;
 const net = std.net;
 const mem = std.mem;
 
-pub const std_options = .{
+pub const std_options: std.Options = .{
     .log_level = .debug,
 };
 

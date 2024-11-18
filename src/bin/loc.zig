@@ -6,7 +6,7 @@ const util = @import("util.zig");
 const StringUtil = util.StringUtil;
 const fs = std.fs;
 
-pub const std_options = .{
+pub const std_options: std.Options = .{
     .log_level = .info,
 };
 
