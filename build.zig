@@ -174,6 +174,11 @@ fn makeCompileStep(
     const is_darwin = target.result.isDarwin();
     _ = is_ci;
 
+    if (!is_darwin) {
+        if (std.mem.eql(u8, name, "night-shift") or std.mem.eql(u8, name, "dark-mode")) {
+            return null;
+        }
+    }
     const exe = b.addExecutable(.{
         .name = name,
         .root_source_file = b.path(path ++ "/" ++ name ++ ".zig"),
