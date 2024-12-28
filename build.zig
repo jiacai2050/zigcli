@@ -1,6 +1,8 @@
 const std = @import("std");
 const Build = std.Build;
 
+const macos_private_framework = "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/PrivateFrameworks/";
+
 pub fn build(b: *Build) !void {
     const optimize = b.standardOptimizeOption(.{});
     const target = b.standardTargetOptions(.{});
@@ -170,19 +172,7 @@ fn makeCompileStep(
     const name = comptime source.name();
     const path = comptime source.path();
     const is_darwin = target.result.isDarwin();
-    if (std.mem.eql(u8, name, "night-shift") or std.mem.eql(u8, name, "dark-mode")) {
-        // if (target.getOsTag() != .macos) {
-        if (is_ci) {
-            // zig build -Dtarget=aarch64-macos  will throw error
-            // error: warning(link): library not found for '-lobjc'
-            // warning(link): Library search paths:
-            // warning(link): framework not found for '-framework CoreBrightness'
-            // warning(link): Framework search paths:
-            // warning(link):   /System/Library/PrivateFrameworks
-            // so disable this in CI environment.
-            return null;
-        }
-    }
+    _ = is_ci;
 
     const exe = b.addExecutable(.{
         .name = name,
@@ -193,10 +183,10 @@ fn makeCompileStep(
 
     if (std.mem.eql(u8, name, "night-shift")) {
         exe.linkSystemLibrary("objc");
-        exe.addFrameworkPath(.{ .cwd_relative = "/System/Library/PrivateFrameworks" });
+        exe.addFrameworkPath(.{ .cwd_relative = macos_private_framework });
         exe.linkFramework("CoreBrightness");
     } else if (std.mem.eql(u8, name, "dark-mode")) {
-        exe.addFrameworkPath(.{ .cwd_relative = "/System/Library/PrivateFrameworks" });
+        exe.addFrameworkPath(.{ .cwd_relative = macos_private_framework });
         exe.linkFramework("SkyLight");
     } else if (std.mem.eql(u8, name, "tcp-proxy")) {
         exe.linkLibC();

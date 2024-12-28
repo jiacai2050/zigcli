@@ -559,8 +559,13 @@ fn OptionParser(
         ) !Args {
             var args: Args = undefined;
             var parser = CommandParser(Args){};
+            var sub_cmd_set = false;
             inline for (std.meta.fields(Args)) |fld| {
                 if (comptime std.mem.eql(u8, fld.name, COMMAND_FIELD_NAME)) {
+                    if (fld.default_value) |v| {
+                        sub_cmd_set = true;
+                        @field(args, fld.name) = @as(*align(1) const fld.type, @ptrCast(v)).*;
+                    }
                     continue;
                 }
 
@@ -578,7 +583,6 @@ fn OptionParser(
 
             var state = ParseState.start;
             var current_opt: ?*OptionField = null;
-            var sub_cmd_set = false;
             outer: while (arg_idx.* < input_args.len) {
                 const arg = input_args[arg_idx.*];
                 // Point to the next argument
