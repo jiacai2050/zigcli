@@ -846,11 +846,8 @@ test "parse/valid option values" {
         .@"user-agent" = "firefox",
     }, opt.args);
 
-    var expected = [_][]const u8{ "hello", "world" };
-    try std.testing.expectEqualDeep(
-        opt.positional_args,
-        &expected,
-    );
+    const expected = args[args.len - 2 ..];
+    try std.testing.expectEqualDeep(opt.positional_args, expected);
 
     var help_msg = std.ArrayList(u8).init(allocator);
     defer help_msg.deinit();
@@ -900,12 +897,10 @@ test "parse/bool value" {
         defer opt.deinit();
 
         try std.testing.expect(opt.args.help);
-        var expected = [_][]const u8{
-            "true",
-        };
+        const expected = args[args.len - 1 ..];
         try std.testing.expectEqualDeep(
             opt.positional_args,
-            &expected,
+            expected,
         );
     }
 }
@@ -1083,8 +1078,8 @@ test "parse/positional arguments" {
     defer opt.deinit();
 
     try std.testing.expectEqualDeep(opt.args.a, 1);
-    var expected = [_][]const u8{ "-a", "2" };
-    try std.testing.expectEqualDeep(opt.positional_args, &expected);
+    const expected = args[args.len - 2 ..];
+    try std.testing.expectEqualDeep(opt.positional_args, expected);
 
     var help_msg = std.ArrayList(u8).init(allocator);
     defer help_msg.deinit();
