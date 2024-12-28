@@ -43,11 +43,6 @@ jobs:
           zig fmt --check .
           zig build test -Dis_ci=true
           zig build -Dis_ci=true
-      - name: debug
-        if: always()
-        run: |
-          find $(xcrun --show-sdk-path) -name "objc.h"
-          find $(xcrun --show-sdk-path) -name SkyLight.tbd
 
   cross-compile:
     timeout-minutes: 10

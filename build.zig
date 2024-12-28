@@ -171,7 +171,9 @@ fn makeCompileStep(
 ) ?*Build.Step.Compile {
     const name = comptime source.name();
     const path = comptime source.path();
-    const is_darwin = target.result.isDarwin() or @import("builtin").os.tag == .macos;
+    // We canit use `target.result.isDarwin()` here
+    // Since when cross compile to darwin, there is no framework in the host!
+    const is_darwin = @import("builtin").os.tag == .macos;
     _ = is_ci;
 
     if (!is_darwin) {
