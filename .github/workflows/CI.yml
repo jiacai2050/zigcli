@@ -15,6 +15,10 @@ on:
       - '**.zig'
       - '.github/workflows/CI.yml'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     timeout-minutes: 10
@@ -35,14 +39,15 @@ jobs:
         if: matrix.os == 'windows-latest'
         run: |
           zig.exe fmt --check .
-          zig.exe build test -Dis_ci=true
-          zig.exe build -Dis_ci=true
+          zig.exe build test
+          zig.exe build
       - name: fmt and test(unix)
         if: matrix.os != 'windows-latest'
         run: |
           zig fmt --check .
-          zig build test -Dis_ci=true
-          zig build -Dis_ci=true
+          zig build test
+          zig build
+          find zig-out
 
   cross-compile:
     timeout-minutes: 10
@@ -59,4 +64,4 @@ jobs:
           version: 0.13.0
       - name: Build
         run: |
-          zig build -Dtarget=${{ matrix.targets }} -Dis_ci
+          zig build -Dtarget=${{ matrix.targets }}

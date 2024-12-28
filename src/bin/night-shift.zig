@@ -185,7 +185,7 @@ const Command = enum {
     Temp,
     Schedule,
 
-    const FromString = std.ComptimeStringMap(@This(), .{
+    const FromString = std.StaticStringMap(Command).initComptime(.{
         .{ "status", .Status },
         .{ "on", .On },
         .{ "off", .Off },
@@ -235,7 +235,7 @@ pub fn main() !void {
     , util.get_build_info());
     defer opt.deinit();
 
-    var args_iter = util.SliceIter([]const u8).init(opt.positional_args.items);
+    var args_iter = util.SliceIter([]const u8).init(opt.positional_args);
     const cmd: Command = if (args_iter.next()) |v|
         Command.FromString.get(v) orelse return error.UnknownCommand
     else
@@ -295,7 +295,7 @@ pub fn main() !void {
             } else {
                 const from = sub_cmd;
                 const to = args_iter.next() orelse return error.MissingTo;
-                const schedule = .{ .Custom = .{
+                const schedule = Schedule{ .Custom = .{
                     .from_time = try Time.fromString(from),
                     .to_time = try Time.fromString(to),
                 } };

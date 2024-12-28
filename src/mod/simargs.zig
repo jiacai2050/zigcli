@@ -559,8 +559,13 @@ fn OptionParser(
         ) !Args {
             var args: Args = undefined;
             var parser = CommandParser(Args){};
+            var sub_cmd_set = false;
             inline for (std.meta.fields(Args)) |fld| {
                 if (comptime std.mem.eql(u8, fld.name, COMMAND_FIELD_NAME)) {
+                    if (fld.default_value) |v| {
+                        sub_cmd_set = true;
+                        @field(args, fld.name) = @as(*align(1) const fld.type, @ptrCast(v)).*;
+                    }
                     continue;
                 }
 
@@ -578,7 +583,6 @@ fn OptionParser(
 
             var state = ParseState.start;
             var current_opt: ?*OptionField = null;
-            var sub_cmd_set = false;
             outer: while (arg_idx.* < input_args.len) {
                 const arg = input_args[arg_idx.*];
                 // Point to the next argument
@@ -842,11 +846,8 @@ test "parse/valid option values" {
         .@"user-agent" = "firefox",
     }, opt.args);
 
-    var expected = [_][]const u8{ "hello", "world" };
-    try std.testing.expectEqualDeep(
-        opt.positional_args,
-        &expected,
-    );
+    const expected = args[args.len - 2 ..];
+    try std.testing.expectEqualDeep(opt.positional_args, expected);
 
     var help_msg = std.ArrayList(u8).init(allocator);
     defer help_msg.deinit();
@@ -896,12 +897,10 @@ test "parse/bool value" {
         defer opt.deinit();
 
         try std.testing.expect(opt.args.help);
-        var expected = [_][]const u8{
-            "true",
-        };
+        const expected = args[args.len - 1 ..];
         try std.testing.expectEqualDeep(
             opt.positional_args,
-            &expected,
+            expected,
         );
     }
 }
@@ -1079,8 +1078,8 @@ test "parse/positional arguments" {
     defer opt.deinit();
 
     try std.testing.expectEqualDeep(opt.args.a, 1);
-    var expected = [_][]const u8{ "-a", "2" };
-    try std.testing.expectEqualDeep(opt.positional_args, &expected);
+    const expected = args[args.len - 2 ..];
+    try std.testing.expectEqualDeep(opt.positional_args, expected);
 
     var help_msg = std.ArrayList(u8).init(allocator);
     defer help_msg.deinit();

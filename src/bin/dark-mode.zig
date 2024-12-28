@@ -8,20 +8,6 @@ const util = @import("util.zig");
 extern "c" fn SLSSetAppearanceThemeLegacy(bool) void;
 extern "c" fn SLSGetAppearanceThemeLegacy() bool;
 
-const Command = enum {
-    Status,
-    On,
-    Off,
-    Toggle,
-
-    const FromString = std.ComptimeStringMap(@This(), .{
-        .{ "status", .Status },
-        .{ "on", .On },
-        .{ "off", .Off },
-        .{ "toggle", .Toggle },
-    });
-};
-
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
@@ -31,34 +17,33 @@ pub fn main() !void {
         version: bool = false,
         help: bool = false,
 
+        __commands__: union(enum) {
+            on: struct {},
+            off: struct {},
+            toggle: struct {},
+            status: struct {},
+
+            pub const __messages__ = .{
+                .on = "Turn dark mode on",
+                .off = "Turn dark mode off",
+                .toggle = "Toggle dark mode",
+                .status = "View dark mode status (default)",
+            };
+        } = .{ .status = .{} },
+
         pub const __shorts__ = .{
             .version = .v,
             .help = .h,
         };
-
         pub const __messages__ = .{
             .help = "Print help information",
             .version = "Print version",
         };
-    },
-        \\<command>
-        \\
-        \\ Available commands:
-        \\   status                   View dark mode status
-        \\   on                       Turn dark mode on
-        \\   off                      Turn dark mode off
-        \\   toggle                   Toggle dark mode
-    , util.get_build_info());
+    }, null, util.get_build_info());
     defer opt.deinit();
 
-    var args_iter = util.SliceIter([]const u8).init(opt.positional_args.items);
-    const cmd: Command = if (args_iter.next()) |v|
-        Command.FromString.get(v) orelse return error.UnknownCommand
-    else
-        .Status;
-
-    switch (cmd) {
-        .Status => {
+    switch (opt.args.__commands__) {
+        .status => {
             const is_dark = SLSGetAppearanceThemeLegacy();
             if (is_dark) {
                 std.debug.print("on", .{});
@@ -66,13 +51,13 @@ pub fn main() !void {
                 std.debug.print("off", .{});
             }
         },
-        .On => {
+        .on => {
             SLSSetAppearanceThemeLegacy(true);
         },
-        .Off => {
+        .off => {
             SLSSetAppearanceThemeLegacy(false);
         },
-        .Toggle => {
+        .toggle => {
             const is_dark = SLSGetAppearanceThemeLegacy();
             SLSSetAppearanceThemeLegacy(!is_dark);
         },
