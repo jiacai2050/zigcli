@@ -47,7 +47,7 @@ jobs:
         if: always()
         run: |
           find $(xcrun --show-sdk-path) -name "objc.h"
-          find / -name SkyLight.tbd
+          find $(xcrun --show-sdk-path) -name SkyLight.tbd
 
   cross-compile:
     timeout-minutes: 10
