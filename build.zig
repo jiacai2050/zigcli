@@ -87,7 +87,7 @@ fn buildExamples(
         "simargs-demo",
         "pretty-table-demo",
     }) |name| {
-        try buildBinary(b, .{ .ex = name }, optimize, target, false, all_tests);
+        try buildBinary(b, .{ .ex = name }, optimize, target, all_tests);
     }
 }
 
@@ -97,8 +97,6 @@ fn buildBinaries(
     target: std.Build.ResolvedTarget,
     all_tests: *std.ArrayList(*Build.Step),
 ) !void {
-    const is_ci = b.option(bool, "is_ci", "Build in CI") orelse false;
-
     inline for (.{
         "tree",
         "loc",
@@ -109,7 +107,7 @@ fn buildBinaries(
         "repeat",
         "tcp-proxy",
     }) |name| {
-        try buildBinary(b, .{ .bin = name }, optimize, target, is_ci, all_tests);
+        try buildBinary(b, .{ .bin = name }, optimize, target, all_tests);
     }
 
     // TODO: move util out of `bin`
@@ -121,10 +119,9 @@ fn buildBinary(
     comptime source: Source,
     optimize: std.builtin.Mode,
     target: std.Build.ResolvedTarget,
-    is_ci: bool,
     all_tests: *std.ArrayList(*Build.Step),
 ) !void {
-    if (makeCompileStep(b, source, optimize, target, is_ci)) |exe| {
+    if (makeCompileStep(b, source, optimize, target)) |exe| {
         var deps = b.modules.iterator();
         while (deps.next()) |dep| {
             exe.root_module.addImport(dep.key_ptr.*, dep.value_ptr.*);
@@ -167,14 +164,12 @@ fn makeCompileStep(
     comptime source: Source,
     optimize: std.builtin.Mode,
     target: std.Build.ResolvedTarget,
-    is_ci: bool,
 ) ?*Build.Step.Compile {
     const name = comptime source.name();
     const path = comptime source.path();
     // We canit use `target.result.isDarwin()` here
     // Since when cross compile to darwin, there is no framework in the host!
     const is_darwin = @import("builtin").os.tag == .macos;
-    _ = is_ci;
 
     if (!is_darwin) {
         if (std.mem.eql(u8, name, "night-shift") or std.mem.eql(u8, name, "dark-mode")) {

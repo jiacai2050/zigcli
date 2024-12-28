@@ -31,7 +31,7 @@ jobs:
       - name: Memory leak detect
         run: |
           sudo apt update && sudo apt install -y valgrind
-          zig build -Dcpu=baseline --verbose -Dis_ci
+          zig build -Dcpu=baseline --verbose
           TEST_BINARY=./zig-out/bin/simargs-demo
           valgrind --leak-check=full --tool=memcheck \
           --show-leak-kinds=all --error-exitcode=1 ${TEST_BINARY} --output a.out \

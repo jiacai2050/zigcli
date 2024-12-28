@@ -48,7 +48,7 @@ jobs:
         run: |
           zig build -Dtarget=${{ matrix.targets }} -Doptimize=ReleaseSafe \
           -Dgit_commit=${{ github.head_ref }}-${{ github.sha }} \
-          -Dbuild_date=${{ env.BUILD_DATE }} -Dis_ci=true
+          -Dbuild_date=${{ env.BUILD_DATE }}
           tar -cvf zigcli.tar zig-out/bin/
       - name: Upload
         uses: actions/upload-artifact@v4

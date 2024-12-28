@@ -295,7 +295,7 @@ pub fn main() !void {
             } else {
                 const from = sub_cmd;
                 const to = args_iter.next() orelse return error.MissingTo;
-                const schedule = .{ .Custom = .{
+                const schedule = Schedule{ .Custom = .{
                     .from_time = try Time.fromString(from),
                     .to_time = try Time.fromString(to),
                 } };
