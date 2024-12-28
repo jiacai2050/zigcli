@@ -98,6 +98,7 @@ fn buildBinaries(
     all_tests: *std.ArrayList(*Build.Step),
 ) !void {
     inline for (.{
+        "zigfetch",
         "tree",
         "loc",
         "pidof",
@@ -191,6 +192,11 @@ fn makeCompileStep(
         exe.addFrameworkPath(.{ .cwd_relative = macos_private_framework });
         exe.linkFramework("SkyLight");
     } else if (std.mem.eql(u8, name, "tcp-proxy")) {
+        exe.linkLibC();
+    } else if (std.mem.eql(u8, name, "zigfetch")) {
+        const dep_curl = b.dependency("curl", .{ .link_vendor = false });
+        exe.root_module.addImport("curl", dep_curl.module("curl"));
+        exe.linkSystemLibrary("curl");
         exe.linkLibC();
     } else if (std.mem.eql(u8, name, "pidof")) {
         // only build for macOS
