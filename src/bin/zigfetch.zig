@@ -2,6 +2,7 @@ const std = @import("std");
 const curl = @import("curl");
 const simargs = @import("simargs");
 const util = @import("util.zig");
+const Manifest = @import("./pkg/Manifest.zig");
 const fs = std.fs;
 const log = std.log;
 const mem = std.mem;
@@ -17,6 +18,18 @@ pub fn main() !void {
         allocator,
         struct {
             help: bool = false,
+            verbose: bool = false,
+            out_dir: []const u8,
+
+            pub const __shorts__ = .{
+                .out_dir = .o,
+                .verbose = .v,
+                .help = .h,
+            };
+            pub const __messages__ = .{
+                .out_dir = "Package output directory",
+                .help = "Show help",
+            };
         },
         "[package-url]",
         util.get_build_info(),
@@ -28,41 +41,49 @@ pub fn main() !void {
         return;
     }
     const url = opt.positional_args[0];
+    const out_dir = opt.args.out_dir;
+    const verbose = opt.args.verbose;
+
+    const buffer = try fetchPackage(allocator, url, verbose);
+    log.info("buf size:{d}", .{buffer.items.len});
+    defer buffer.deinit();
+    try untar(allocator, out_dir, buffer.items);
+    const manifest = try loadManifest(allocator, out_dir);
+    log.info("manifest =  {any}", .{manifest});
+}
+
+fn fetchPackage(allocator: Allocator, url: [:0]const u8, verbose: bool) !curl.Buffer {
     const easy = try curl.Easy.init(allocator, .{});
     try easy.setFollowLocation(true);
-    try easy.setVerbose(true);
+    try easy.setVerbose(verbose);
     defer easy.deinit();
 
     const resp = try easy.get(url);
+    // resp.
     defer resp.deinit();
-    if (resp.status_code != 200) {
+    if (resp.status_code >= 400) {
         log.err("Failed to fetch {s}: {d}\n", .{ url, resp.status_code });
-        return;
+        return error.BadFetch;
     }
-
-    try untar(allocator, "/tmp/abcd", resp.body.?.items);
-    // std.debug.print("Status code: {d}\nBody: {s}\n", .{
-    //     resp.status_code,
-    //     resp.body.?.items,
-    // });
-    // const s = fs.path.sep_str;
-    // const cache_root = "/tmp/zig-cache";
-    // const rand_int = std.crypto.random.int(u64);
-    // const tmp_dir_sub_path = "tmp" ++ s ++ hex64(rand_int);
-    // std.debug.print("Hello, world!\n", .{});
+    return resp.body.?;
 }
 
-const hex_charset = "0123456789abcdef";
-
-pub fn hex64(x: u64) [16]u8 {
-    var result: [16]u8 = undefined;
-    var i: usize = 0;
-    while (i < 8) : (i += 1) {
-        const byte = @as(u8, @truncate(x >> @as(u6, @intCast(8 * i))));
-        result[i * 2 + 0] = hex_charset[byte >> 4];
-        result[i * 2 + 1] = hex_charset[byte & 15];
-    }
-    return result;
+fn loadManifest(allocator: Allocator, dir: []const u8) !Manifest {
+    const pkg_dir = try fs.openDirAbsolute(dir, .{ .iterate = true });
+    const file = try pkg_dir.openFile(Manifest.basename, .{});
+    defer file.close();
+    const bytes = try file.readToEndAllocOptions(
+        allocator,
+        Manifest.max_bytes,
+        null,
+        1,
+        0,
+    );
+    log.info("bytes:{s}", .{bytes});
+    const ast = try std.zig.Ast.parse(allocator, bytes, .zon);
+    return Manifest.parse(allocator, ast, .{
+        .allow_missing_paths_field = true,
+    });
 }
 
 fn untar(allocator: Allocator, out_dir: []const u8, src: []const u8) !void {

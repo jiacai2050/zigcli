@@ -31,6 +31,7 @@ const Language = enum {
     TOML,
     JSON,
     TypeScript,
+    Swift,
     Other,
     // Used in footer
     Total,
@@ -83,6 +84,7 @@ const Language = enum {
         .{ ".toml", .TOML },
         .{ ".json", .JSON },
         .{ ".ts", .TypeScript },
+        .{ ".swift", .Swift },
     });
     const FilenameLangMap = std.StaticStringMap(Self).initComptime(.{
         .{ "Makefile", .Makefile },
