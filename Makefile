@@ -1,3 +1,4 @@
+.PHONY: init-docs serve test fmt build
 
 build:
 	zig build -Doptimize=ReleaseFast \
@@ -22,4 +23,8 @@ init-docs:
 serve:
 	cd docs && hugo serve -D
 
-.PHONY: init-docs serve test fmt build
+
+zf:
+	zig build run-zigfetch -- -o /tmp/yyj \
+	http://localhost:8000/c0c48df7567ea02458e9fc1f35c4088271b8d4a6.tar.gz
+	# https://github.com/jiacai2050/zigcli/archive/c0c48df7567ea02458e9fc1f35c4088271b8d4a6.tar.gz
