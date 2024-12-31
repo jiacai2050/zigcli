@@ -5,6 +5,7 @@ const util = @import("util.zig");
 const Manifest = @import("./pkg/Manifest.zig");
 const builtin = @import("builtin");
 const fs = std.fs;
+const ascii = std.ascii;
 const log = std.log;
 const mem = std.mem;
 const Allocator = mem.Allocator;
@@ -21,21 +22,20 @@ pub fn main() !void {
             help: bool = false,
             verbose: bool = false,
             debug_hash: bool = false,
-            out_dir: []const u8,
+            tmp_dir: []const u8 = "/tmp",
 
             pub const __shorts__ = .{
-                .out_dir = .o,
                 .verbose = .v,
                 .debug_hash = .d,
                 .help = .h,
             };
             pub const __messages__ = .{
-                .out_dir = "Package output directory",
+                .tmp_dir = "Temp directory for uncompress package",
                 .debug_hash = "Print hash for each file",
                 .help = "Show help",
             };
         },
-        "[package-url]",
+        "[package-dir or url]",
         util.get_build_info(),
     );
 
@@ -44,35 +44,112 @@ pub fn main() !void {
         try opt.printHelp(stdout.writer());
         return;
     }
-    const url = opt.positional_args[0];
-    const out_dir = opt.args.out_dir;
-    const verbose = opt.args.verbose;
-    const debug_hash = opt.args.debug_hash;
+    const url_or_path = opt.positional_args[0];
     const cache_dir = try resolveGlobalCacheDir(allocator);
-
-    const buffer = try fetchPackage(allocator, url, verbose);
-    defer buffer.deinit();
-    try untar(allocator, out_dir, buffer.items);
-    const manifest = try loadManifest(allocator, out_dir);
-    if (verbose) {
-        log.info("manifest = {any}", .{manifest});
-    }
-
-    const filter: Filter = .{
-        .include_paths = if (manifest) |m| m.paths else .{},
-    };
-    const actual_hash = try computeHash(
+    const fetcher = Fetcher.init(
         allocator,
-        out_dir,
-        filter,
-        debug_hash,
+        opt.args.tmp_dir,
+        opt.args.verbose,
+        opt.args.debug_hash,
+        cache_dir,
     );
-    const actual_hex = Manifest.hexDigest(actual_hash);
-    if (verbose) {
-        log.info("{s}", .{actual_hex});
+
+    if (std.mem.startsWith(u8, url_or_path, "http")) {
+        try fetcher.handleHTTP(url_or_path);
+    } else {
+        // it's a directory
+        try fetcher.handleDir(url_or_path);
     }
-    try moveToCache(allocator, out_dir, cache_dir, actual_hex);
 }
+
+const Fetcher = struct {
+    allocator: Allocator,
+    tmp_dir: []const u8,
+    verbose: bool,
+    debug_hash: bool,
+    cache_dir: []const u8,
+
+    fn init(allocator: Allocator, tmp_dir: []const u8, verbose: bool, debug_hash: bool, cache_dir: []const u8) Fetcher {
+        return Fetcher{
+            .allocator = allocator,
+            .tmp_dir = tmp_dir,
+            .verbose = verbose,
+            .debug_hash = debug_hash,
+            .cache_dir = cache_dir,
+        };
+    }
+
+    fn calcHash(self: Fetcher, dir: []const u8) anyerror!Manifest.MultiHashHexDigest {
+        const manifest = try loadManifest(self.allocator, dir);
+        if (self.verbose) {
+            log.info("manifest = {any}", .{manifest});
+        }
+
+        const filter: Filter = .{
+            .include_paths = if (manifest) |m| m.paths else .{},
+        };
+        const actual_hash = try computeHash(
+            self.allocator,
+            dir,
+            filter,
+            self.debug_hash,
+        );
+        if (manifest) |m| {
+            var it = m.dependencies.iterator();
+            while (it.next()) |entry| {
+                const dep = entry.value_ptr;
+                switch (dep.location) {
+                    .url => |pkg_url| {
+                        if (dep.hash) |hash| {
+                            const u = try std.fmt.allocPrintZ(self.allocator, "{s}", .{pkg_url});
+                            _ = try self.cachePackageFromUrl(u, hash);
+                        }
+                    },
+                    else => {},
+                }
+            }
+        }
+
+        return Manifest.hexDigest(actual_hash);
+    }
+
+    fn handleDir(self: Fetcher, path: [:0]const u8) !void {
+        const hash = try self.calcHash(path);
+        log.info("{s}", .{hash});
+    }
+
+    fn handleHTTP(self: Fetcher, url: [:0]const u8) !void {
+        const hash = try self.cachePackageFromUrl(url, null);
+        log.info("{s}", .{hash});
+    }
+
+    fn cachePackageFromUrl(
+        self: Fetcher,
+        url: [:0]const u8,
+        expected_hash: ?[]const u8,
+    ) anyerror!Manifest.MultiHashHexDigest {
+        log.info("Fetch {s}...", .{url});
+        const rand_int = std.crypto.random.int(u64);
+        const tmp_dir = try std.fmt.allocPrint(self.allocator, "{s}{s}zigfetch-{s}", .{
+            self.tmp_dir,
+            fs.path.sep_str,
+            Manifest.hex64(rand_int),
+        });
+        try fetchPackage(self.allocator, url, tmp_dir, self.verbose);
+        const actual_hash = try self.calcHash(tmp_dir);
+        if (expected_hash) |expected| {
+            if (!std.mem.eql(u8, expected, &actual_hash)) {
+                log.err("Hash incorrect for {s}, expected:{s}, actual:{s}", .{
+                    url, expected, actual_hash,
+                });
+                return error.HashNotExpected;
+            }
+        }
+        try moveToCache(self.allocator, tmp_dir, self.cache_dir, actual_hash);
+
+        return actual_hash;
+    }
+};
 
 fn moveToCache(allocator: Allocator, src_dir: []const u8, cache_dir: []const u8, hex: Manifest.MultiHashHexDigest) !void {
     const dst = try std.fmt.allocPrint(allocator, "{s}/p/{s}", .{ cache_dir, hex });
@@ -83,28 +160,49 @@ fn moveToCache(allocator: Allocator, src_dir: []const u8, cache_dir: []const u8,
         },
         else => return err,
     };
-    log.err("Dir already exists, value:{s}", .{dst});
-    return error.DirAlreadyExist;
+    log.info("Dir({s}) already exists, skip copy...", .{dst});
+    fs.deleteTreeAbsolute(src_dir) catch |e| {
+        log.err("Delete dir({s}) failed, err:{any}", .{ src_dir, e });
+    };
 }
 
-fn fetchPackage(allocator: Allocator, url: [:0]const u8, verbose: bool) !curl.Buffer {
+fn fetchPackage(allocator: Allocator, url: [:0]const u8, out_dir: []const u8, verbose: bool) !void {
     const easy = try curl.Easy.init(allocator, .{});
     try easy.setFollowLocation(true);
     try easy.setVerbose(verbose);
     defer easy.deinit();
 
     const resp = try easy.get(url);
-    errdefer resp.deinit();
+    defer resp.deinit();
 
     if (resp.status_code >= 400) {
         log.err("Failed to fetch {s}: {d}\n", .{ url, resp.status_code });
         return error.BadFetch;
     }
-    return resp.body.?;
+    const buffer = resp.body.?;
+    const header = try resp.getHeader("content-type");
+    if (header) |h| {
+        const mime_type = h.get();
+        if (ascii.eqlIgnoreCase(mime_type, "application/gzip") or
+            ascii.eqlIgnoreCase(mime_type, "application/x-gzip") or
+            ascii.eqlIgnoreCase(mime_type, "application/tar+gzip"))
+        {
+            // tar.gz
+            try untar(allocator, out_dir, buffer.items);
+        } else if (ascii.eqlIgnoreCase(mime_type, "application/zip")) {
+            // zip
+            try unzip(allocator, out_dir, buffer.items);
+        } else {
+            log.err("Unknown mime type:{s}", .{mime_type});
+            return error.UnsupportedType;
+        }
+    } else {
+        return error.NoContentTypeHeader;
+    }
 }
 
 fn loadManifest(allocator: Allocator, dir: []const u8) !?Manifest {
-    const pkg_dir = try fs.openDirAbsolute(dir, .{ .iterate = true });
+    const pkg_dir = try fs.openDirAbsolute(dir, .{ .iterate = false });
     const file = pkg_dir.openFile(Manifest.basename, .{}) catch |err| switch (err) {
         error.FileNotFound => return null,
         else => return err,
@@ -124,23 +222,46 @@ fn loadManifest(allocator: Allocator, dir: []const u8) !?Manifest {
     return manifest;
 }
 
-fn untar(allocator: Allocator, out_dir: []const u8, src: []const u8) !void {
-    _ = fs.openDirAbsolute(out_dir, .{}) catch |err| switch (err) {
-        error.FileNotFound => {
-            log.info("{s} not existing, try create it...", .{out_dir});
-            try fs.makeDirAbsolute(out_dir);
-        },
-        else => return err,
+fn unzip(allocator: Allocator, out_dir: []const u8, src: []const u8) !void {
+    const rand_int = std.crypto.random.int(u64);
+    const tmp_file = try std.fmt.allocPrint(allocator, "/tmp/tmpzip-{s}.zip", .{
+        Manifest.hex64(rand_int),
+    });
+    const zip_file = try fs.createFileAbsolute(tmp_file, .{
+        .exclusive = true,
+        .read = true,
+    });
+    // defer fs.deleteFileAbsolute(tmp_file) catch {};
+    try zip_file.writeAll(src);
+
+    try fs.makeDirAbsolute(out_dir);
+    const out = try fs.openDirAbsolute(out_dir, .{});
+    std.zip.extract(out, zip_file.seekableStream(), .{
+        .allow_backslashes = true,
+    }) catch |err| {
+        log.err(
+            "zip extract failed: {s}",
+            .{@errorName(err)},
+        );
+        return err;
     };
+}
+
+fn untar(allocator: Allocator, out_dir: []const u8, src: []const u8) !void {
+    try fs.makeDirAbsolute(out_dir);
 
     const argv = [_][]const u8{
         "tar",
-        "-x",
+        "-xz",
         "--strip-components=1",
         "-C",
         out_dir,
     };
-    var child = Child.init(&argv, allocator);
+    return execShell(allocator, &argv, src);
+}
+
+fn execShell(allocator: Allocator, argv: []const []const u8, src: []const u8) !void {
+    var child = Child.init(argv, allocator);
     child.stdin_behavior = .Pipe;
     try child.spawn();
 
@@ -159,11 +280,10 @@ fn untar(allocator: Allocator, out_dir: []const u8, src: []const u8) !void {
         },
         else => {},
     }
-    log.err("Failed to untar, term:{any}", .{term});
-    return error.Untar;
+    log.err("Failed to exec shell, term:{any}", .{term});
+    return error.ExecShell;
 }
 
-// fn unzip(out_dir: fs.Dir, reader: anytype) !void {}
 const Filter = struct {
     include_paths: std.StringArrayHashMapUnmanaged(void) = .{},
 

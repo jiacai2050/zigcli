@@ -25,6 +25,5 @@ serve:
 
 
 zf:
-	zig build run-zigfetch -- -o /tmp/yyj \
+	zig build run-zigfetch --  \
 	http://localhost:8000/c0c48df7567ea02458e9fc1f35c4088271b8d4a6.tar.gz
-	# https://github.com/jiacai2050/zigcli/archive/c0c48df7567ea02458e9fc1f35c4088271b8d4a6.tar.gz
