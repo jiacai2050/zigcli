@@ -27,7 +27,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        zig-version: [0.13.0, master]
+        zig-version: [0.13.0]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -41,6 +41,10 @@ jobs:
           zig.exe fmt --check .
           zig.exe build test
           zig.exe build
+      - name: deps(ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt update && sudo apt-get install -y libcurl4-openssl-dev
       - name: fmt and test(unix)
         if: matrix.os != 'windows-latest'
         run: |
@@ -62,6 +66,10 @@ jobs:
       - uses: mlugg/setup-zig@v1
         with:
           version: 0.13.0
+      - name: deps(ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt update && sudo apt-get install -y libcurl4-openssl-dev
       - name: Build
         run: |
           zig build -Dtarget=${{ matrix.targets }}
