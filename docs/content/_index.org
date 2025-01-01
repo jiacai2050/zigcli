@@ -1,6 +1,6 @@
 #+TITLE: Zigcli
 #+DATE: 2023-10-21T12:09:48+0800
-#+LASTMOD: 2025-01-01T18:00:54+0800
+#+LASTMOD: 2025-01-01T19:29:01+0800
 #+TYPE: docs
 #+author: Jiacai Liu
 
@@ -15,12 +15,10 @@
 
 Official website: https://zigcli.liujiacai.net/
 
-It can be imported as [[https://zigcli.liujiacai.net/modules/][Zig modules]] or used directly as [[https://zigcli.liujiacai.net/programs/][binary programs]].
+It can be imported as [[https://zigcli.liujiacai.net/packages/][Zig packages]] or used directly as [[https://zigcli.liujiacai.net/programs/][command line programs]].
 
 * Install
-** Modules
-=zigcli= support [[https://ziglang.org/download/0.11.0/release-notes.html#Package-Management][package manager]] introduced in Zig 0.11.
-
+** Packages
 #+begin_src bash
 zig fetch --save=zigcli https://github.com/jiacai2050/zigcli/archive/${COMMIT}.tar.gz
 #+end_src
@@ -32,17 +30,17 @@ Replace ~${COMMIT}~ with a real one, then in your =build.zig=, import the module
 #+begin_src zig
 const zigcli = b.dependency("zigcli", .{});
 
-// Currently zigcli provide two modules.
+// Currently zigcli provide two packages.
 exe.root_module.addImport("simargs", zigcli.module("simargs"));
 exe.root_module.addImport("pretty-table", zigcli.module("pretty-table"));
 #+end_src
-** Binary
-Latest pre-built binaries can be downloaded on the [[https://github.com/jiacai2050/zigcli/releases][release page]], or you can build from source:
+** CLI Programs
+The latest pre-built binaries are available on the [[https://github.com/jiacai2050/zigcli/releases][release page]] or you can build it from source.
 
 #+begin_src bash
 git clone https://github.com/jiacai2050/zigcli.git
 #+end_src
-Then build with
+Then build with zig 0.13.0
 #+begin_src bash
 make build
 #+end_src
