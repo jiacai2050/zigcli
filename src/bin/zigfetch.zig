@@ -55,7 +55,18 @@ pub fn main() !void {
     }
     // Init global vars
     args = opt.args;
-    cache_dir = try resolveGlobalCacheDir(allocator);
+    {
+        cache_dir = try resolveGlobalCacheDir(allocator);
+        const p_dirname = try std.fmt.allocPrint(allocator, "{s}/p", .{cache_dir});
+        var dir = fs.openDirAbsolute(p_dirname, .{}) catch |e| switch (e) {
+            error.FileNotFound => {
+                log.err("{s} not exists, please create it first!", .{p_dirname});
+                return e;
+            },
+            else => return e,
+        };
+        dir.close();
+    }
     try thread_pool.init(.{ .allocator = allocator });
     defer thread_pool.deinit();
 
