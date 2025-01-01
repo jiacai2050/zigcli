@@ -44,6 +44,9 @@ jobs:
       - name: Set Environment Variables
         run: |
           echo "BUILD_DATE=$(date +'%Y-%m-%dT%H:%M:%S%z')" >> $GITHUB_ENV
+      - name: deps
+        run: |
+          sudo apt update && sudo apt-get install -y libcurl4-openssl-dev
       - name: Build
         run: |
           zig build -Dtarget=${{ matrix.targets }} -Doptimize=ReleaseSafe \
