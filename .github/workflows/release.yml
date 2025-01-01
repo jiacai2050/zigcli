@@ -16,6 +16,11 @@ on:
     tags:
       - "v*"
 
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
@@ -35,7 +40,7 @@ jobs:
       - name: Set env
         run: |
           echo "RELEASE_VERSION=${{  github.ref_name }}" >> $GITHUB_ENV
-          echo "OUT_DIR=/tmp/zigcli-${{  github.ref_name }}" >> $GITHUB_ENV
+          echo "OUT_DIR=/tmp/zigcli" >> $GITHUB_ENV
       - name: Build(Ubuntu)
         if: matrix.os == 'ubuntu-latest'
         run: |
@@ -43,6 +48,7 @@ jobs:
       - name: Build(MacOS)
         if: matrix.os == 'macos-latest'
         run: |
+          mkdir -p "${OUT_DIR}"
           zig build -Doptimize=ReleaseSafe \
           -Dgit_commit=${GIT_COMMIT} -Dbuild_date=${BUILD_DATE}
           rm -f zig-out/bin/*demo
