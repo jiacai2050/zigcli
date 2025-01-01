@@ -1,0 +1,18 @@
+#+TITLE: zigfetch
+#+DATE: 2025-01-01T18:01:47+0800
+#+LASTMOD: 2025-01-01T18:03:40+0800
+#+TYPE: docs
+#+DESCRIPTION: Fetch zig package, baked by libcurl.
+
+#+begin_src bash :results verbatim :exports result :dir ../../..
+./zig-out/bin/zigfetch --help
+#+end_src
+
+#+RESULTS:
+:  USAGE:
+:      ./zig-out/bin/zigfetch [OPTIONS] [--] [package-dir or url]
+:
+:  OPTIONS:
+:   -h, --help                       Show help
+:   -v, --verbose                    Show verbose log
+:   -d, --debug-hash                 Print hash for each file

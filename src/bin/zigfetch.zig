@@ -29,6 +29,7 @@ const Args = struct {
     };
     pub const __messages__ = .{
         .@"debug-hash" = "Print hash for each file",
+        .verbose = "Show verbose log",
         .help = "Show help",
     };
 };

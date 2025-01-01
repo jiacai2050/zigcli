@@ -38,8 +38,14 @@ jobs:
         with:
           version: 0.13.0
       - name: Set env
+        if: startsWith(github.ref, 'refs/tags/')
         run: |
           echo "RELEASE_VERSION=${{  github.ref_name }}" >> $GITHUB_ENV
+          echo "OUT_DIR=/tmp/zigcli" >> $GITHUB_ENV
+      - name: Set env
+        if: !startsWith(github.ref, 'refs/tags/')
+        run: |
+          echo "RELEASE_VERSION=unknown" >> $GITHUB_ENV
           echo "OUT_DIR=/tmp/zigcli" >> $GITHUB_ENV
       - name: Build(Ubuntu)
         if: matrix.os == 'ubuntu-latest'
@@ -53,6 +59,7 @@ jobs:
           -Dgit_commit=${GIT_COMMIT} -Dbuild_date=${BUILD_DATE}
           rm -f zig-out/bin/*demo
           cp LICENSE README.org zig-out
+          find zig-out
           pushd zig-out
           zip -r ${OUT_DIR}/zigcli-${RELEASE_VERSION}-aarch64-macos.zip .
           popd
@@ -61,3 +68,9 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: ${{ env.OUT_DIR }}/*
+      - name: Upload
+        if: !startsWith(github.ref, 'refs/tags/')
+        uses: actions/upload-artifact@v4
+        with:
+          name: zigcli-${{ matrix.os }}
+          path: ${{ env.OUT_DIR }}

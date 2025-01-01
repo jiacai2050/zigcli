@@ -47,6 +47,8 @@ for target in "${targets[@]}"; do
   rm -f ${dst_dir}/bin/*demo
   cp LICENSE README.org ${dst_dir}
 
+  find zig-out
+
   # 3. Zip final file
   pushd zig-out
   zip -r ${OUT_DIR}/${filename}.zip "${filename}"
