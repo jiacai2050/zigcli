@@ -168,7 +168,7 @@ fn makeCompileStep(
 ) ?*Build.Step.Compile {
     const name = comptime source.name();
     const path = comptime source.path();
-    // We canit use `target.result.isDarwin()` here
+    // We can't use `target.result.isDarwin()` here
     // Since when cross compile to darwin, there is no framework in the host!
     const is_darwin = @import("builtin").os.tag == .macos;
 
@@ -194,10 +194,19 @@ fn makeCompileStep(
     } else if (std.mem.eql(u8, name, "tcp-proxy")) {
         exe.linkLibC();
     } else if (std.mem.eql(u8, name, "zigfetch")) {
-        const dep_curl = b.dependency("curl", .{ .link_vendor = false });
-        exe.root_module.addImport("curl", dep_curl.module("curl"));
-        exe.linkSystemLibrary("curl");
-        exe.linkLibC();
+        const host_os = @import("builtin").os.tag;
+        const build_os = target.result.os.tag;
+        if (host_os != build_os) { // don't support cross compile
+            return null;
+        }
+        if (host_os == .linux or host_os == .macos) {
+            const dep_curl = b.dependency("curl", .{ .link_vendor = false });
+            exe.root_module.addImport("curl", dep_curl.module("curl"));
+            exe.linkSystemLibrary("curl");
+            exe.linkLibC();
+        } else {
+            return null;
+        }
     } else if (std.mem.eql(u8, name, "pidof")) {
         // only build for macOS
         if (is_darwin) {
