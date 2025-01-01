@@ -29,20 +29,25 @@ targets=(
 export BUILD_DATE=$(date +'%Y-%m-%dT%H:%M:%S%z')
 export GIT_COMMIT=$(git rev-parse --short HEAD)
 
-pandoc -f org -t markdown README.org -o README.md
-
 for target in "${targets[@]}"; do
   echo "Building for ${target}..."
   filename=zigcli-${VERSION}-${target}
   dst_dir=zig-out/${filename}
 
   # 1. Build
-  zig build -Doptimize=ReleaseSafe -Dtarget="${target}" -p ${dst_dir} \
-      -Dgit_commit=${GIT_COMMIT} -Dbuild_date=${BUILD_DATE} -Dis_ci=true
+  if [[ "${target}" = "x86_64-linux" ]];then
+    zig build -Doptimize=ReleaseSafe -p ${dst_dir} \
+        -Dgit_commit=${GIT_COMMIT} -Dbuild_date=${BUILD_DATE}
+  else
+    zig build -Dskip_zigfetch=true -Doptimize=ReleaseSafe -Dtarget="${target}" -p ${dst_dir} \
+        -Dgit_commit=${GIT_COMMIT} -Dbuild_date=${BUILD_DATE}
+  fi
 
   # 2. Prepare files
   rm -f ${dst_dir}/bin/*demo
-  cp LICENSE README.md ${dst_dir}
+  cp LICENSE README.org ${dst_dir}
+
+  find zig-out
 
   # 3. Zip final file
   pushd zig-out

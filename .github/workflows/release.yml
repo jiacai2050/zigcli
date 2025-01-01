@@ -2,35 +2,76 @@ name: Release
 
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - "**.zig"
+      - ".github/workflows/CI.yml"
+      - ".github/workflows/release.yml"
   push:
+    branches:
+      - main
+    paths:
+      - "**.zig"
+      - ".github/workflows/release.yml"
     tags:
       - "v*"
+
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: write
 
 jobs:
   upload-assets:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
       - uses: mlugg/setup-zig@v1
         with:
           version: 0.13.0
-      - name: Set env
+      - name: Set env(release)
+        if: startsWith(github.ref, 'refs/tags/')
         run: |
           echo "RELEASE_VERSION=${{  github.ref_name }}" >> $GITHUB_ENV
-          echo "OUT_DIR=/tmp/zigcli-${{  github.ref_name }}" >> $GITHUB_ENV
-      - name: Install
-        uses: pandoc/actions/setup@v1
-        with:
-          version: 2.19
-      - name: Build
+          echo "OUT_DIR=/tmp/zigcli" >> $GITHUB_ENV
+      - name: Set env(dev)
+        if: "!startsWith(github.ref, 'refs/tags/')"
         run: |
+          echo "RELEASE_VERSION=unknown" >> $GITHUB_ENV
+          echo "OUT_DIR=/tmp/zigcli" >> $GITHUB_ENV
+      - name: Build(Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt update && sudo apt-get install -y libcurl4-openssl-dev
           bash .github/build-release.sh
+      - name: Build(MacOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          mkdir -p "${OUT_DIR}"
+          zig build -Doptimize=ReleaseSafe \
+          -Dgit_commit=${GIT_COMMIT} -Dbuild_date=${BUILD_DATE}
+          rm -f zig-out/bin/*demo
+          cp LICENSE README.org zig-out
+          find zig-out
+          pushd zig-out
+          zip -r ${OUT_DIR}/zigcli-${RELEASE_VERSION}-aarch64-macos.zip .
+          popd
       - name: Release
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: ${{ env.OUT_DIR }}/*
+      - name: Upload
+        if: "!startsWith(github.ref, 'refs/tags/')"
+        uses: actions/upload-artifact@v4
+        with:
+          name: zigcli-${{ matrix.os }}
+          path: ${{ env.OUT_DIR }}

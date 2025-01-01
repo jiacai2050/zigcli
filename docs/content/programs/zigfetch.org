@@ -1,0 +1,28 @@
+#+TITLE: zigfetch
+#+DATE: 2025-01-01T18:01:47+0800
+#+LASTMOD: 2025-01-01T19:08:03+0800
+#+TYPE: docs
+#+DESCRIPTION: Fetch zig package, baked by libcurl.
+
+=zigfetch= behaves similarly to =zig fetch=, utilizing the capabilities of libcurl for its functionality.
+
+Since the HTTP support within Zig's standard library isn't currently stable, this issue leads to various errors during dependency downloads when building Zig projects.
+
+{{< figure src="https://fs.liujiacai.net/cdn-img/zigcli/zig-fetch-errors.webp" caption="Zig fetch errors">}}
+
+This poses a significant challenge for Chinese developers owing to [[https://en.wikipedia.org/wiki/Great_Firewall][the Great Firewall]].
+
+=zigfetch= is baked by libcurl, so [[https://curl.se/libcurl/c/libcurl-env.html][http_proxy/https_proxy]] env vars work as expected.
+
+#+begin_src bash :results verbatim :exports result :dir ../../..
+./zig-out/bin/zigfetch --help
+#+end_src
+
+#+RESULTS:
+:  USAGE:
+:      ./zig-out/bin/zigfetch [OPTIONS] [--] [package-dir or url]
+:
+:  OPTIONS:
+:   -h, --help                       Show help
+:   -v, --verbose                    Show verbose log
+:   -d, --debug-hash                 Print hash for each file

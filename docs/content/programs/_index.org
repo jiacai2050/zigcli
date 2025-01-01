@@ -1,19 +1,8 @@
 #+TITLE: Programs
 #+DATE: 2023-10-21T12:26:45+0800
-#+LASTMOD: 2024-09-28T11:50:42+0800
+#+LASTMOD: 2025-01-01T18:00:55+0800
 #+TYPE: docs
 #+WEIGHT: 20
 #+DESCRIPTION: Binary programs which can be used directly
-
-* Install
-Latest pre-built binaries can be downloaded on the [[https://github.com/jiacai2050/zigcli/releases][release page]], or you can build from source:
-
-#+begin_src bash
-git clone https://github.com/jiacai2050/zigcli.git
-#+end_src
-Then build with
-#+begin_src bash
-make build
-#+end_src
 
 * Available Programs
