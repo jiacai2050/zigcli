@@ -63,6 +63,8 @@ pub fn main() !void {
     defer allocator.free(cache_dir);
     if (std.mem.startsWith(u8, url_or_path, "http")) {
         try handleHTTP(allocator, url_or_path);
+    } else if (std.mem.startsWith(u8, url_or_path, "git+")) {
+        try handleGit(allocator, url_or_path);
     } else {
         // it's a directory
         try handleDir(allocator, url_or_path);
@@ -91,8 +93,12 @@ fn calcHash(allocator: Allocator, dir: fs.Dir, root_dirname: []const u8) anyerro
             switch (dep.location) {
                 .url => |pkg_url| {
                     if (dep.hash) |hash| {
-                        const u = try std.fmt.allocPrintZ(allocator, "{s}", .{pkg_url});
-                        _ = try cachePackageFromUrl(allocator, u, hash);
+                        if (std.mem.startsWith(u8, pkg_url, "git+")) {
+                            _ = try cachePackageFromGit(allocator, pkg_url, hash);
+                        } else {
+                            const u = try std.fmt.allocPrintZ(allocator, "{s}", .{pkg_url});
+                            _ = try cachePackageFromUrl(allocator, u, hash);
+                        }
                     }
                 },
                 else => {},
@@ -116,6 +122,106 @@ fn handleHTTP(allocator: Allocator, url: [:0]const u8) !void {
     log.info("{s}", .{hash});
 }
 
+fn handleGit(allocator: Allocator, git_url: [:0]const u8) !void {
+    const hash = try cachePackageFromGit(allocator, git_url, null);
+    log.info("{s}", .{hash});
+}
+
+fn cachePackageFromGit(
+    allocator: Allocator,
+    git_url: []const u8,
+    expected_hash: ?[]const u8,
+) anyerror!Manifest.MultiHashHexDigest {
+    const uri = try std.Uri.parse(git_url);
+    const commit_id = if (uri.fragment) |fragment|
+        try fragment.toRawMaybeAlloc(allocator)
+    else
+        return error.MissingFragment;
+    const host = if (uri.host) |host|
+        try host.toRawMaybeAlloc(allocator)
+    else
+        return error.MissingHost;
+
+    const repo_url = try std.fmt.allocPrint(allocator, "{s}://{s}{s}", .{
+        uri.scheme["git+".len..],
+        host,
+        try uri.path.toRawMaybeAlloc(allocator),
+    });
+
+    log.info("Fetch git package, repo_url:{s}, commit_id:{s}...", .{ repo_url, commit_id });
+    const rand_int = std.crypto.random.int(u64);
+    const tmp_dirname = try std.fmt.allocPrint(allocator, "{s}{s}zigfetch-{s}", .{
+        cache_dir,
+        fs.path.sep_str,
+        Manifest.hex64(rand_int),
+    });
+    defer allocator.free(tmp_dirname);
+    defer fs.deleteTreeAbsolute(tmp_dirname) catch |e| {
+        log.err("Delete dir({s}) failed, err:{any}", .{ tmp_dirname, e });
+    };
+    const clone_argv = [_][]const u8{
+        "git",
+        "clone",
+        repo_url,
+        tmp_dirname,
+    };
+    try execShell(allocator, &clone_argv);
+
+    const checkout_argv = [_][]const u8{
+        "git",
+        "-C",
+        tmp_dirname,
+        "checkout",
+        commit_id,
+    };
+    try execShell(allocator, &checkout_argv);
+
+    const git_dirname = try std.fmt.allocPrint(allocator, "{s}/.git", .{
+        tmp_dirname,
+    });
+    defer allocator.free(git_dirname);
+
+    fs.deleteTreeAbsolute(git_dirname) catch |e| {
+        log.err("Delete dir({s}) failed, err:{any}", .{ tmp_dirname, e });
+        return error.DeleteDotGit;
+    };
+
+    var dir = try fs.openDirAbsolute(tmp_dirname, .{ .iterate = true });
+    defer dir.close();
+    const actual_hash = try calcHash(allocator, dir, "");
+    if (expected_hash) |expected| {
+        if (!std.mem.eql(u8, expected, &actual_hash)) {
+            log.err("Hash incorrect for {s}, expected:{s}, actual:{s}", .{
+                repo_url, expected, actual_hash,
+            });
+            return error.HashNotExpected;
+        }
+    }
+
+    try moveToCache(allocator, tmp_dirname, actual_hash);
+    return actual_hash;
+}
+
+fn execShell(allocator: Allocator, argv: []const []const u8) !void {
+    var child = std.process.Child.init(argv, allocator);
+    if (!args.verbose) {
+        child.stdout_behavior = .Pipe;
+        child.stderr_behavior = .Pipe;
+    }
+    const term = try child.spawnAndWait();
+    switch (term) {
+        .Exited => |code| {
+            if (code != 0) {
+                return error.ExecShellFailed;
+            }
+        },
+        else => {
+            log.err("Exec git clone failed, term:{any}", .{term});
+            return error.ExecShellFailed;
+        },
+    }
+}
+
 fn cachePackageFromUrl(
     allocator: Allocator,
     url: [:0]const u8,
@@ -131,6 +237,10 @@ fn cachePackageFromUrl(
     defer allocator.free(tmp_dirname);
 
     try fs.makeDirAbsolute(tmp_dirname);
+    defer fs.deleteTreeAbsolute(tmp_dirname) catch |e| {
+        log.err("Delete dir({s}) failed, err:{any}", .{ tmp_dirname, e });
+    };
+
     var out_dir = try fs.openDirAbsolute(tmp_dirname, .{ .iterate = true });
     defer out_dir.close();
 
