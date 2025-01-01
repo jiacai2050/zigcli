@@ -194,9 +194,9 @@ fn makeCompileStep(
     } else if (std.mem.eql(u8, name, "tcp-proxy")) {
         exe.linkLibC();
     } else if (std.mem.eql(u8, name, "zigfetch")) {
-        const dep_curl = b.dependency("curl", .{ .link_vendor = false });
+        const dep_curl = b.dependency("curl", .{ .link_vendor = true });
         exe.root_module.addImport("curl", dep_curl.module("curl"));
-        exe.linkSystemLibrary("curl");
+        // exe.linkSystemLibrary("curl");
         exe.linkLibC();
     } else if (std.mem.eql(u8, name, "pidof")) {
         // only build for macOS

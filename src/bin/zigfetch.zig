@@ -13,6 +13,10 @@ const print = std.debug.print;
 const Child = std.process.Child;
 const ArrayList = std.ArrayList;
 
+pub const std_options: std.Options = .{
+    .log_level = if (builtin.mode == .Debug) .debug else .info,
+};
+
 const Args = struct {
     help: bool = false,
     verbose: bool = false,
@@ -142,8 +146,10 @@ fn cachePackageFromUrl(
             return error.HashNotExpected;
         }
     }
-    try moveToCache(allocator, tmp_dirname, actual_hash);
+    const src_dirname = try fs.path.join(allocator, &[_][]const u8{ tmp_dirname, sub_dirname });
+    defer allocator.free(src_dirname);
 
+    try moveToCache(allocator, src_dirname, actual_hash);
     return actual_hash;
 }
 
@@ -245,8 +251,8 @@ fn loadManifest(allocator: Allocator, pkg_dir: fs.Dir) !?Manifest {
 
 fn unzip(allocator: Allocator, out_dir: fs.Dir, src: []const u8) ![]const u8 {
     const rand_int = std.crypto.random.int(u64);
-    const tmp_file = try std.fmt.allocPrint(allocator, "/tmp/tmpzip-{s}.zip", .{
-        Manifest.hex64(rand_int),
+    const tmp_file = try fs.path.join(allocator, &[_][]const u8{
+        cache_dir, &Manifest.hex64(rand_int),
     });
     defer allocator.free(tmp_file);
 
