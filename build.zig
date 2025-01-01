@@ -6,11 +6,11 @@ const macos_private_framework = "/Applications/Xcode.app/Contents/Developer/Plat
 pub fn build(b: *Build) !void {
     const optimize = b.standardOptimizeOption(.{});
     const target = b.standardTargetOptions(.{});
-
+    const skip_zigfetch = b.option(bool, "skip_zigfetch", "Skip zig fetch") orelse false;
     var all_tests = std.ArrayList(*Build.Step).init(b.allocator);
 
     try addModules(b, target, &all_tests);
-    try buildBinaries(b, optimize, target, &all_tests);
+    try buildBinaries(b, optimize, target, &all_tests, skip_zigfetch);
     try buildExamples(b, optimize, target, &all_tests);
 
     const test_all_step = b.step("test", "Run all tests");
@@ -87,7 +87,7 @@ fn buildExamples(
         "simargs-demo",
         "pretty-table-demo",
     }) |name| {
-        try buildBinary(b, .{ .ex = name }, optimize, target, all_tests);
+        try buildBinary(b, .{ .ex = name }, optimize, target, all_tests, false);
     }
 }
 
@@ -96,6 +96,7 @@ fn buildBinaries(
     optimize: std.builtin.Mode,
     target: std.Build.ResolvedTarget,
     all_tests: *std.ArrayList(*Build.Step),
+    skip_zigfetch: bool,
 ) !void {
     inline for (.{
         "zigfetch",
@@ -108,7 +109,7 @@ fn buildBinaries(
         "repeat",
         "tcp-proxy",
     }) |name| {
-        try buildBinary(b, .{ .bin = name }, optimize, target, all_tests);
+        try buildBinary(b, .{ .bin = name }, optimize, target, all_tests, skip_zigfetch);
     }
 
     // TODO: move util out of `bin`
@@ -121,8 +122,9 @@ fn buildBinary(
     optimize: std.builtin.Mode,
     target: std.Build.ResolvedTarget,
     all_tests: *std.ArrayList(*Build.Step),
+    skip_zigfetch: bool,
 ) !void {
-    if (makeCompileStep(b, source, optimize, target)) |exe| {
+    if (makeCompileStep(b, source, optimize, target, skip_zigfetch)) |exe| {
         var deps = b.modules.iterator();
         while (deps.next()) |dep| {
             exe.root_module.addImport(dep.key_ptr.*, dep.value_ptr.*);
@@ -165,6 +167,7 @@ fn makeCompileStep(
     comptime source: Source,
     optimize: std.builtin.Mode,
     target: std.Build.ResolvedTarget,
+    skip_zigfetch: bool,
 ) ?*Build.Step.Compile {
     const name = comptime source.name();
     const path = comptime source.path();
@@ -194,6 +197,9 @@ fn makeCompileStep(
     } else if (std.mem.eql(u8, name, "tcp-proxy")) {
         exe.linkLibC();
     } else if (std.mem.eql(u8, name, "zigfetch")) {
+        if (skip_zigfetch) {
+            return null;
+        }
         const host_os = @import("builtin").os.tag;
         const build_os = target.result.os.tag;
         if (host_os != build_os) { // don't support cross compile
