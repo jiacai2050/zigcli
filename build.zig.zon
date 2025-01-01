@@ -9,8 +9,8 @@
     },
     .dependencies = .{
         .curl = .{
-            .url = "https://github.com/jiacai2050/zig-curl/archive/5e79c2b2e683621d0bfc537d388eaca59be34d53.tar.gz",
-            .hash = "1220439f1f38b9cae2c587abeae8b1f573f966fbb6862d4854c4127a416f150e32e1",
+            .url = "https://github.com/jiacai2050/zig-curl/archive/c8e2f43f8f042f52373c86043ec16b0f2c3388a2.tar.gz",
+            .hash = "1220e9b279355ce92cd217684a2449bd8024274eb3fc09a576deb33ca1733b9f0a1f",
         },
     },
 }

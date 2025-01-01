@@ -13,145 +13,141 @@ const print = std.debug.print;
 const Child = std.process.Child;
 const ArrayList = std.ArrayList;
 
+const Args = struct {
+    help: bool = false,
+    verbose: bool = false,
+    @"debug-hash": bool = false,
+
+    pub const __shorts__ = .{
+        .verbose = .v,
+        .@"debug-hash" = .d,
+        .help = .h,
+    };
+    pub const __messages__ = .{
+        .@"debug-hash" = "Print hash for each file",
+        .help = "Show help",
+    };
+};
+
+var args: Args = undefined;
+var cache_dir: []const u8 = undefined;
+var thread_pool: std.Thread.Pool = undefined;
+
 pub fn main() !void {
     const allocator = std.heap.page_allocator;
-
     const opt = try simargs.parse(
         allocator,
-        struct {
-            help: bool = false,
-            verbose: bool = false,
-            debug_hash: bool = false,
-            tmp_dir: []const u8 = "/tmp",
-
-            pub const __shorts__ = .{
-                .verbose = .v,
-                .debug_hash = .d,
-                .help = .h,
-            };
-            pub const __messages__ = .{
-                .tmp_dir = "Temp directory for uncompress package",
-                .debug_hash = "Print hash for each file",
-                .help = "Show help",
-            };
-        },
+        Args,
         "[package-dir or url]",
         util.get_build_info(),
     );
+    defer opt.deinit();
 
     if (opt.positional_args.len == 0) {
         const stdout = std.io.getStdOut();
         try opt.printHelp(stdout.writer());
         return;
     }
-    const url_or_path = opt.positional_args[0];
-    const cache_dir = try resolveGlobalCacheDir(allocator);
-    const fetcher = Fetcher.init(
-        allocator,
-        opt.args.tmp_dir,
-        opt.args.verbose,
-        opt.args.debug_hash,
-        cache_dir,
-    );
+    // Init global vars
+    args = opt.args;
+    cache_dir = try resolveGlobalCacheDir(allocator);
+    try thread_pool.init(.{ .allocator = allocator });
+    defer thread_pool.deinit();
 
+    const url_or_path = opt.positional_args[0];
+    defer allocator.free(cache_dir);
     if (std.mem.startsWith(u8, url_or_path, "http")) {
-        try fetcher.handleHTTP(url_or_path);
+        try handleHTTP(allocator, url_or_path);
     } else {
         // it's a directory
-        try fetcher.handleDir(url_or_path);
+        try handleDir(allocator, url_or_path);
     }
 }
 
-const Fetcher = struct {
+fn calcHash(allocator: Allocator, dir: fs.Dir, root_dirname: []const u8) anyerror!Manifest.MultiHashHexDigest {
+    const manifest = try loadManifest(allocator, dir);
+    if (args.verbose) {
+        log.info("manifest = {any}", .{manifest});
+    }
+
+    const filter: Filter = .{
+        .include_paths = if (manifest) |m| m.paths else .{},
+    };
+    const actual_hash = try computeHash(
+        allocator,
+        dir,
+        root_dirname,
+        filter,
+    );
+    if (manifest) |m| {
+        var it = m.dependencies.iterator();
+        while (it.next()) |entry| {
+            const dep = entry.value_ptr;
+            switch (dep.location) {
+                .url => |pkg_url| {
+                    if (dep.hash) |hash| {
+                        const u = try std.fmt.allocPrintZ(allocator, "{s}", .{pkg_url});
+                        _ = try cachePackageFromUrl(allocator, u, hash);
+                    }
+                },
+                else => {},
+            }
+        }
+    }
+
+    return Manifest.hexDigest(actual_hash);
+}
+
+fn handleDir(allocator: Allocator, path: [:0]const u8) !void {
+    var dir = try fs.cwd().openDir(path, .{});
+    defer dir.close();
+
+    const hash = try calcHash(allocator, dir, "");
+    log.info("{s}", .{hash});
+}
+
+fn handleHTTP(allocator: Allocator, url: [:0]const u8) !void {
+    const hash = try cachePackageFromUrl(allocator, url, null);
+    log.info("{s}", .{hash});
+}
+
+fn cachePackageFromUrl(
     allocator: Allocator,
-    tmp_dir: []const u8,
-    verbose: bool,
-    debug_hash: bool,
-    cache_dir: []const u8,
+    url: [:0]const u8,
+    expected_hash: ?[]const u8,
+) anyerror!Manifest.MultiHashHexDigest {
+    log.info("Fetch {s}...", .{url});
+    const rand_int = std.crypto.random.int(u64);
+    const tmp_dirname = try std.fmt.allocPrint(allocator, "{s}{s}zigfetch-{s}", .{
+        cache_dir,
+        fs.path.sep_str,
+        Manifest.hex64(rand_int),
+    });
+    defer allocator.free(tmp_dirname);
 
-    fn init(allocator: Allocator, tmp_dir: []const u8, verbose: bool, debug_hash: bool, cache_dir: []const u8) Fetcher {
-        return Fetcher{
-            .allocator = allocator,
-            .tmp_dir = tmp_dir,
-            .verbose = verbose,
-            .debug_hash = debug_hash,
-            .cache_dir = cache_dir,
-        };
-    }
+    try fs.makeDirAbsolute(tmp_dirname);
+    var out_dir = try fs.openDirAbsolute(tmp_dirname, .{ .iterate = true });
+    defer out_dir.close();
 
-    fn calcHash(self: Fetcher, dir: []const u8) anyerror!Manifest.MultiHashHexDigest {
-        const manifest = try loadManifest(self.allocator, dir);
-        if (self.verbose) {
-            log.info("manifest = {any}", .{manifest});
+    // This is the directory we need to strip.
+    const sub_dirname = try fetchPackage(allocator, url, out_dir);
+    var sub_dir = try out_dir.openDir(sub_dirname, .{ .iterate = true });
+    defer sub_dir.close();
+    const actual_hash = try calcHash(allocator, sub_dir, sub_dirname);
+    if (expected_hash) |expected| {
+        if (!std.mem.eql(u8, expected, &actual_hash)) {
+            log.err("Hash incorrect for {s}, expected:{s}, actual:{s}", .{
+                url, expected, actual_hash,
+            });
+            return error.HashNotExpected;
         }
-
-        const filter: Filter = .{
-            .include_paths = if (manifest) |m| m.paths else .{},
-        };
-        const actual_hash = try computeHash(
-            self.allocator,
-            dir,
-            filter,
-            self.debug_hash,
-        );
-        if (manifest) |m| {
-            var it = m.dependencies.iterator();
-            while (it.next()) |entry| {
-                const dep = entry.value_ptr;
-                switch (dep.location) {
-                    .url => |pkg_url| {
-                        if (dep.hash) |hash| {
-                            const u = try std.fmt.allocPrintZ(self.allocator, "{s}", .{pkg_url});
-                            _ = try self.cachePackageFromUrl(u, hash);
-                        }
-                    },
-                    else => {},
-                }
-            }
-        }
-
-        return Manifest.hexDigest(actual_hash);
     }
+    try moveToCache(allocator, tmp_dirname, actual_hash);
 
-    fn handleDir(self: Fetcher, path: [:0]const u8) !void {
-        const hash = try self.calcHash(path);
-        log.info("{s}", .{hash});
-    }
+    return actual_hash;
+}
 
-    fn handleHTTP(self: Fetcher, url: [:0]const u8) !void {
-        const hash = try self.cachePackageFromUrl(url, null);
-        log.info("{s}", .{hash});
-    }
-
-    fn cachePackageFromUrl(
-        self: Fetcher,
-        url: [:0]const u8,
-        expected_hash: ?[]const u8,
-    ) anyerror!Manifest.MultiHashHexDigest {
-        log.info("Fetch {s}...", .{url});
-        const rand_int = std.crypto.random.int(u64);
-        const tmp_dir = try std.fmt.allocPrint(self.allocator, "{s}{s}zigfetch-{s}", .{
-            self.tmp_dir,
-            fs.path.sep_str,
-            Manifest.hex64(rand_int),
-        });
-        try fetchPackage(self.allocator, url, tmp_dir, self.verbose);
-        const actual_hash = try self.calcHash(tmp_dir);
-        if (expected_hash) |expected| {
-            if (!std.mem.eql(u8, expected, &actual_hash)) {
-                log.err("Hash incorrect for {s}, expected:{s}, actual:{s}", .{
-                    url, expected, actual_hash,
-                });
-                return error.HashNotExpected;
-            }
-        }
-        try moveToCache(self.allocator, tmp_dir, self.cache_dir, actual_hash);
-
-        return actual_hash;
-    }
-};
-
-fn moveToCache(allocator: Allocator, src_dir: []const u8, cache_dir: []const u8, hex: Manifest.MultiHashHexDigest) !void {
+fn moveToCache(allocator: Allocator, src_dir: []const u8, hex: Manifest.MultiHashHexDigest) !void {
     const dst = try std.fmt.allocPrint(allocator, "{s}/p/{s}", .{ cache_dir, hex });
 
     _ = fs.openDirAbsolute(dst, .{}) catch |err| switch (err) {
@@ -160,20 +156,24 @@ fn moveToCache(allocator: Allocator, src_dir: []const u8, cache_dir: []const u8,
         },
         else => return err,
     };
-    log.info("Dir({s}) already exists, skip copy...", .{dst});
+    if (args.verbose) {
+        log.info("Dir({s}) already exists, skip copy...", .{dst});
+    }
     fs.deleteTreeAbsolute(src_dir) catch |e| {
         log.err("Delete dir({s}) failed, err:{any}", .{ src_dir, e });
     };
 }
 
-fn fetchPackage(allocator: Allocator, url: [:0]const u8, out_dir: []const u8, verbose: bool) !void {
-    const easy = try curl.Easy.init(allocator, .{});
+fn fetchPackage(allocator: Allocator, url: [:0]const u8, out_dir: fs.Dir) ![]const u8 {
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    // defer arena.deinit();
+    const arena_allocator = arena.allocator();
+
+    const easy = try curl.Easy.init(arena_allocator, .{});
     try easy.setFollowLocation(true);
-    try easy.setVerbose(verbose);
-    defer easy.deinit();
+    try easy.setVerbose(args.verbose);
 
     const resp = try easy.get(url);
-    defer resp.deinit();
 
     if (resp.status_code >= 400) {
         log.err("Failed to fetch {s}: {d}\n", .{ url, resp.status_code });
@@ -181,63 +181,88 @@ fn fetchPackage(allocator: Allocator, url: [:0]const u8, out_dir: []const u8, ve
     }
     const buffer = resp.body.?;
     const header = try resp.getHeader("content-type");
-    if (header) |h| {
+    const mime: ?MimeType =
+        if (header) |h|
+    blk: {
         const mime_type = h.get();
-        if (ascii.eqlIgnoreCase(mime_type, "application/gzip") or
+        if (ascii.eqlIgnoreCase(mime_type, "application/x-tar")) {
+            break :blk .Tar;
+        } else if (ascii.eqlIgnoreCase(mime_type, "application/gzip") or
             ascii.eqlIgnoreCase(mime_type, "application/x-gzip") or
             ascii.eqlIgnoreCase(mime_type, "application/tar+gzip"))
         {
-            // tar.gz
-            try untar(allocator, out_dir, buffer.items);
+            break :blk .TarGz;
         } else if (ascii.eqlIgnoreCase(mime_type, "application/zip")) {
-            // zip
-            try unzip(allocator, out_dir, buffer.items);
+            break :blk .Zip;
         } else {
-            log.err("Unknown mime type:{s}", .{mime_type});
-            return error.UnsupportedType;
+            break :blk guessMimeType(url);
+        }
+    } else guessMimeType(url);
+
+    if (mime) |m| {
+        switch (m) {
+            .Tar => {
+                var stream = std.io.fixedBufferStream(buffer.items);
+                return try unpackTarball(allocator, out_dir, stream.reader());
+            },
+            .TarGz => {
+                var stream = std.io.fixedBufferStream(buffer.items);
+                var dcp = std.compress.gzip.decompressor(stream.reader());
+                return try unpackTarball(allocator, out_dir, dcp.reader());
+            },
+            .Zip => {
+                return try unzip(allocator, out_dir, buffer.items);
+            },
         }
     } else {
-        return error.NoContentTypeHeader;
+        return error.UnknownMimeType;
     }
 }
 
-fn loadManifest(allocator: Allocator, dir: []const u8) !?Manifest {
-    const pkg_dir = try fs.openDirAbsolute(dir, .{ .iterate = false });
+fn loadManifest(allocator: Allocator, pkg_dir: fs.Dir) !?Manifest {
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const arena_allocator = arena.allocator();
+
     const file = pkg_dir.openFile(Manifest.basename, .{}) catch |err| switch (err) {
         error.FileNotFound => return null,
         else => return err,
     };
     defer file.close();
     const bytes = try file.readToEndAllocOptions(
-        allocator,
+        arena_allocator,
         Manifest.max_bytes,
         null,
         1,
         0,
     );
-    const ast = try std.zig.Ast.parse(allocator, bytes, .zon);
+    const ast = try std.zig.Ast.parse(arena_allocator, bytes, .zon);
     const manifest = try Manifest.parse(allocator, ast, .{
         .allow_missing_paths_field = true,
     });
     return manifest;
 }
 
-fn unzip(allocator: Allocator, out_dir: []const u8, src: []const u8) !void {
+fn unzip(allocator: Allocator, out_dir: fs.Dir, src: []const u8) ![]const u8 {
     const rand_int = std.crypto.random.int(u64);
     const tmp_file = try std.fmt.allocPrint(allocator, "/tmp/tmpzip-{s}.zip", .{
         Manifest.hex64(rand_int),
     });
+    defer allocator.free(tmp_file);
+
     const zip_file = try fs.createFileAbsolute(tmp_file, .{
         .exclusive = true,
         .read = true,
     });
-    // defer fs.deleteFileAbsolute(tmp_file) catch {};
+    defer zip_file.close();
+    defer fs.deleteFileAbsolute(tmp_file) catch {};
+
     try zip_file.writeAll(src);
 
-    try fs.makeDirAbsolute(out_dir);
-    const out = try fs.openDirAbsolute(out_dir, .{});
-    std.zip.extract(out, zip_file.seekableStream(), .{
+    var diagnostics: std.zip.Diagnostics = .{ .allocator = allocator };
+    std.zip.extract(out_dir, zip_file.seekableStream(), .{
         .allow_backslashes = true,
+        .diagnostics = &diagnostics,
     }) catch |err| {
         log.err(
             "zip extract failed: {s}",
@@ -245,43 +270,24 @@ fn unzip(allocator: Allocator, out_dir: []const u8, src: []const u8) !void {
         );
         return err;
     };
+    return diagnostics.root_dir;
 }
 
-fn untar(allocator: Allocator, out_dir: []const u8, src: []const u8) !void {
-    try fs.makeDirAbsolute(out_dir);
-
-    const argv = [_][]const u8{
-        "tar",
-        "-xz",
-        "--strip-components=1",
-        "-C",
-        out_dir,
+fn unpackTarball(allocator: Allocator, out_dir: fs.Dir, reader: anytype) ![]const u8 {
+    var diagnostics: std.tar.Diagnostics = .{ .allocator = allocator };
+    std.tar.pipeToFileSystem(out_dir, reader, .{
+        .diagnostics = &diagnostics,
+        .strip_components = 0,
+        .mode_mode = .ignore,
+        .exclude_empty_directories = true,
+    }) catch |err| {
+        log.err(
+            "unable to unpack tarball to temporary directory: {s}",
+            .{@errorName(err)},
+        );
+        return error.Untar;
     };
-    return execShell(allocator, &argv, src);
-}
-
-fn execShell(allocator: Allocator, argv: []const []const u8, src: []const u8) !void {
-    var child = Child.init(argv, allocator);
-    child.stdin_behavior = .Pipe;
-    try child.spawn();
-
-    const stdin = child.stdin.?;
-    try stdin.writeAll(src);
-    // Those following 2 lines are require to let tar exit, otherwise child process wait stdin forever!
-    stdin.close();
-    child.stdin = null;
-
-    const term = try child.wait();
-    switch (term) {
-        .Exited => |rc| {
-            if (rc == 0) {
-                return;
-            }
-        },
-        else => {},
-    }
-    log.err("Failed to exec shell, term:{any}", .{term});
-    return error.ExecShell;
+    return diagnostics.root_dir;
 }
 
 const Filter = struct {
@@ -316,29 +322,25 @@ const Filter = struct {
 };
 
 fn computeHash(
-    gpa: Allocator,
+    allocator: Allocator,
+    root_dir: fs.Dir,
     root_dirname: []const u8,
     filter: Filter,
-    debug_hash: bool,
 ) !Manifest.Digest {
-    const root_dir = try fs.openDirAbsolute(root_dirname, .{ .iterate = true });
-
-    var thread_pool: std.Thread.Pool = undefined;
-    try thread_pool.init(.{ .allocator = gpa });
 
     // Collect all files, recursively, then sort.
-    var all_files = std.ArrayList(*HashedFile).init(gpa);
+    var all_files = std.ArrayList(*HashedFile).init(allocator);
     defer all_files.deinit();
 
-    var deleted_files = std.ArrayList(*DeletedFile).init(gpa);
+    var deleted_files = std.ArrayList(*DeletedFile).init(allocator);
     defer deleted_files.deinit();
 
     // Track directories which had any files deleted from them so that empty directories
     // can be deleted.
     var sus_dirs: std.StringArrayHashMapUnmanaged(void) = .{};
-    defer sus_dirs.deinit(gpa);
+    defer sus_dirs.deinit(allocator);
 
-    var walker = try root_dir.walk(gpa);
+    var walker = try root_dir.walk(allocator);
     defer walker.deinit();
 
     {
@@ -361,13 +363,13 @@ fn computeHash(
             const entry_pkg_path = stripRoot(entry.path, root_dirname);
             if (!filter.includePath(entry_pkg_path)) {
                 // Delete instead of including in hash calculation.
-                const fs_path = try gpa.dupe(u8, entry.path);
+                const fs_path = try allocator.dupe(u8, entry.path);
 
                 // Also track the parent directory in case it becomes empty.
                 if (fs.path.dirname(fs_path)) |parent|
-                    try sus_dirs.put(gpa, parent, {});
+                    try sus_dirs.put(allocator, parent, {});
 
-                const deleted_file = try gpa.create(DeletedFile);
+                const deleted_file = try allocator.create(DeletedFile);
                 deleted_file.* = .{
                     .fs_path = fs_path,
                     .failure = undefined, // to be populated by the worker
@@ -393,11 +395,11 @@ fn computeHash(
             // if (std.mem.eql(u8, entry_pkg_path, "build.zig"))
             //     f.has_build_zig = true;
 
-            const fs_path = try gpa.dupe(u8, entry.path);
-            const hashed_file = try gpa.create(HashedFile);
+            const fs_path = try allocator.dupe(u8, entry.path);
+            const hashed_file = try allocator.create(HashedFile);
             hashed_file.* = .{
                 .fs_path = fs_path,
-                .normalized_path = try normalizePathAlloc(gpa, entry_pkg_path),
+                .normalized_path = try normalizePathAlloc(allocator, entry_pkg_path),
                 .kind = kind,
                 .hash = undefined, // to be populated by the worker
                 .failure = undefined, // to be populated by the worker
@@ -432,7 +434,7 @@ fn computeHash(
                 },
             };
             if (fs.path.dirname(sus_dir)) |parent| {
-                try sus_dirs.put(gpa, parent, {});
+                try sus_dirs.put(allocator, parent, {});
             }
         }
     }
@@ -461,7 +463,7 @@ fn computeHash(
 
     if (any_failures) return error.FetchFailed;
 
-    if (debug_hash) {
+    if (args.@"debug-hash") {
         // Print something to stdout that can be text diffed to figure out why
         // the package hash is different.
         dumpHashInfo(all_files.items) catch |err| {
@@ -641,4 +643,21 @@ pub fn resolveGlobalCacheDir(allocator: Allocator) ![]u8 {
     }
 
     return fs.getAppDataDir(allocator, appname);
+}
+
+const MimeType = enum {
+    Tar,
+    TarGz,
+    Zip,
+};
+
+fn guessMimeType(url: []const u8) ?MimeType {
+    if (std.mem.endsWith(u8, url, "tar.gz")) {
+        return .TarGz;
+    } else if (std.mem.endsWith(u8, url, "tar")) {
+        return .Tar;
+    } else if (std.mem.endsWith(u8, url, "zip")) {
+        return .Zip;
+    }
+    return null;
 }
