@@ -37,13 +37,13 @@ jobs:
       - uses: mlugg/setup-zig@v1
         with:
           version: 0.13.0
-      - name: Set env
+      - name: Set env(release)
         if: startsWith(github.ref, 'refs/tags/')
         run: |
           echo "RELEASE_VERSION=${{  github.ref_name }}" >> $GITHUB_ENV
           echo "OUT_DIR=/tmp/zigcli" >> $GITHUB_ENV
-      - name: Set env
-        if: !startsWith(github.ref, 'refs/tags/')
+      - name: Set env(dev)
+        if: "!startsWith(github.ref, 'refs/tags/')"
         run: |
           echo "RELEASE_VERSION=unknown" >> $GITHUB_ENV
           echo "OUT_DIR=/tmp/zigcli" >> $GITHUB_ENV
@@ -69,7 +69,7 @@ jobs:
         with:
           files: ${{ env.OUT_DIR }}/*
       - name: Upload
-        if: !startsWith(github.ref, 'refs/tags/')
+        if: "!startsWith(github.ref, 'refs/tags/')"
         uses: actions/upload-artifact@v4
         with:
           name: zigcli-${{ matrix.os }}
