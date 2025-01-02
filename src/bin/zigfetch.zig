@@ -85,7 +85,7 @@ pub fn main() !void {
     }
 }
 
-fn calcHash(allocator: Allocator, dir: fs.Dir, root_dirname: []const u8) anyerror!Manifest.MultiHashHexDigest {
+fn calcHash(allocator: Allocator, dir: fs.Dir, root_dirname: []const u8, deleteIgnore: bool) anyerror!Manifest.MultiHashHexDigest {
     const manifest = try loadManifest(allocator, dir);
     if (args.verbose) {
         log.info("manifest = {any}", .{manifest});
@@ -99,6 +99,7 @@ fn calcHash(allocator: Allocator, dir: fs.Dir, root_dirname: []const u8) anyerro
         dir,
         root_dirname,
         filter,
+        deleteIgnore,
     );
     if (!args.recursive) {
         return Manifest.hexDigest(actual_hash);
@@ -121,7 +122,13 @@ fn calcHash(allocator: Allocator, dir: fs.Dir, root_dirname: []const u8) anyerro
                         log.err("{s} has no hash field, url:{s}", .{ entry.key_ptr.*, pkg_url });
                     }
                 },
-                else => {},
+                .path => |local_path| {
+                    log.info("Cache from dir dep: {s}", .{local_path});
+                    var local_dir = try dir.openDir(local_path, .{ .iterate = true });
+                    defer local_dir.close();
+
+                    _ = try cachePackageFromLocal(allocator, local_dir);
+                },
             }
         }
     }
@@ -129,11 +136,36 @@ fn calcHash(allocator: Allocator, dir: fs.Dir, root_dirname: []const u8) anyerro
     return Manifest.hexDigest(actual_hash);
 }
 
-fn handleDir(allocator: Allocator, path: [:0]const u8) !void {
-    log.info("Fetch {s}", .{path});
+fn handleDir(allocator: Allocator, path: []const u8) !void {
+    log.info("Cache from dir: {s}", .{path});
     var dir = try fs.cwd().openDir(path, .{});
     defer dir.close();
 
+    // log.info("cwd:{s}", .{path});
+    // try dir.setAsCwd();
+    const hash = try cachePackageFromLocal(allocator, dir);
+    print("{s}", .{hash});
+}
+
+fn cachePackageFromLocal(
+    allocator: Allocator,
+    dir: fs.Dir,
+) anyerror!Manifest.MultiHashHexDigest {
+    const hash = try calcHash(allocator, dir, "", false);
+    return hash;
+}
+
+fn handleHTTP(allocator: Allocator, url: [:0]const u8) !void {
+    const hash = try cachePackageFromUrl(allocator, url, null);
+    print("{s}", .{hash});
+}
+
+fn cachePackageFromUrl(
+    allocator: Allocator,
+    url: [:0]const u8,
+    expected_hash: ?[]const u8,
+) anyerror!Manifest.MultiHashHexDigest {
+    log.info("Cache from url: {s}...", .{url});
     const tmp_dirname = try makeTmpDir(allocator);
     defer allocator.free(tmp_dirname);
     defer fs.deleteTreeAbsolute(tmp_dirname) catch |e| {
@@ -143,16 +175,26 @@ fn handleDir(allocator: Allocator, path: [:0]const u8) !void {
     };
 
     var out_dir = try fs.openDirAbsolute(tmp_dirname, .{ .iterate = true });
-    try recursiveDirectoryCopy(allocator, dir, out_dir);
     defer out_dir.close();
 
-    const hash = try calcHash(allocator, out_dir, "");
-    print("{s}", .{hash});
-}
+    // This is the directory we need to strip.
+    const sub_dirname = try fetchPackage(allocator, url, out_dir);
+    var sub_dir = try out_dir.openDir(sub_dirname, .{ .iterate = true });
+    defer sub_dir.close();
+    const actual_hash = try calcHash(allocator, sub_dir, sub_dirname, true);
+    if (expected_hash) |expected| {
+        if (!std.mem.eql(u8, expected, &actual_hash)) {
+            log.err("Hash incorrect for {s}, expected:{s}, actual:{s}", .{
+                url, expected, actual_hash,
+            });
+            return error.HashNotExpected;
+        }
+    }
+    const src_dirname = try fs.path.join(allocator, &[_][]const u8{ tmp_dirname, sub_dirname });
+    defer allocator.free(src_dirname);
 
-fn handleHTTP(allocator: Allocator, url: [:0]const u8) !void {
-    const hash = try cachePackageFromUrl(allocator, url, null);
-    print("{s}", .{hash});
+    try moveToCache(allocator, src_dirname, actual_hash);
+    return actual_hash;
 }
 
 fn handleGit(allocator: Allocator, git_url: [:0]const u8) !void {
@@ -181,7 +223,7 @@ fn cachePackageFromGit(
         try uri.path.toRawMaybeAlloc(allocator),
     });
 
-    log.info("Fetch git package, repo_url:{s}, commit_id:{s}...", .{ repo_url, commit_id });
+    log.info("Fetch from git, repo_url:{s}, commit_id:{s}...", .{ repo_url, commit_id });
     const rand_int = std.crypto.random.int(u64);
     const tmp_dirname = try std.fmt.allocPrint(allocator, "{s}{s}zigfetch-{s}", .{
         cache_dir,
@@ -221,7 +263,7 @@ fn cachePackageFromGit(
 
     var dir = try fs.openDirAbsolute(tmp_dirname, .{ .iterate = true });
     defer dir.close();
-    const actual_hash = try calcHash(allocator, dir, "");
+    const actual_hash = try calcHash(allocator, dir, "", true);
     if (expected_hash) |expected| {
         if (!std.mem.eql(u8, expected, &actual_hash)) {
             log.err("Hash incorrect for {s}, expected:{s}, actual:{s}", .{
@@ -253,43 +295,6 @@ fn execShell(allocator: Allocator, argv: []const []const u8) !void {
             return error.ExecShellFailed;
         },
     }
-}
-
-fn cachePackageFromUrl(
-    allocator: Allocator,
-    url: [:0]const u8,
-    expected_hash: ?[]const u8,
-) anyerror!Manifest.MultiHashHexDigest {
-    log.info("Fetch {s}...", .{url});
-    const tmp_dirname = try makeTmpDir(allocator);
-    defer allocator.free(tmp_dirname);
-    defer fs.deleteTreeAbsolute(tmp_dirname) catch |e| {
-        if (args.verbose) {
-            log.err("Delete dir({s}) failed, err:{any}", .{ tmp_dirname, e });
-        }
-    };
-
-    var out_dir = try fs.openDirAbsolute(tmp_dirname, .{ .iterate = true });
-    defer out_dir.close();
-
-    // This is the directory we need to strip.
-    const sub_dirname = try fetchPackage(allocator, url, out_dir);
-    var sub_dir = try out_dir.openDir(sub_dirname, .{ .iterate = true });
-    defer sub_dir.close();
-    const actual_hash = try calcHash(allocator, sub_dir, sub_dirname);
-    if (expected_hash) |expected| {
-        if (!std.mem.eql(u8, expected, &actual_hash)) {
-            log.err("Hash incorrect for {s}, expected:{s}, actual:{s}", .{
-                url, expected, actual_hash,
-            });
-            return error.HashNotExpected;
-        }
-    }
-    const src_dirname = try fs.path.join(allocator, &[_][]const u8{ tmp_dirname, sub_dirname });
-    defer allocator.free(src_dirname);
-
-    try moveToCache(allocator, src_dirname, actual_hash);
-    return actual_hash;
 }
 
 fn moveToCache(allocator: Allocator, src_dir: []const u8, hex: Manifest.MultiHashHexDigest) !void {
@@ -469,6 +474,7 @@ fn computeHash(
     root_dir: fs.Dir,
     root_dirname: []const u8,
     filter: Filter,
+    deleteIgnore: bool,
 ) !Manifest.Digest {
 
     // Collect all files, recursively, then sort.
@@ -505,6 +511,9 @@ fn computeHash(
 
             const entry_pkg_path = stripRoot(entry.path, root_dirname);
             if (!filter.includePath(entry_pkg_path)) {
+                if (!deleteIgnore) {
+                    continue;
+                }
                 // Delete instead of including in hash calculation.
                 const fs_path = try allocator.dupe(u8, entry.path);
 
@@ -534,9 +543,6 @@ fn computeHash(
                     return error.NotExpectedFileKind;
                 },
             };
-
-            // if (std.mem.eql(u8, entry_pkg_path, "build.zig"))
-            //     f.has_build_zig = true;
 
             const fs_path = try allocator.dupe(u8, entry.path);
             const hashed_file = try allocator.create(HashedFile);
