@@ -1,6 +1,6 @@
 #+TITLE: zigfetch
 #+DATE: 2025-01-01T18:01:47+0800
-#+LASTMOD: 2025-01-01T19:08:03+0800
+#+LASTMOD: 2025-01-02T23:02:00+0800
 #+TYPE: docs
 #+DESCRIPTION: Fetch zig package, baked by libcurl.
 
@@ -12,7 +12,7 @@ Since the HTTP support within Zig's standard library isn't currently stable, thi
 
 This poses a significant challenge for Chinese developers owing to [[https://en.wikipedia.org/wiki/Great_Firewall][the Great Firewall]].
 
-=zigfetch= is baked by libcurl, so [[https://curl.se/libcurl/c/libcurl-env.html][http_proxy/https_proxy]] env vars work as expected.
+So =zigfetch= is born, it's baked by libcurl, so [[https://curl.se/libcurl/c/libcurl-env.html][http_proxy/https_proxy]] env vars work as expected.
 
 #+begin_src bash :results verbatim :exports result :dir ../../..
 ./zig-out/bin/zigfetch --help
