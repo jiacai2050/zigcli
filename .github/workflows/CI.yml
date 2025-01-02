@@ -52,6 +52,10 @@ jobs:
           zig build test
           zig build
           find zig-out
+      - name: zigfetch compare
+        if: matrix.os == 'macos-latest'
+        run: |
+          bash .github/zigfetch.sh
 
   cross-compile:
     timeout-minutes: 10
@@ -72,4 +76,4 @@ jobs:
           sudo apt update && sudo apt-get install -y libcurl4-openssl-dev
       - name: Build
         run: |
-          zig build -Dtarget=${{ matrix.targets }} -Dskip_zigfetch=true
+          zig build -Dtarget=${{ matrix.targets }} -Dskip-zigfetch=true

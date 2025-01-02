@@ -21,7 +21,8 @@ targets=(
   "aarch64-linux"
   "x86_64-linux"
   "x86-linux"
-  "aarch64-macos"
+  # This target is built on CI directly.
+  # "aarch64-macos"
   "x86_64-macos"
   "x86_64-windows"
 )
@@ -39,7 +40,7 @@ for target in "${targets[@]}"; do
     zig build -Doptimize=ReleaseSafe -p ${dst_dir} \
         -Dgit_commit=${GIT_COMMIT} -Dbuild_date=${BUILD_DATE}
   else
-    zig build -Dskip_zigfetch=true -Doptimize=ReleaseSafe -Dtarget="${target}" -p ${dst_dir} \
+    zig build -Dskip-zigfetch=true -Doptimize=ReleaseSafe -Dtarget="${target}" -p ${dst_dir} \
         -Dgit_commit=${GIT_COMMIT} -Dbuild_date=${BUILD_DATE}
   fi
 

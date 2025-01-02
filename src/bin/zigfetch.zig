@@ -8,8 +8,8 @@ const fs = std.fs;
 const ascii = std.ascii;
 const log = std.log;
 const mem = std.mem;
-const Allocator = mem.Allocator;
 const print = std.debug.print;
+const Allocator = mem.Allocator;
 const Child = std.process.Child;
 const ArrayList = std.ArrayList;
 
@@ -20,16 +20,19 @@ pub const std_options: std.Options = .{
 const Args = struct {
     help: bool = false,
     verbose: bool = false,
+    recursive: bool = true,
     @"debug-hash": bool = false,
 
     pub const __shorts__ = .{
         .verbose = .v,
+        .recursive = .r,
         .@"debug-hash" = .d,
         .help = .h,
     };
     pub const __messages__ = .{
         .@"debug-hash" = "Print hash for each file",
         .verbose = "Show verbose log",
+        .recursive = "Recursive fetch package dependencies",
         .help = "Show help",
     };
 };
@@ -37,6 +40,7 @@ const Args = struct {
 var args: Args = undefined;
 var cache_dir: []const u8 = undefined;
 var thread_pool: std.Thread.Pool = undefined;
+var fetched_packages = std.StringHashMapUnmanaged(void){};
 
 pub fn main() !void {
     const allocator = std.heap.page_allocator;
@@ -55,7 +59,18 @@ pub fn main() !void {
     }
     // Init global vars
     args = opt.args;
-    cache_dir = try resolveGlobalCacheDir(allocator);
+    {
+        cache_dir = try resolveGlobalCacheDir(allocator);
+        const p_dirname = try std.fmt.allocPrint(allocator, "{s}/p", .{cache_dir});
+        var dir = fs.openDirAbsolute(p_dirname, .{}) catch |e| switch (e) {
+            error.FileNotFound => {
+                log.err("{s} not exists, please create it first!", .{p_dirname});
+                return e;
+            },
+            else => return e,
+        };
+        dir.close();
+    }
     try thread_pool.init(.{ .allocator = allocator });
     defer thread_pool.deinit();
 
@@ -63,13 +78,15 @@ pub fn main() !void {
     defer allocator.free(cache_dir);
     if (std.mem.startsWith(u8, url_or_path, "http")) {
         try handleHTTP(allocator, url_or_path);
+    } else if (std.mem.startsWith(u8, url_or_path, "git+")) {
+        try handleGit(allocator, url_or_path);
     } else {
         // it's a directory
         try handleDir(allocator, url_or_path);
     }
 }
 
-fn calcHash(allocator: Allocator, dir: fs.Dir, root_dirname: []const u8) anyerror!Manifest.MultiHashHexDigest {
+fn calcHash(allocator: Allocator, dir: fs.Dir, root_dirname: []const u8, deleteIgnore: bool) anyerror!Manifest.MultiHashHexDigest {
     const manifest = try loadManifest(allocator, dir);
     if (args.verbose) {
         log.info("manifest = {any}", .{manifest});
@@ -83,19 +100,41 @@ fn calcHash(allocator: Allocator, dir: fs.Dir, root_dirname: []const u8) anyerro
         dir,
         root_dirname,
         filter,
+        deleteIgnore,
     );
+    if (!args.recursive) {
+        return Manifest.hexDigest(actual_hash);
+    }
+
     if (manifest) |m| {
         var it = m.dependencies.iterator();
         while (it.next()) |entry| {
             const dep = entry.value_ptr;
             switch (dep.location) {
                 .url => |pkg_url| {
+                    if (fetched_packages.contains(pkg_url)) {
+                        continue;
+                    }
+                    try fetched_packages.put(allocator, pkg_url, {});
+
                     if (dep.hash) |hash| {
-                        const u = try std.fmt.allocPrintZ(allocator, "{s}", .{pkg_url});
-                        _ = try cachePackageFromUrl(allocator, u, hash);
+                        if (std.mem.startsWith(u8, pkg_url, "git+")) {
+                            _ = try cachePackageFromGit(allocator, pkg_url, hash);
+                        } else {
+                            const u = try std.fmt.allocPrintZ(allocator, "{s}", .{pkg_url});
+                            _ = try cachePackageFromUrl(allocator, u, hash);
+                        }
+                    } else {
+                        log.err("{s} has no hash field, url:{s}", .{ entry.key_ptr.*, pkg_url });
                     }
                 },
-                else => {},
+                .path => |local_path| {
+                    log.info("Cache from dir dep: {s}", .{local_path});
+                    var local_dir = try dir.openDir(local_path, .{ .iterate = true });
+                    defer local_dir.close();
+
+                    _ = try cachePackageFromLocal(allocator, local_dir);
+                },
             }
         }
     }
@@ -103,17 +142,30 @@ fn calcHash(allocator: Allocator, dir: fs.Dir, root_dirname: []const u8) anyerro
     return Manifest.hexDigest(actual_hash);
 }
 
-fn handleDir(allocator: Allocator, path: [:0]const u8) !void {
+fn handleDir(allocator: Allocator, path: []const u8) !void {
+    log.info("Cache from dir: {s}", .{path});
+    try fetched_packages.put(allocator, path, {});
+
     var dir = try fs.cwd().openDir(path, .{});
     defer dir.close();
 
-    const hash = try calcHash(allocator, dir, "");
-    log.info("{s}", .{hash});
+    const hash = try cachePackageFromLocal(allocator, dir);
+    print("{s}", .{hash});
+}
+
+fn cachePackageFromLocal(
+    allocator: Allocator,
+    dir: fs.Dir,
+) anyerror!Manifest.MultiHashHexDigest {
+    const hash = try calcHash(allocator, dir, "", false);
+    return hash;
 }
 
 fn handleHTTP(allocator: Allocator, url: [:0]const u8) !void {
+    try fetched_packages.put(allocator, url, {});
+
     const hash = try cachePackageFromUrl(allocator, url, null);
-    log.info("{s}", .{hash});
+    print("{s}", .{hash});
 }
 
 fn cachePackageFromUrl(
@@ -121,16 +173,15 @@ fn cachePackageFromUrl(
     url: [:0]const u8,
     expected_hash: ?[]const u8,
 ) anyerror!Manifest.MultiHashHexDigest {
-    log.info("Fetch {s}...", .{url});
-    const rand_int = std.crypto.random.int(u64);
-    const tmp_dirname = try std.fmt.allocPrint(allocator, "{s}{s}zigfetch-{s}", .{
-        cache_dir,
-        fs.path.sep_str,
-        Manifest.hex64(rand_int),
-    });
+    log.info("Cache from url: {s}...", .{url});
+    const tmp_dirname = try makeTmpDir(allocator);
     defer allocator.free(tmp_dirname);
+    defer fs.deleteTreeAbsolute(tmp_dirname) catch |e| {
+        if (args.verbose) {
+            log.err("Delete dir({s}) failed, err:{any}", .{ tmp_dirname, e });
+        }
+    };
 
-    try fs.makeDirAbsolute(tmp_dirname);
     var out_dir = try fs.openDirAbsolute(tmp_dirname, .{ .iterate = true });
     defer out_dir.close();
 
@@ -138,7 +189,7 @@ fn cachePackageFromUrl(
     const sub_dirname = try fetchPackage(allocator, url, out_dir);
     var sub_dir = try out_dir.openDir(sub_dirname, .{ .iterate = true });
     defer sub_dir.close();
-    const actual_hash = try calcHash(allocator, sub_dir, sub_dirname);
+    const actual_hash = try calcHash(allocator, sub_dir, sub_dirname, true);
     if (expected_hash) |expected| {
         if (!std.mem.eql(u8, expected, &actual_hash)) {
             log.err("Hash incorrect for {s}, expected:{s}, actual:{s}", .{
@@ -154,8 +205,111 @@ fn cachePackageFromUrl(
     return actual_hash;
 }
 
+fn handleGit(allocator: Allocator, git_url: [:0]const u8) !void {
+    try fetched_packages.put(allocator, git_url, {});
+
+    const hash = try cachePackageFromGit(allocator, git_url, null);
+    print("{s}", .{hash});
+}
+
+fn cachePackageFromGit(
+    allocator: Allocator,
+    git_url: []const u8,
+    expected_hash: ?[]const u8,
+) anyerror!Manifest.MultiHashHexDigest {
+    const uri = try std.Uri.parse(git_url);
+    const commit_id = if (uri.fragment) |fragment|
+        try fragment.toRawMaybeAlloc(allocator)
+    else
+        return error.MissingFragment;
+    const host = if (uri.host) |host|
+        try host.toRawMaybeAlloc(allocator)
+    else
+        return error.MissingHost;
+
+    const repo_url = try std.fmt.allocPrint(allocator, "{s}://{s}{s}", .{
+        uri.scheme["git+".len..],
+        host,
+        try uri.path.toRawMaybeAlloc(allocator),
+    });
+
+    log.info("Fetch from git, repo_url:{s}, commit_id:{s}...", .{ repo_url, commit_id });
+    const rand_int = std.crypto.random.int(u64);
+    const tmp_dirname = try std.fmt.allocPrint(allocator, "{s}{s}zigfetch-{s}", .{
+        cache_dir,
+        fs.path.sep_str,
+        Manifest.hex64(rand_int),
+    });
+    defer allocator.free(tmp_dirname);
+    defer fs.deleteTreeAbsolute(tmp_dirname) catch |e| {
+        log.err("Delete dir({s}) failed, err:{any}", .{ tmp_dirname, e });
+    };
+    const clone_argv = [_][]const u8{
+        "git",
+        "clone",
+        repo_url,
+        tmp_dirname,
+    };
+    try execShell(allocator, &clone_argv);
+
+    const checkout_argv = [_][]const u8{
+        "git",
+        "-C",
+        tmp_dirname,
+        "checkout",
+        commit_id,
+    };
+    try execShell(allocator, &checkout_argv);
+
+    const git_dirname = try std.fmt.allocPrint(allocator, "{s}/.git", .{
+        tmp_dirname,
+    });
+    defer allocator.free(git_dirname);
+
+    fs.deleteTreeAbsolute(git_dirname) catch |e| {
+        log.err("Delete dir({s}) failed, err:{any}", .{ tmp_dirname, e });
+        return error.DeleteDotGit;
+    };
+
+    var dir = try fs.openDirAbsolute(tmp_dirname, .{ .iterate = true });
+    defer dir.close();
+    const actual_hash = try calcHash(allocator, dir, "", true);
+    if (expected_hash) |expected| {
+        if (!std.mem.eql(u8, expected, &actual_hash)) {
+            log.err("Hash incorrect for {s}, expected:{s}, actual:{s}", .{
+                repo_url, expected, actual_hash,
+            });
+            return error.HashNotExpected;
+        }
+    }
+
+    try moveToCache(allocator, tmp_dirname, actual_hash);
+    return actual_hash;
+}
+
+fn execShell(allocator: Allocator, argv: []const []const u8) !void {
+    var child = std.process.Child.init(argv, allocator);
+    if (!args.verbose) {
+        child.stdout_behavior = .Pipe;
+        child.stderr_behavior = .Pipe;
+    }
+    const term = try child.spawnAndWait();
+    switch (term) {
+        .Exited => |code| {
+            if (code != 0) {
+                return error.ExecShellFailed;
+            }
+        },
+        else => {
+            log.err("Exec git clone failed, term:{any}", .{term});
+            return error.ExecShellFailed;
+        },
+    }
+}
+
 fn moveToCache(allocator: Allocator, src_dir: []const u8, hex: Manifest.MultiHashHexDigest) !void {
     const dst = try std.fmt.allocPrint(allocator, "{s}/p/{s}", .{ cache_dir, hex });
+    defer allocator.free(dst);
 
     _ = fs.openDirAbsolute(dst, .{}) catch |err| switch (err) {
         error.FileNotFound => {
@@ -166,9 +320,6 @@ fn moveToCache(allocator: Allocator, src_dir: []const u8, hex: Manifest.MultiHas
     if (args.verbose) {
         log.info("Dir({s}) already exists, skip copy...", .{dst});
     }
-    fs.deleteTreeAbsolute(src_dir) catch |e| {
-        log.err("Delete dir({s}) failed, err:{any}", .{ src_dir, e });
-    };
 }
 
 fn fetchPackage(allocator: Allocator, url: [:0]const u8, out_dir: fs.Dir) ![]const u8 {
@@ -333,6 +484,7 @@ fn computeHash(
     root_dir: fs.Dir,
     root_dirname: []const u8,
     filter: Filter,
+    deleteIgnore: bool,
 ) !Manifest.Digest {
 
     // Collect all files, recursively, then sort.
@@ -369,6 +521,9 @@ fn computeHash(
 
             const entry_pkg_path = stripRoot(entry.path, root_dirname);
             if (!filter.includePath(entry_pkg_path)) {
+                if (!deleteIgnore) {
+                    continue;
+                }
                 // Delete instead of including in hash calculation.
                 const fs_path = try allocator.dupe(u8, entry.path);
 
@@ -398,9 +553,6 @@ fn computeHash(
                     return error.NotExpectedFileKind;
                 },
             };
-
-            // if (std.mem.eql(u8, entry_pkg_path, "build.zig"))
-            //     f.has_build_zig = true;
 
             const fs_path = try allocator.dupe(u8, entry.path);
             const hashed_file = try allocator.create(HashedFile);
@@ -667,4 +819,55 @@ fn guessMimeType(url: []const u8) ?MimeType {
         return .Zip;
     }
     return null;
+}
+
+/// Caller own returned memory
+fn makeTmpDir(allocator: Allocator) ![]const u8 {
+    const rand_int = std.crypto.random.int(u64);
+    const tmp_dirname = try std.fmt.allocPrint(allocator, "{s}{s}zigfetch-{s}", .{
+        cache_dir,
+        fs.path.sep_str,
+        Manifest.hex64(rand_int),
+    });
+
+    try fs.makeDirAbsolute(tmp_dirname);
+    return tmp_dirname;
+}
+// Recursive directory copy.
+fn recursiveDirectoryCopy(allocator: Allocator, dir: fs.Dir, tmp_dir: fs.Dir) anyerror!void {
+    var it = try dir.walk(allocator);
+    defer it.deinit();
+    while (try it.next()) |entry| {
+        switch (entry.kind) {
+            .directory => {}, // omit empty directories
+            .file => {
+                dir.copyFile(
+                    entry.path,
+                    tmp_dir,
+                    entry.path,
+                    .{},
+                ) catch |err| switch (err) {
+                    error.FileNotFound => {
+                        if (fs.path.dirname(entry.path)) |dirname| try tmp_dir.makePath(dirname);
+                        try dir.copyFile(entry.path, tmp_dir, entry.path, .{});
+                    },
+                    else => |e| return e,
+                };
+            },
+            .sym_link => {
+                var buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+                const link_name = try dir.readLink(entry.path, &buf);
+                // TODO: if this would create a symlink to outside
+                // the destination directory, fail with an error instead.
+                tmp_dir.symLink(link_name, entry.path, .{}) catch |err| switch (err) {
+                    error.FileNotFound => {
+                        if (fs.path.dirname(entry.path)) |dirname| try tmp_dir.makePath(dirname);
+                        try tmp_dir.symLink(link_name, entry.path, .{});
+                    },
+                    else => |e| return e,
+                };
+            },
+            else => return error.IllegalFileTypeInPackage,
+        }
+    }
 }
