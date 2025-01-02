@@ -40,6 +40,7 @@ const Args = struct {
 var args: Args = undefined;
 var cache_dir: []const u8 = undefined;
 var thread_pool: std.Thread.Pool = undefined;
+var fetched_packages = std.StringHashMapUnmanaged(void){};
 
 pub fn main() !void {
     const allocator = std.heap.page_allocator;
@@ -111,6 +112,11 @@ fn calcHash(allocator: Allocator, dir: fs.Dir, root_dirname: []const u8, deleteI
             const dep = entry.value_ptr;
             switch (dep.location) {
                 .url => |pkg_url| {
+                    if (fetched_packages.contains(pkg_url)) {
+                        continue;
+                    }
+                    try fetched_packages.put(allocator, pkg_url, {});
+
                     if (dep.hash) |hash| {
                         if (std.mem.startsWith(u8, pkg_url, "git+")) {
                             _ = try cachePackageFromGit(allocator, pkg_url, hash);
@@ -138,11 +144,11 @@ fn calcHash(allocator: Allocator, dir: fs.Dir, root_dirname: []const u8, deleteI
 
 fn handleDir(allocator: Allocator, path: []const u8) !void {
     log.info("Cache from dir: {s}", .{path});
+    try fetched_packages.put(allocator, path, {});
+
     var dir = try fs.cwd().openDir(path, .{});
     defer dir.close();
 
-    // log.info("cwd:{s}", .{path});
-    // try dir.setAsCwd();
     const hash = try cachePackageFromLocal(allocator, dir);
     print("{s}", .{hash});
 }
@@ -156,6 +162,8 @@ fn cachePackageFromLocal(
 }
 
 fn handleHTTP(allocator: Allocator, url: [:0]const u8) !void {
+    try fetched_packages.put(allocator, url, {});
+
     const hash = try cachePackageFromUrl(allocator, url, null);
     print("{s}", .{hash});
 }
@@ -198,6 +206,8 @@ fn cachePackageFromUrl(
 }
 
 fn handleGit(allocator: Allocator, git_url: [:0]const u8) !void {
+    try fetched_packages.put(allocator, git_url, {});
+
     const hash = try cachePackageFromGit(allocator, git_url, null);
     print("{s}", .{hash});
 }
