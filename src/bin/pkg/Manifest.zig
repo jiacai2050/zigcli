@@ -472,8 +472,14 @@ const Parse = struct {
         buf.* = buf_managed.moveToUnmanaged();
         switch (try result) {
             .success => {},
-            .failure => |err| {
-                std.log.err("parse str lit failed, err:{any}, token:{any}, bytes:{s}, offset:{d}", .{ err, token, bytes, offset });
+            .failure => |e| {
+                std.log.err("parse str lit failed, err:{any}, token:{any}, bytes:{any}, offset:{any}", .{
+                    e,
+                    token,
+                    bytes,
+                    offset,
+                });
+                return error.ParseFailure;
             },
         }
     }

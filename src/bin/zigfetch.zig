@@ -8,8 +8,8 @@ const fs = std.fs;
 const ascii = std.ascii;
 const log = std.log;
 const mem = std.mem;
-const Allocator = mem.Allocator;
 const print = std.debug.print;
+const Allocator = mem.Allocator;
 const Child = std.process.Child;
 const ArrayList = std.ArrayList;
 
@@ -20,16 +20,19 @@ pub const std_options: std.Options = .{
 const Args = struct {
     help: bool = false,
     verbose: bool = false,
+    recursive: bool = true,
     @"debug-hash": bool = false,
 
     pub const __shorts__ = .{
         .verbose = .v,
+        .recursive = .r,
         .@"debug-hash" = .d,
         .help = .h,
     };
     pub const __messages__ = .{
         .@"debug-hash" = "Print hash for each file",
         .verbose = "Show verbose log",
+        .recursive = "Recursive fetch package dependencies",
         .help = "Show help",
     };
 };
@@ -97,6 +100,10 @@ fn calcHash(allocator: Allocator, dir: fs.Dir, root_dirname: []const u8) anyerro
         root_dirname,
         filter,
     );
+    if (!args.recursive) {
+        return Manifest.hexDigest(actual_hash);
+    }
+
     if (manifest) |m| {
         var it = m.dependencies.iterator();
         while (it.next()) |entry| {
@@ -110,6 +117,8 @@ fn calcHash(allocator: Allocator, dir: fs.Dir, root_dirname: []const u8) anyerro
                             const u = try std.fmt.allocPrintZ(allocator, "{s}", .{pkg_url});
                             _ = try cachePackageFromUrl(allocator, u, hash);
                         }
+                    } else {
+                        log.err("{s} has no hash field, url:{s}", .{ entry.key_ptr.*, pkg_url });
                     }
                 },
                 else => {},
@@ -121,21 +130,34 @@ fn calcHash(allocator: Allocator, dir: fs.Dir, root_dirname: []const u8) anyerro
 }
 
 fn handleDir(allocator: Allocator, path: [:0]const u8) !void {
+    log.info("Fetch {s}", .{path});
     var dir = try fs.cwd().openDir(path, .{});
     defer dir.close();
 
-    const hash = try calcHash(allocator, dir, "");
-    log.info("{s}", .{hash});
+    const tmp_dirname = try makeTmpDir(allocator);
+    defer allocator.free(tmp_dirname);
+    defer fs.deleteTreeAbsolute(tmp_dirname) catch |e| {
+        if (args.verbose) {
+            log.err("Delete dir({s}) failed, err:{any}", .{ tmp_dirname, e });
+        }
+    };
+
+    var out_dir = try fs.openDirAbsolute(tmp_dirname, .{ .iterate = true });
+    try recursiveDirectoryCopy(allocator, dir, out_dir);
+    defer out_dir.close();
+
+    const hash = try calcHash(allocator, out_dir, "");
+    print("{s}", .{hash});
 }
 
 fn handleHTTP(allocator: Allocator, url: [:0]const u8) !void {
     const hash = try cachePackageFromUrl(allocator, url, null);
-    log.info("{s}", .{hash});
+    print("{s}", .{hash});
 }
 
 fn handleGit(allocator: Allocator, git_url: [:0]const u8) !void {
     const hash = try cachePackageFromGit(allocator, git_url, null);
-    log.info("{s}", .{hash});
+    print("{s}", .{hash});
 }
 
 fn cachePackageFromGit(
@@ -239,17 +261,12 @@ fn cachePackageFromUrl(
     expected_hash: ?[]const u8,
 ) anyerror!Manifest.MultiHashHexDigest {
     log.info("Fetch {s}...", .{url});
-    const rand_int = std.crypto.random.int(u64);
-    const tmp_dirname = try std.fmt.allocPrint(allocator, "{s}{s}zigfetch-{s}", .{
-        cache_dir,
-        fs.path.sep_str,
-        Manifest.hex64(rand_int),
-    });
+    const tmp_dirname = try makeTmpDir(allocator);
     defer allocator.free(tmp_dirname);
-
-    try fs.makeDirAbsolute(tmp_dirname);
     defer fs.deleteTreeAbsolute(tmp_dirname) catch |e| {
-        log.err("Delete dir({s}) failed, err:{any}", .{ tmp_dirname, e });
+        if (args.verbose) {
+            log.err("Delete dir({s}) failed, err:{any}", .{ tmp_dirname, e });
+        }
     };
 
     var out_dir = try fs.openDirAbsolute(tmp_dirname, .{ .iterate = true });
@@ -277,6 +294,7 @@ fn cachePackageFromUrl(
 
 fn moveToCache(allocator: Allocator, src_dir: []const u8, hex: Manifest.MultiHashHexDigest) !void {
     const dst = try std.fmt.allocPrint(allocator, "{s}/p/{s}", .{ cache_dir, hex });
+    defer allocator.free(dst);
 
     _ = fs.openDirAbsolute(dst, .{}) catch |err| switch (err) {
         error.FileNotFound => {
@@ -287,9 +305,6 @@ fn moveToCache(allocator: Allocator, src_dir: []const u8, hex: Manifest.MultiHas
     if (args.verbose) {
         log.info("Dir({s}) already exists, skip copy...", .{dst});
     }
-    fs.deleteTreeAbsolute(src_dir) catch |e| {
-        log.err("Delete dir({s}) failed, err:{any}", .{ src_dir, e });
-    };
 }
 
 fn fetchPackage(allocator: Allocator, url: [:0]const u8, out_dir: fs.Dir) ![]const u8 {
@@ -788,4 +803,55 @@ fn guessMimeType(url: []const u8) ?MimeType {
         return .Zip;
     }
     return null;
+}
+
+/// Caller own returned memory
+fn makeTmpDir(allocator: Allocator) ![]const u8 {
+    const rand_int = std.crypto.random.int(u64);
+    const tmp_dirname = try std.fmt.allocPrint(allocator, "{s}{s}zigfetch-{s}", .{
+        cache_dir,
+        fs.path.sep_str,
+        Manifest.hex64(rand_int),
+    });
+
+    try fs.makeDirAbsolute(tmp_dirname);
+    return tmp_dirname;
+}
+// Recursive directory copy.
+fn recursiveDirectoryCopy(allocator: Allocator, dir: fs.Dir, tmp_dir: fs.Dir) anyerror!void {
+    var it = try dir.walk(allocator);
+    defer it.deinit();
+    while (try it.next()) |entry| {
+        switch (entry.kind) {
+            .directory => {}, // omit empty directories
+            .file => {
+                dir.copyFile(
+                    entry.path,
+                    tmp_dir,
+                    entry.path,
+                    .{},
+                ) catch |err| switch (err) {
+                    error.FileNotFound => {
+                        if (fs.path.dirname(entry.path)) |dirname| try tmp_dir.makePath(dirname);
+                        try dir.copyFile(entry.path, tmp_dir, entry.path, .{});
+                    },
+                    else => |e| return e,
+                };
+            },
+            .sym_link => {
+                var buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+                const link_name = try dir.readLink(entry.path, &buf);
+                // TODO: if this would create a symlink to outside
+                // the destination directory, fail with an error instead.
+                tmp_dir.symLink(link_name, entry.path, .{}) catch |err| switch (err) {
+                    error.FileNotFound => {
+                        if (fs.path.dirname(entry.path)) |dirname| try tmp_dir.makePath(dirname);
+                        try tmp_dir.symLink(link_name, entry.path, .{});
+                    },
+                    else => |e| return e,
+                };
+            },
+            else => return error.IllegalFileTypeInPackage,
+        }
+    }
 }
