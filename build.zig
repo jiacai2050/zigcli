@@ -6,11 +6,12 @@ const macos_private_framework = "/Applications/Xcode.app/Contents/Developer/Plat
 pub fn build(b: *Build) !void {
     const optimize = b.standardOptimizeOption(.{});
     const target = b.standardTargetOptions(.{});
-    const skip_zigfetch = b.option(bool, "skip_zigfetch", "Skip zig fetch") orelse false;
+    const skip_zigfetch = b.option(bool, "skip-zigfetch", "Skip zig fetch") orelse false;
+    const vendor_libcurl = b.option(bool, "vendor-libcurl", "Static link libcurl") orelse false;
     var all_tests = std.ArrayList(*Build.Step).init(b.allocator);
 
     try addModules(b, target, &all_tests);
-    try buildBinaries(b, optimize, target, &all_tests, skip_zigfetch);
+    try buildBinaries(b, optimize, target, &all_tests, skip_zigfetch, vendor_libcurl);
     try buildExamples(b, optimize, target, &all_tests);
 
     const test_all_step = b.step("test", "Run all tests");
@@ -87,7 +88,7 @@ fn buildExamples(
         "simargs-demo",
         "pretty-table-demo",
     }) |name| {
-        try buildBinary(b, .{ .ex = name }, optimize, target, all_tests, false);
+        try buildBinary(b, .{ .ex = name }, optimize, target, all_tests, false, false);
     }
 }
 
@@ -97,6 +98,7 @@ fn buildBinaries(
     target: std.Build.ResolvedTarget,
     all_tests: *std.ArrayList(*Build.Step),
     skip_zigfetch: bool,
+    vendor_libcurl: bool,
 ) !void {
     inline for (.{
         "zigfetch",
@@ -109,7 +111,15 @@ fn buildBinaries(
         "repeat",
         "tcp-proxy",
     }) |name| {
-        try buildBinary(b, .{ .bin = name }, optimize, target, all_tests, skip_zigfetch);
+        try buildBinary(
+            b,
+            .{ .bin = name },
+            optimize,
+            target,
+            all_tests,
+            skip_zigfetch,
+            vendor_libcurl,
+        );
     }
 
     // TODO: move util out of `bin`
@@ -123,8 +133,16 @@ fn buildBinary(
     target: std.Build.ResolvedTarget,
     all_tests: *std.ArrayList(*Build.Step),
     skip_zigfetch: bool,
+    vendor_libcurl: bool,
 ) !void {
-    if (makeCompileStep(b, source, optimize, target, skip_zigfetch)) |exe| {
+    if (makeCompileStep(
+        b,
+        source,
+        optimize,
+        target,
+        skip_zigfetch,
+        vendor_libcurl,
+    )) |exe| {
         var deps = b.modules.iterator();
         while (deps.next()) |dep| {
             exe.root_module.addImport(dep.key_ptr.*, dep.value_ptr.*);
@@ -168,6 +186,7 @@ fn makeCompileStep(
     optimize: std.builtin.Mode,
     target: std.Build.ResolvedTarget,
     skip_zigfetch: bool,
+    vendor_libcurl: bool,
 ) ?*Build.Step.Compile {
     const name = comptime source.name();
     const path = comptime source.path();
@@ -206,9 +225,11 @@ fn makeCompileStep(
             return null;
         }
         if (host_os == .linux or host_os == .macos) {
-            const dep_curl = b.dependency("curl", .{ .link_vendor = false });
+            const dep_curl = b.dependency("curl", .{ .link_vendor = vendor_libcurl });
+            if (!vendor_libcurl) {
+                exe.linkSystemLibrary("curl");
+            }
             exe.root_module.addImport("curl", dep_curl.module("curl"));
-            exe.linkSystemLibrary("curl");
             exe.linkLibC();
         } else {
             return null;

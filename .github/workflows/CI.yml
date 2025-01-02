@@ -50,7 +50,7 @@ jobs:
         run: |
           zig fmt --check .
           zig build test
-          zig build
+          zig build -Dvendor-libcurl
           find zig-out
       - name: zigfetch compare(unix)
         if: matrix.os != 'windows-latest'
@@ -76,4 +76,4 @@ jobs:
           sudo apt update && sudo apt-get install -y libcurl4-openssl-dev
       - name: Build
         run: |
-          zig build -Dtarget=${{ matrix.targets }} -Dskip_zigfetch=true
+          zig build -Dtarget=${{ matrix.targets }} -Dskip-zigfetch=true
