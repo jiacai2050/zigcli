@@ -57,7 +57,7 @@ jobs:
         run: |
           mkdir -p "${OUT_DIR}"
           zig build -Doptimize=ReleaseSafe \
-          -Dgit_commit=${GIT_COMMIT} -Dbuild_date=${BUILD_DATE}
+          -Dgit_commit=${GIT_COMMIT} -Dbuild_date=${BUILD_DATE} -Dversion=${RELEASE_VERSION}
           rm -f zig-out/bin/*demo
           cp LICENSE README.org zig-out
           find zig-out

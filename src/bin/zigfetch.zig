@@ -19,28 +19,36 @@ pub const std_options: std.Options = .{
 
 const Args = struct {
     help: bool = false,
+    version: bool = false,
     verbose: bool = false,
+    timeout: usize = 60,
     @"no-dep": bool = false,
     @"debug-hash": bool = false,
 
     pub const __shorts__ = .{
+        .version = .V,
         .verbose = .v,
+        .timeout = .t,
         .help = .h,
         .@"no-dep" = .n,
         .@"debug-hash" = .d,
     };
     pub const __messages__ = .{
         .help = "Show help",
+        .version = "Show version",
         .verbose = "Show verbose log",
+        .timeout = "Libcurl http timeout in seconds",
         .@"debug-hash" = "Print hash for each file",
         .@"no-dep" = "Disable fetch dependencies",
     };
 };
 
 var args: Args = undefined;
-var cache_dir: []const u8 = undefined;
+var cache_dirname: []const u8 = undefined;
+var cache_dep_dir: fs.Dir = undefined;
 var thread_pool: std.Thread.Pool = undefined;
 var fetched_packages = std.StringHashMapUnmanaged(void){};
+var easy: curl.Easy = undefined;
 
 pub fn main() !void {
     const allocator = std.heap.page_allocator;
@@ -59,23 +67,27 @@ pub fn main() !void {
     }
     // Init global vars
     args = opt.args;
+    easy = try curl.Easy.init(allocator, .{
+        .default_timeout_ms = args.timeout * 1000,
+        .default_user_agent = "zigfetch",
+    });
+
     {
-        cache_dir = try resolveGlobalCacheDir(allocator);
-        const p_dirname = try std.fmt.allocPrint(allocator, "{s}/p", .{cache_dir});
-        var dir = fs.openDirAbsolute(p_dirname, .{}) catch |e| switch (e) {
+        cache_dirname = try resolveGlobalCacheDir(allocator);
+        const p_dirname = try std.fmt.allocPrint(allocator, "{s}/p", .{cache_dirname});
+        cache_dep_dir = fs.openDirAbsolute(p_dirname, .{}) catch |e| switch (e) {
             error.FileNotFound => {
                 log.err("{s} not exists, please create it first!", .{p_dirname});
                 return e;
             },
             else => return e,
         };
-        dir.close();
     }
     try thread_pool.init(.{ .allocator = allocator });
     defer thread_pool.deinit();
 
     const url_or_path = opt.positional_args[0];
-    defer allocator.free(cache_dir);
+    defer allocator.free(cache_dirname);
     if (std.mem.startsWith(u8, url_or_path, "http")) {
         try handleHTTP(allocator, url_or_path);
     } else if (std.mem.startsWith(u8, url_or_path, "git+")) {
@@ -87,7 +99,9 @@ pub fn main() !void {
 }
 
 fn calcHash(allocator: Allocator, dir: fs.Dir, root_dirname: []const u8, deleteIgnore: bool) anyerror!Manifest.MultiHashHexDigest {
-    const manifest = try loadManifest(allocator, dir);
+    var manifest = try loadManifest(allocator, dir);
+    defer if (manifest) |*m| m.deinit(allocator);
+
     if (args.verbose) {
         log.info("manifest = {any}", .{manifest});
     }
@@ -115,13 +129,16 @@ fn calcHash(allocator: Allocator, dir: fs.Dir, root_dirname: []const u8, deleteI
                     if (fetched_packages.contains(pkg_url)) {
                         continue;
                     }
-                    try fetched_packages.put(allocator, pkg_url, {});
+                    const cache_key = try std.fmt.allocPrint(allocator, "{s}", .{pkg_url});
+                    try fetched_packages.put(allocator, cache_key, {});
 
                     if (dep.hash) |hash| {
                         if (std.mem.startsWith(u8, pkg_url, "git+")) {
                             _ = try cachePackageFromGit(allocator, pkg_url, hash);
                         } else {
                             const u = try std.fmt.allocPrintZ(allocator, "{s}", .{pkg_url});
+                            defer allocator.free(u);
+
                             _ = try cachePackageFromUrl(allocator, u, hash);
                         }
                     } else {
@@ -173,7 +190,18 @@ fn cachePackageFromUrl(
     url: [:0]const u8,
     expected_hash: ?[]const u8,
 ) anyerror!Manifest.MultiHashHexDigest {
-    log.info("Cache from url: {s}...", .{url});
+    log.info("Cache from url: {s}", .{url});
+    if (expected_hash) |hash| blk: {
+        cache_dep_dir.access(hash, .{}) catch {
+            break :blk;
+        };
+        // If reach here, it means it already in global caches
+        if (args.verbose) {
+            log.info("Already cached, skip", .{});
+        }
+        return hash[0..Manifest.multihash_hex_digest_len].*;
+    }
+
     const tmp_dirname = try makeTmpDir(allocator);
     defer allocator.free(tmp_dirname);
     defer fs.deleteTreeAbsolute(tmp_dirname) catch |e| {
@@ -187,6 +215,8 @@ fn cachePackageFromUrl(
 
     // This is the directory we need to strip.
     const sub_dirname = try fetchPackage(allocator, url, out_dir);
+    defer allocator.free(sub_dirname);
+
     var sub_dir = try out_dir.openDir(sub_dirname, .{ .iterate = true });
     defer sub_dir.close();
     const actual_hash = try calcHash(allocator, sub_dir, sub_dirname, true);
@@ -227,16 +257,40 @@ fn cachePackageFromGit(
     else
         return error.MissingHost;
 
+    // Convert this git dep to http dep, since it's more efficient.
+    if (std.mem.eql(u8, host, "github.com") or std.mem.eql(u8, host, "codeberg.org")) {
+        const archive_url = try std.fmt.allocPrintZ(allocator, "{s}://{s}{s}/archive/{s}.tar.gz", .{
+            uri.scheme["git+".len..],
+            host,
+            try uri.path.toRawMaybeAlloc(allocator),
+            commit_id,
+        });
+        defer allocator.free(archive_url);
+
+        return cachePackageFromUrl(allocator, archive_url, expected_hash);
+    }
+
     const repo_url = try std.fmt.allocPrint(allocator, "{s}://{s}{s}", .{
         uri.scheme["git+".len..],
         host,
         try uri.path.toRawMaybeAlloc(allocator),
     });
+    defer allocator.free(repo_url);
 
     log.info("Fetch from git, repo_url:{s}, commit_id:{s}...", .{ repo_url, commit_id });
+    if (expected_hash) |hash| blk: {
+        cache_dep_dir.access(hash, .{}) catch {
+            break :blk;
+        };
+        if (args.verbose) {
+            log.info("Already cached, skip", .{});
+        }
+        return hash[0..Manifest.multihash_hex_digest_len].*;
+    }
+
     const rand_int = std.crypto.random.int(u64);
     const tmp_dirname = try std.fmt.allocPrint(allocator, "{s}{s}zigfetch-{s}", .{
-        cache_dir,
+        cache_dirname,
         fs.path.sep_str,
         Manifest.hex64(rand_int),
     });
@@ -308,7 +362,7 @@ fn execShell(allocator: Allocator, argv: []const []const u8) !void {
 }
 
 fn moveToCache(allocator: Allocator, src_dir: []const u8, hex: Manifest.MultiHashHexDigest) !void {
-    const dst = try std.fmt.allocPrint(allocator, "{s}/p/{s}", .{ cache_dir, hex });
+    const dst = try std.fmt.allocPrint(allocator, "{s}/p/{s}", .{ cache_dirname, hex });
     defer allocator.free(dst);
 
     _ = fs.openDirAbsolute(dst, .{}) catch |err| switch (err) {
@@ -323,15 +377,11 @@ fn moveToCache(allocator: Allocator, src_dir: []const u8, hex: Manifest.MultiHas
 }
 
 fn fetchPackage(allocator: Allocator, url: [:0]const u8, out_dir: fs.Dir) ![]const u8 {
-    var arena = std.heap.ArenaAllocator.init(allocator);
-    // defer arena.deinit();
-    const arena_allocator = arena.allocator();
-
-    const easy = try curl.Easy.init(arena_allocator, .{});
     try easy.setFollowLocation(true);
     try easy.setVerbose(args.verbose);
 
     const resp = try easy.get(url);
+    defer resp.deinit();
 
     if (resp.status_code >= 400) {
         log.err("Failed to fetch {s}: {d}\n", .{ url, resp.status_code });
@@ -404,7 +454,7 @@ fn loadManifest(allocator: Allocator, pkg_dir: fs.Dir) !?Manifest {
 fn unzip(allocator: Allocator, out_dir: fs.Dir, src: []const u8) ![]const u8 {
     const rand_int = std.crypto.random.int(u64);
     const tmp_file = try fs.path.join(allocator, &[_][]const u8{
-        cache_dir, &Manifest.hex64(rand_int),
+        cache_dirname, &Manifest.hex64(rand_int),
     });
     defer allocator.free(tmp_file);
 
@@ -825,7 +875,7 @@ fn guessMimeType(url: []const u8) ?MimeType {
 fn makeTmpDir(allocator: Allocator) ![]const u8 {
     const rand_int = std.crypto.random.int(u64);
     const tmp_dirname = try std.fmt.allocPrint(allocator, "{s}{s}zigfetch-{s}", .{
-        cache_dir,
+        cache_dirname,
         fs.path.sep_str,
         Manifest.hex64(rand_int),
     });

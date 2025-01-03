@@ -21,13 +21,20 @@ pub const StringUtil = struct {
 
 pub fn get_build_info() []const u8 {
     return fmt.comptimePrint(
-        \\Git commit: {s}
-        \\Build date: {s}
-        \\Zig version: {s}
-        \\Zig backend: {s}
+        \\Zigcli
+        \\ - version: {s}
+        \\ - commit: https://github.com/jiacai2050/zigcli/commit/{s}
+        \\
+        \\Build Config:
+        \\ - build date: {s}
+        \\ - build mode: {s}
+        \\ - zig version: {s}
+        \\ - zig backend: {s}
     , .{
+        info.version,
         info.git_commit,
         info.build_date,
+        info.build_mode,
         builtin.zig_version_string,
         builtin.zig_backend,
     });

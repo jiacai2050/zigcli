@@ -69,12 +69,26 @@ fn addModules(
         b.option([]const u8, "build_date", "Build date") orelse
             b.fmt("{d}", .{std.time.milliTimestamp()}),
     );
+
+    opt.addOption(
+        []const u8,
+        "version",
+        b.option([]const u8, "version", "Version to release") orelse
+            "Unknown",
+    );
     opt.addOption(
         []const u8,
         "git_commit",
         b.option([]const u8, "git_commit", "Git commit") orelse
             "Unknown",
     );
+    opt.addOption([]const u8, "build_mode", switch (b.release_mode) {
+        .any => "any",
+        .off => "Dev",
+        .fast => "ReleaseFast",
+        .small => "ReleaseSmall",
+        .safe => "ReleaseSafe",
+    });
     try b.modules.put("build_info", opt.createModule());
 }
 
