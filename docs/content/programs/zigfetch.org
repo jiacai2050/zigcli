@@ -1,6 +1,6 @@
 #+TITLE: zigfetch
 #+DATE: 2025-01-01T18:01:47+0800
-#+LASTMOD: 2025-01-02T23:02:00+0800
+#+LASTMOD: 2025-01-03T09:03:14+0800
 #+TYPE: docs
 #+DESCRIPTION: Fetch zig package, baked by libcurl.
 
@@ -12,7 +12,9 @@ Since the HTTP support within Zig's standard library isn't currently stable, thi
 
 This poses a significant challenge for Chinese developers owing to [[https://en.wikipedia.org/wiki/Great_Firewall][the Great Firewall]].
 
-So =zigfetch= is born, it's baked by libcurl, so [[https://curl.se/libcurl/c/libcurl-env.html][http_proxy/https_proxy]] env vars work as expected.
+As a consequence, =zigfetch= was developed; this tool operates via libcurl to ensure that both the =http_proxy= and =https_proxy= environment variables function correctly.
+
+- https://curl.se/libcurl/c/libcurl-env.html
 
 #+begin_src bash :results verbatim :exports result :dir ../../..
 ./zig-out/bin/zigfetch --help
@@ -25,4 +27,17 @@ So =zigfetch= is born, it's baked by libcurl, so [[https://curl.se/libcurl/c/lib
 :  OPTIONS:
 :   -h, --help                       Show help
 :   -v, --verbose                    Show verbose log
+:   -n, --no-dep                     Disable fetch dependencies
 :   -d, --debug-hash                 Print hash for each file
+
+
+This is a demo for socks5 proxy setup:
+
+#+begin_src bash
+export http_proxy="socks5://127.0.0.1:1080"
+export https_proxy=$http_proxy
+export all_proxy=$http_proxy
+export GIT_SSH_COMMAND='ssh -o ProxyCommand="nc -X 5 -x 127.0.0.1:1080 %h %p"'
+#+end_src
+
+=GIT_SSH_COMMAND= is used for fetch =git+http(s)= dependencies.

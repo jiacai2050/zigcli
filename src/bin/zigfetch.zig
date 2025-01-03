@@ -20,20 +20,20 @@ pub const std_options: std.Options = .{
 const Args = struct {
     help: bool = false,
     verbose: bool = false,
-    recursive: bool = true,
+    @"no-dep": bool = false,
     @"debug-hash": bool = false,
 
     pub const __shorts__ = .{
         .verbose = .v,
-        .recursive = .r,
-        .@"debug-hash" = .d,
         .help = .h,
+        .@"no-dep" = .n,
+        .@"debug-hash" = .d,
     };
     pub const __messages__ = .{
-        .@"debug-hash" = "Print hash for each file",
-        .verbose = "Show verbose log",
-        .recursive = "Recursive fetch package dependencies",
         .help = "Show help",
+        .verbose = "Show verbose log",
+        .@"debug-hash" = "Print hash for each file",
+        .@"no-dep" = "Disable fetch dependencies",
     };
 };
 
@@ -102,7 +102,7 @@ fn calcHash(allocator: Allocator, dir: fs.Dir, root_dirname: []const u8, deleteI
         filter,
         deleteIgnore,
     );
-    if (!args.recursive) {
+    if (args.@"no-dep") {
         return Manifest.hexDigest(actual_hash);
     }
 
