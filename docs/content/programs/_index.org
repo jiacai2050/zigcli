@@ -1,8 +1,8 @@
 #+TITLE: Programs
 #+DATE: 2023-10-21T12:26:45+0800
-#+LASTMOD: 2025-01-01T18:00:55+0800
+#+LASTMOD: 2025-01-04T09:42:27+0800
 #+TYPE: docs
 #+WEIGHT: 20
-#+DESCRIPTION: Binary programs which can be used directly
+#+DESCRIPTION: CLI programs which can be used directly
 
 * Available Programs
