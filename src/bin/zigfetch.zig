@@ -365,15 +365,15 @@ fn moveToCache(allocator: Allocator, src_dir: []const u8, hex: Manifest.MultiHas
     const dst = try std.fmt.allocPrint(allocator, "{s}/p/{s}", .{ cache_dirname, hex });
     defer allocator.free(dst);
 
-    _ = fs.openDirAbsolute(dst, .{}) catch |err| switch (err) {
-        error.FileNotFound => {
-            return fs.renameAbsolute(src_dir, dst);
-        },
-        else => return err,
-    };
-    if (args.verbose) {
-        log.info("Dir({s}) already exists, skip copy...", .{dst});
+    const found = checkFileExists(dst);
+    if (found) {
+        if (args.verbose) {
+            log.info("Dir({s}) already exists, skip copy...", .{dst});
+        }
+        return;
     }
+
+    fs.renameAbsolute(src_dir, dst);
 }
 
 fn fetchPackage(allocator: Allocator, url: [:0]const u8, out_dir: fs.Dir) ![]const u8 {
@@ -920,4 +920,14 @@ fn recursiveDirectoryCopy(allocator: Allocator, dir: fs.Dir, tmp_dir: fs.Dir) an
             else => return error.IllegalFileTypeInPackage,
         }
     }
+}
+
+// Returns true if path exists
+fn checkFileExists(path: []const u8) ?bool {
+    fs.cwd().access(path, .{}) catch |e| switch (e) {
+        error.FileNotFound => return false,
+        else => return e,
+    };
+
+    return true;
 }

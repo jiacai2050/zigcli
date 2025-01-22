@@ -124,6 +124,7 @@ fn buildBinaries(
         "dark-mode",
         "repeat",
         "tcp-proxy",
+        "timeout",
     }) |name| {
         try buildBinary(
             b,
@@ -228,6 +229,8 @@ fn makeCompileStep(
         exe.addFrameworkPath(.{ .cwd_relative = macos_private_framework });
         exe.linkFramework("SkyLight");
     } else if (std.mem.eql(u8, name, "tcp-proxy")) {
+        exe.linkLibC();
+    } else if (std.mem.eql(u8, name, "timeout")) {
         exe.linkLibC();
     } else if (std.mem.eql(u8, name, "zigfetch")) {
         if (skip_zigfetch) {

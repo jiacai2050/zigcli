@@ -1,12 +1,12 @@
 #+TITLE: zigfetch
 #+DATE: 2025-01-01T18:01:47+0800
-#+LASTMOD: 2025-01-04T09:46:39+0800
+#+LASTMOD: 2025-01-04T17:16:15+0800
 #+TYPE: docs
 #+DESCRIPTION: Fetch zig packages, utilizing libcurl.
 
-=zigfetch= behaves similarly to =zig fetch=, utilizing the capabilities of libcurl for its functionality.
+=zigfetch= behaves similarly to =zig fetch=, but utilizing the capabilities of libcurl for its functionality.
 
-Since the HTTP support within Zig's standard library isn't currently stable, [[https://github.com/ziglang/zig/issues/21792][this  proxy issue]] make it even harder, resulting in multiple errors occurring during dependency downloads when building Zig projects.
+HTTP support within Zig's standard library isn't currently stable, [[https://github.com/ziglang/zig/issues/21792][this  proxy issue]] make it even harder, resulting in multiple errors occurring during dependency downloads when building Zig projects.
 
 {{< figure src="https://fs.liujiacai.net/cdn-img/zigcli/zig-fetch-errors.webp" >}}
 
