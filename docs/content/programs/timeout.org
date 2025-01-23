@@ -1,0 +1,18 @@
+#+TITLE: timeout
+#+DATE: 2025-01-23T22:28:53+0800
+#+LASTMOD: 2025-01-23T22:35:32+0800
+#+TYPE: docs
+#+DESCRIPTION: Run a command with bounded time
+
+#+begin_example
+timeout SECONDS COMMAND [ARG]...
+#+end_example
+
+Start a command, and kill it if the specified timeout expires.
+
+The =timeout= command is crucial for:
+
+- Process Control
+- Limits execution time of commands
+- Prevents resource-consuming tasks from running indefinitely
+- Provides automatic process termination
