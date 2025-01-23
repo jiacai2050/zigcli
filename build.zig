@@ -124,6 +124,7 @@ fn buildBinaries(
         "dark-mode",
         "repeat",
         "tcp-proxy",
+        "timeout",
     }) |name| {
         try buildBinary(
             b,
@@ -207,7 +208,7 @@ fn makeCompileStep(
     // We can't use `target.result.isDarwin()` here
     // Since when cross compile to darwin, there is no framework in the host!
     const is_darwin = @import("builtin").os.tag == .macos;
-
+    const is_win = target.result.os.tag == .windows;
     if (!is_darwin) {
         if (std.mem.eql(u8, name, "night-shift") or std.mem.eql(u8, name, "dark-mode")) {
             return null;
@@ -228,6 +229,11 @@ fn makeCompileStep(
         exe.addFrameworkPath(.{ .cwd_relative = macos_private_framework });
         exe.linkFramework("SkyLight");
     } else if (std.mem.eql(u8, name, "tcp-proxy")) {
+        exe.linkLibC();
+    } else if (std.mem.eql(u8, name, "timeout")) {
+        if (is_win) { // error: TODO windows Sigaction definition
+            return null;
+        }
         exe.linkLibC();
     } else if (std.mem.eql(u8, name, "zigfetch")) {
         if (skip_zigfetch) {
