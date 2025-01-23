@@ -365,7 +365,7 @@ fn moveToCache(allocator: Allocator, src_dir: []const u8, hex: Manifest.MultiHas
     const dst = try std.fmt.allocPrint(allocator, "{s}/p/{s}", .{ cache_dirname, hex });
     defer allocator.free(dst);
 
-    const found = checkFileExists(dst);
+    const found = try checkFileExists(dst);
     if (found) {
         if (args.verbose) {
             log.info("Dir({s}) already exists, skip copy...", .{dst});
@@ -373,7 +373,7 @@ fn moveToCache(allocator: Allocator, src_dir: []const u8, hex: Manifest.MultiHas
         return;
     }
 
-    fs.renameAbsolute(src_dir, dst);
+    try fs.renameAbsolute(src_dir, dst);
 }
 
 fn fetchPackage(allocator: Allocator, url: [:0]const u8, out_dir: fs.Dir) ![]const u8 {
@@ -923,7 +923,7 @@ fn recursiveDirectoryCopy(allocator: Allocator, dir: fs.Dir, tmp_dir: fs.Dir) an
 }
 
 // Returns true if path exists
-fn checkFileExists(path: []const u8) ?bool {
+fn checkFileExists(path: []const u8) !bool {
     fs.cwd().access(path, .{}) catch |e| switch (e) {
         error.FileNotFound => return false,
         else => return e,
