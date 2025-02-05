@@ -71,7 +71,7 @@ fn buildOptionFields(comptime T: type) [getOptionLength(T)]OptionField {
             .long_name = long_name,
             .opt_type = opt_type,
             // option with default value is set automatically
-            .is_set = fld.default_value != null,
+            .is_set = fld.default_value_ptr != null,
         };
     }
 
@@ -175,7 +175,7 @@ const MessageHelper = struct {
     }
 
     fn printDefault(comptime f: std.builtin.Type.StructField, writer: anytype) !void {
-        if (f.default_value == null) {
+        if (f.default_value_ptr == null) {
             if (@typeInfo(f.type) != if (is_latest_zig) .optional else .Optional) {
                 try writer.writeAll("(required)");
             }
@@ -183,7 +183,7 @@ const MessageHelper = struct {
         }
 
         // Don't print default for false (?)bool
-        const default = @as(*align(1) const f.type, @ptrCast(f.default_value.?)).*;
+        const default = @as(*align(1) const f.type, @ptrCast(f.default_value_ptr.?)).*;
         switch (@typeInfo(f.type)) {
             if (is_latest_zig) .bool else .Bool => if (!default) return,
             if (is_latest_zig) .optional else .Optional => |opt| if (@typeInfo(opt.child) == if (is_latest_zig) .bool else .Bool)
@@ -392,7 +392,7 @@ const OptionType = enum(u32) {
             if (is_latest_zig) .optional else .Optional => |opt_info| return Self.convert(opt_info.child, true),
             if (is_latest_zig) .pointer else .Pointer => |ptr_info|
             // only support []const u8
-            if (ptr_info.size == .Slice and ptr_info.child == u8 and ptr_info.is_const)
+            if (ptr_info.size == .slice and ptr_info.child == u8 and ptr_info.is_const)
                 .RequiredString
             else {
                 @compileError("not supported option type:" ++ @typeName(T));
@@ -491,7 +491,7 @@ fn SubCommandsType(comptime T: type) type {
         fields[idx] = .{
             .name = fld.name,
             .type = CommandParser(fld.type),
-            .default_value = @ptrCast(&default_value),
+            .default_value_ptr = @ptrCast(&default_value),
             .is_comptime = false,
             .alignment = @alignOf(FieldType),
         };
@@ -562,14 +562,14 @@ fn OptionParser(
             var sub_cmd_set = false;
             inline for (std.meta.fields(Args)) |fld| {
                 if (comptime std.mem.eql(u8, fld.name, COMMAND_FIELD_NAME)) {
-                    if (fld.default_value) |v| {
+                    if (fld.default_value_ptr) |v| {
                         sub_cmd_set = true;
                         @field(args, fld.name) = @as(*align(1) const fld.type, @ptrCast(v)).*;
                     }
                     continue;
                 }
 
-                if (fld.default_value) |v| {
+                if (fld.default_value_ptr) |v| {
                     // https://github.com/ziglang/zig/blob/d69e97ae1677ca487833caf6937fa428563ed0ae/lib/std/json.zig#L1590
                     // why align(1) is used here?
                     @field(args, fld.name) = @as(*align(1) const fld.type, @ptrCast(v)).*;
