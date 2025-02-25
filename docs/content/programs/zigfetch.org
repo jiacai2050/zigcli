@@ -1,21 +1,18 @@
 #+TITLE: zigfetch
 #+DATE: 2025-01-01T18:01:47+0800
-#+LASTMOD: 2025-01-04T17:16:15+0800
+#+LASTMOD: 2025-02-25T22:44:10+0800
 #+TYPE: docs
 #+DESCRIPTION: Fetch zig packages, utilizing libcurl.
 
 =zigfetch= behaves similarly to =zig fetch=, but utilizing the capabilities of libcurl for its functionality.
 
-HTTP support within Zig's standard library isn't currently stable, [[https://github.com/ziglang/zig/issues/21792][this  proxy issue]] make it even harder, resulting in multiple errors occurring during dependency downloads when building Zig projects.
+HTTP support within Zig's standard library isn't currently stable, [[https://github.com/ziglang/zig/issues/21792][this  proxy issue]] make it even harder, resulting in multiple errors occurring during dependency downloads when building Zig projects. This poses a significant challenge for Chinese developers owing to [[https://en.wikipedia.org/wiki/Great_Firewall][the Great Firewall]].
 
 {{< figure src="https://fs.liujiacai.net/cdn-img/zigcli/zig-fetch-errors.webp" >}}
 
-This poses a significant challenge for Chinese developers owing to [[https://en.wikipedia.org/wiki/Great_Firewall][the Great Firewall]].
+As a consequence, =zigfetch= was developed. It operates via libcurl to ensure that both the =http_proxy= and =https_proxy= [[https://curl.se/libcurl/c/libcurl-env.html][environment variables]] function correctly.
 
-As a consequence, =zigfetch= was developed; this tool operates via libcurl to ensure that both the =http_proxy= and =https_proxy= environment variables function correctly.
-
-- https://curl.se/libcurl/c/libcurl-env.html
-
+** Usage
 #+begin_src bash :results verbatim :exports result :dir ../../..
 ./zig-out/bin/zigfetch --help
 #+end_src
@@ -34,9 +31,12 @@ As a consequence, =zigfetch= was developed; this tool operates via libcurl to en
   -d, --debug-hash                 Print hash for each file
 #+end_example
 
+If the argument is a local directory, =zigfetch= will attempt to open =build.zig.zon=, download dependencies specified in the =.dependencies= fields, and then calculate hashes for each package. If these hashes match those in the =.hash= fields, =zigfetch= will move them to =~/.cache/zig/p/{hash}= after completion.
 
+If =zigfetch= succeeds, =zig build= will build the project directly, assuming the dependencies already exist.
+
+** Proxy config
 This is a demo for socks5 proxy setup:
-
 #+begin_src bash
 export http_proxy="socks5://127.0.0.1:1080"
 export https_proxy=$http_proxy
