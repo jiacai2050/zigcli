@@ -7,7 +7,7 @@ pub fn build(b: *Build) !void {
     const optimize = b.standardOptimizeOption(.{});
     const target = b.standardTargetOptions(.{});
     const skip_zigfetch = b.option(bool, "skip-zigfetch", "Skip zig fetch") orelse false;
-    const vendor_libcurl = b.option(bool, "vendor-libcurl", "Static link libcurl") orelse false;
+    const vendor_libcurl = b.option(bool, "vendor-libcurl", "Static link libcurl") orelse true;
     var all_tests = std.ArrayList(*Build.Step).init(b.allocator);
 
     try addModules(b, target, &all_tests);

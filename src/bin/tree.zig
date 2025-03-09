@@ -228,9 +228,9 @@ fn walk(
 
                 const new_prefix =
                     if (i < files.items.len - 1)
-                    try std.fmt.allocPrint(allocator, "{s}{s}", .{ prefix, getPrefix(walk_ctx.mode, Position.UpperNormal) })
-                else
-                    try std.fmt.allocPrint(allocator, "{s}{s}", .{ prefix, getPrefix(walk_ctx.mode, Position.UpperLast) });
+                        try std.fmt.allocPrint(allocator, "{s}{s}", .{ prefix, getPrefix(walk_ctx.mode, Position.UpperNormal) })
+                    else
+                        try std.fmt.allocPrint(allocator, "{s}{s}", .{ prefix, getPrefix(walk_ctx.mode, Position.UpperLast) });
 
                 ret.add(try walk(allocator, walk_ctx, &sub_iter_dir, writer, new_prefix, level + 1));
             },

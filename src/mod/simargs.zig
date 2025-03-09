@@ -768,24 +768,24 @@ fn OptionParser(
                 if (std.mem.eql(u8, field.name, long_name)) {
                     @field(opt, field.name) =
                         switch (comptime OptionType.from_zig_type(field.type)) {
-                        .Int, .RequiredInt => blk: {
-                            const real_type = comptime NonOptionType(field.type);
-                            break :blk switch (Self.getSignedness(field.type)) {
-                                .signed => try std.fmt.parseInt(real_type, raw_value, 0),
-                                .unsigned => try std.fmt.parseUnsigned(real_type, raw_value, 0),
-                            };
-                        },
-                        .Float, .RequiredFloat => try std.fmt.parseFloat(comptime NonOptionType(field.type), raw_value),
-                        .String, .RequiredString => raw_value,
-                        .Bool, .RequiredBool => std.mem.eql(u8, raw_value, "true") or std.mem.eql(u8, raw_value, "1"),
-                        .Enum, .RequiredEnum => blk: {
-                            if (std.meta.stringToEnum(comptime NonOptionType(field.type), raw_value)) |v| {
-                                break :blk v;
-                            } else {
-                                return error.InvalidEnumValue;
-                            }
-                        },
-                    };
+                            .Int, .RequiredInt => blk: {
+                                const real_type = comptime NonOptionType(field.type);
+                                break :blk switch (Self.getSignedness(field.type)) {
+                                    .signed => try std.fmt.parseInt(real_type, raw_value, 0),
+                                    .unsigned => try std.fmt.parseUnsigned(real_type, raw_value, 0),
+                                };
+                            },
+                            .Float, .RequiredFloat => try std.fmt.parseFloat(comptime NonOptionType(field.type), raw_value),
+                            .String, .RequiredString => raw_value,
+                            .Bool, .RequiredBool => std.mem.eql(u8, raw_value, "true") or std.mem.eql(u8, raw_value, "1"),
+                            .Enum, .RequiredEnum => blk: {
+                                if (std.meta.stringToEnum(comptime NonOptionType(field.type), raw_value)) |v| {
+                                    break :blk v;
+                                } else {
+                                    return error.InvalidEnumValue;
+                                }
+                            },
+                        };
 
                     return true;
                 }
