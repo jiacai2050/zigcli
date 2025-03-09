@@ -30,7 +30,7 @@ jobs:
           version: ${{ matrix.zig-version }}
       - name: Memory leak detect
         run: |
-          sudo apt update && sudo apt install -y valgrind
+          sudo apt update && sudo apt install -y valgrind libcurl4-openssl-dev
           zig build -Dcpu=baseline --verbose
           TEST_BINARY=./zig-out/bin/simargs-demo
           valgrind --leak-check=full --tool=memcheck \
