@@ -1,5 +1,6 @@
 .{
-    .name = "zigcli",
+    .name = .zigcli,
+    .fingerprint = 0x9e1fddac8cbb1039,
     .version = "0.1.5",
     .paths = .{
         "src",
@@ -9,8 +10,8 @@
     },
     .dependencies = .{
         .curl = .{
-            .url = "https://github.com/jiacai2050/zig-curl/archive/c8e2f43f8f042f52373c86043ec16b0f2c3388a2.tar.gz",
-            .hash = "1220e9b279355ce92cd217684a2449bd8024274eb3fc09a576deb33ca1733b9f0a1f",
+            .url = "https://github.com/jiacai2050/zig-curl/archive/refs/tags/v0.1.0.tar.gz",
+            .hash = "122057495ccd5029387615e6786a56626a88cd39614b4ebeb0bf559989c16fe47a3f",
         },
     },
 }

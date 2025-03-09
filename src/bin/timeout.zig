@@ -9,7 +9,7 @@ pub var child: Child = undefined;
 pub var spawn_success = false;
 
 pub fn main() !void {
-    try posix.sigaction(posix.SIG.ALRM, &posix.Sigaction{
+    posix.sigaction(posix.SIG.ALRM, &posix.Sigaction{
         .handler = .{
             .handler = struct {
                 pub fn handler(got: c_int) callconv(.C) void {

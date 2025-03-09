@@ -3,7 +3,6 @@
 const std = @import("std");
 const testing = std.testing;
 const is_test = @import("builtin").is_test;
-const is_latest_zig = @import("builtin").zig_version.minor > 13;
 
 const ParseError = error{
     NoProgram,
@@ -71,7 +70,7 @@ fn buildOptionFields(comptime T: type) [getOptionLength(T)]OptionField {
             .long_name = long_name,
             .opt_type = opt_type,
             // option with default value is set automatically
-            .is_set = fld.default_value != null,
+            .is_set = fld.default_value_ptr != null,
         };
     }
 
@@ -87,7 +86,7 @@ fn buildOptionFields(comptime T: type) [getOptionLength(T)]OptionField {
             inline for (&opt_fields) |*opt_fld| {
                 if (std.mem.eql(u8, opt_fld.long_name, long_name)) {
                     const short_name = @field(T.__shorts__, long_name);
-                    if (@typeInfo(@TypeOf(short_name)) != if (is_latest_zig) .enum_literal else .EnumLiteral) {
+                    if (@typeInfo(@TypeOf(short_name)) != .enum_literal) {
                         @compileError("short option value must be literal enum, found " ++ @typeName(@typeInfo(@TypeOf(short_name))));
                     }
                     opt_fld.short_name = @tagName(short_name)[0];
@@ -149,7 +148,7 @@ test "build option fields" {
 
 fn NonOptionType(comptime opt_type: type) type {
     return switch (@typeInfo(opt_type)) {
-        if (is_latest_zig) .optional else .Optional => |o| NonOptionType(o.child),
+        .optional => |o| NonOptionType(o.child),
         else => opt_type,
     };
 }
@@ -175,18 +174,18 @@ const MessageHelper = struct {
     }
 
     fn printDefault(comptime f: std.builtin.Type.StructField, writer: anytype) !void {
-        if (f.default_value == null) {
-            if (@typeInfo(f.type) != if (is_latest_zig) .optional else .Optional) {
+        if (f.default_value_ptr == null) {
+            if (@typeInfo(f.type) != .optional) {
                 try writer.writeAll("(required)");
             }
             return;
         }
 
         // Don't print default for false (?)bool
-        const default = @as(*align(1) const f.type, @ptrCast(f.default_value.?)).*;
+        const default = @as(*align(1) const f.type, @ptrCast(f.default_value_ptr.?)).*;
         switch (@typeInfo(f.type)) {
-            if (is_latest_zig) .bool else .Bool => if (!default) return,
-            if (is_latest_zig) .optional else .Optional => |opt| if (@typeInfo(opt.child) == if (is_latest_zig) .bool else .Bool)
+            .bool => if (!default) return,
+            .optional => |opt| if (@typeInfo(opt.child) == .bool)
                 if (!(default orelse false)) return,
             else => {},
         }
@@ -194,15 +193,15 @@ const MessageHelper = struct {
         const format = "(default: " ++ switch (f.type) {
             []const u8 => "{s}",
             ?[]const u8 => "{?s}",
-            else => if (@typeInfo(NonOptionType(f.type)) == if (is_latest_zig) .@"enum" else .Enum)
+            else => if (@typeInfo(NonOptionType(f.type)) == .@"enum")
                 "{s}"
             else
                 "{any}",
         } ++ ")";
 
         try std.fmt.format(writer, format, .{switch (@typeInfo(f.type)) {
-            if (is_latest_zig) .@"enum" else .Enum => @tagName(default),
-            if (is_latest_zig) .optional else .Optional => |opt| if (@typeInfo(opt.child) == if (is_latest_zig) .@"enum" else .Enum)
+            .@"enum" => @tagName(default),
+            .optional => |opt| if (@typeInfo(opt.child) == .@"enum")
                 @tagName(default.?)
             else
                 default,
@@ -309,7 +308,7 @@ const MessageHelper = struct {
             inline for (std.meta.fields(T)) |f| {
                 if (std.mem.eql(u8, f.name, opt_fld.long_name)) {
                     const real_type = NonOptionType(f.type);
-                    if (@typeInfo(real_type) == if (is_latest_zig) .@"enum" else .Enum) {
+                    if (@typeInfo(real_type) == .@"enum") {
                         const enum_opts = try std.mem.join(aa, "|", std.meta.fieldNames(real_type));
                         try writer.writeAll(" (valid: ");
                         try writer.writeAll(enum_opts);
@@ -386,18 +385,18 @@ const OptionType = enum(u32) {
 
     fn convert(comptime T: type, comptime is_optional: bool) OptionType {
         const base_type: Self = switch (@typeInfo(T)) {
-            if (is_latest_zig) .int else .Int => .RequiredInt,
-            if (is_latest_zig) .bool else .Bool => .RequiredBool,
-            if (is_latest_zig) .float else .Float => .RequiredFloat,
-            if (is_latest_zig) .optional else .Optional => |opt_info| return Self.convert(opt_info.child, true),
-            if (is_latest_zig) .pointer else .Pointer => |ptr_info|
+            .int => .RequiredInt,
+            .bool => .RequiredBool,
+            .float => .RequiredFloat,
+            .optional => |opt_info| return Self.convert(opt_info.child, true),
+            .pointer => |ptr_info|
             // only support []const u8
-            if (ptr_info.size == .Slice and ptr_info.child == u8 and ptr_info.is_const)
+            if (ptr_info.size == .slice and ptr_info.child == u8 and ptr_info.is_const)
                 .RequiredString
             else {
                 @compileError("not supported option type:" ++ @typeName(T));
             },
-            if (is_latest_zig) .@"enum" else .Enum => .RequiredEnum,
+            .@"enum" => .RequiredEnum,
             else => {
                 @compileError("not supported option type:" ++ @typeName(T));
             },
@@ -444,7 +443,7 @@ const MessageWrapper = struct {
 
 fn subCommandsHelpMsg(comptime T: type, comptime len: usize) ?[len]MessageWrapper {
     const union_type_info = @typeInfo(T);
-    if (union_type_info != if (is_latest_zig) .@"union" else .Union) {
+    if (union_type_info != .@"union") {
         @compileError("sub commands should be defined using Union(enum), found " ++ @typeName(T));
     }
 
@@ -477,7 +476,7 @@ fn subCommandsHelpMsg(comptime T: type, comptime len: usize) ?[len]MessageWrappe
 
 fn SubCommandsType(comptime T: type) type {
     const union_type_info = @typeInfo(T);
-    if (union_type_info != if (is_latest_zig) .@"union" else .Union) {
+    if (union_type_info != .@"union") {
         @compileError("sub commands should be defined using Union(enum), found " ++ @typeName(T));
     }
 
@@ -491,17 +490,12 @@ fn SubCommandsType(comptime T: type) type {
         fields[idx] = .{
             .name = fld.name,
             .type = CommandParser(fld.type),
-            .default_value = @ptrCast(&default_value),
+            .default_value_ptr = @ptrCast(&default_value),
             .is_comptime = false,
             .alignment = @alignOf(FieldType),
         };
     }
-    return if (is_latest_zig) @Type(.{ .@"struct" = .{
-        .layout = .auto,
-        .fields = &fields,
-        .decls = &.{},
-        .is_tuple = false,
-    } }) else @Type(.{ .Struct = .{
+    return @Type(.{ .@"struct" = .{
         .layout = .auto,
         .fields = &fields,
         .decls = &.{},
@@ -562,14 +556,14 @@ fn OptionParser(
             var sub_cmd_set = false;
             inline for (std.meta.fields(Args)) |fld| {
                 if (comptime std.mem.eql(u8, fld.name, COMMAND_FIELD_NAME)) {
-                    if (fld.default_value) |v| {
+                    if (fld.default_value_ptr) |v| {
                         sub_cmd_set = true;
                         @field(args, fld.name) = @as(*align(1) const fld.type, @ptrCast(v)).*;
                     }
                     continue;
                 }
 
-                if (fld.default_value) |v| {
+                if (fld.default_value_ptr) |v| {
                     // https://github.com/ziglang/zig/blob/d69e97ae1677ca487833caf6937fa428563ed0ae/lib/std/json.zig#L1590
                     // why align(1) is used here?
                     @field(args, fld.name) = @as(*align(1) const fld.type, @ptrCast(v)).*;
@@ -758,8 +752,8 @@ fn OptionParser(
 
         fn getSignedness(comptime opt_type: type) std.builtin.Signedness {
             return switch (@typeInfo(opt_type)) {
-                if (is_latest_zig) .int else .Int => |i| i.signedness,
-                if (is_latest_zig) .optional else .Optional => |o| Self.getSignedness(o.child),
+                .int => |i| i.signedness,
+                .optional => |o| Self.getSignedness(o.child),
                 else => @compileError("not int type, have no signedness"),
             };
         }
@@ -774,24 +768,24 @@ fn OptionParser(
                 if (std.mem.eql(u8, field.name, long_name)) {
                     @field(opt, field.name) =
                         switch (comptime OptionType.from_zig_type(field.type)) {
-                        .Int, .RequiredInt => blk: {
-                            const real_type = comptime NonOptionType(field.type);
-                            break :blk switch (Self.getSignedness(field.type)) {
-                                .signed => try std.fmt.parseInt(real_type, raw_value, 0),
-                                .unsigned => try std.fmt.parseUnsigned(real_type, raw_value, 0),
-                            };
-                        },
-                        .Float, .RequiredFloat => try std.fmt.parseFloat(comptime NonOptionType(field.type), raw_value),
-                        .String, .RequiredString => raw_value,
-                        .Bool, .RequiredBool => std.mem.eql(u8, raw_value, "true") or std.mem.eql(u8, raw_value, "1"),
-                        .Enum, .RequiredEnum => blk: {
-                            if (std.meta.stringToEnum(comptime NonOptionType(field.type), raw_value)) |v| {
-                                break :blk v;
-                            } else {
-                                return error.InvalidEnumValue;
-                            }
-                        },
-                    };
+                            .Int, .RequiredInt => blk: {
+                                const real_type = comptime NonOptionType(field.type);
+                                break :blk switch (Self.getSignedness(field.type)) {
+                                    .signed => try std.fmt.parseInt(real_type, raw_value, 0),
+                                    .unsigned => try std.fmt.parseUnsigned(real_type, raw_value, 0),
+                                };
+                            },
+                            .Float, .RequiredFloat => try std.fmt.parseFloat(comptime NonOptionType(field.type), raw_value),
+                            .String, .RequiredString => raw_value,
+                            .Bool, .RequiredBool => std.mem.eql(u8, raw_value, "true") or std.mem.eql(u8, raw_value, "1"),
+                            .Enum, .RequiredEnum => blk: {
+                                if (std.meta.stringToEnum(comptime NonOptionType(field.type), raw_value)) |v| {
+                                    break :blk v;
+                                } else {
+                                    return error.InvalidEnumValue;
+                                }
+                            },
+                        };
 
                     return true;
                 }
@@ -1147,5 +1141,5 @@ test "parse/sub commands" {
 }
 
 fn isStruct(info: std.builtin.Type) bool {
-    return if (is_latest_zig) info == .@"struct" else info == .Struct;
+    return info == .@"struct";
 }

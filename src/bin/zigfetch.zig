@@ -390,22 +390,21 @@ fn fetchPackage(allocator: Allocator, url: [:0]const u8, out_dir: fs.Dir) ![]con
     const buffer = resp.body.?;
     const header = try resp.getHeader("content-type");
     const mime: ?MimeType =
-        if (header) |h|
-    blk: {
-        const mime_type = h.get();
-        if (ascii.eqlIgnoreCase(mime_type, "application/x-tar")) {
-            break :blk .Tar;
-        } else if (ascii.eqlIgnoreCase(mime_type, "application/gzip") or
-            ascii.eqlIgnoreCase(mime_type, "application/x-gzip") or
-            ascii.eqlIgnoreCase(mime_type, "application/tar+gzip"))
-        {
-            break :blk .TarGz;
-        } else if (ascii.eqlIgnoreCase(mime_type, "application/zip")) {
-            break :blk .Zip;
-        } else {
-            break :blk guessMimeType(url);
-        }
-    } else guessMimeType(url);
+        if (header) |h| blk: {
+            const mime_type = h.get();
+            if (ascii.eqlIgnoreCase(mime_type, "application/x-tar")) {
+                break :blk .Tar;
+            } else if (ascii.eqlIgnoreCase(mime_type, "application/gzip") or
+                ascii.eqlIgnoreCase(mime_type, "application/x-gzip") or
+                ascii.eqlIgnoreCase(mime_type, "application/tar+gzip"))
+            {
+                break :blk .TarGz;
+            } else if (ascii.eqlIgnoreCase(mime_type, "application/zip")) {
+                break :blk .Zip;
+            } else {
+                break :blk guessMimeType(url);
+            }
+        } else guessMimeType(url);
 
     if (mime) |m| {
         switch (m) {
