@@ -1,18 +1,18 @@
 #+TITLE: Install
 #+DATE: 2025-01-02T23:20:23+0800
-#+LASTMOD: 2025-03-09T16:51:26+0800
+#+LASTMOD: 2025-03-09T16:56:22+0800
 #+TYPE: docs
 #+WEIGHT: 10
 #+AUTHOR: Jiacai Liu
 
 ** Packages
 #+begin_src bash
-zig fetch --save=zigcli https://github.com/jiacai2050/zigcli/archive/${COMMIT}.tar.gz
+zig fetch --save=zigcli https://github.com/jiacai2050/zigcli/archive/refs/tags/${TAG}.zip
 #+end_src
 
-#+RESULTS:
+The latest tag can be found on [[https://github.com/jiacai2050/zigcli/releases][release page]].
 
-Replace ~${COMMIT}~ with a real one, then in your =build.zig=, import the module like this:
+Then in your =build.zig=, import the module like this:
 
 #+begin_src zig
 const zigcli = b.dependency("zigcli", .{});

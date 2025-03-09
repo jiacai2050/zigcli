@@ -1,12 +1,12 @@
 #+TITLE: Introduction
 #+DATE: 2023-10-21T12:09:48+0800
-#+LASTMOD: 2025-03-09T16:51:07+0800
+#+LASTMOD: 2025-03-09T16:59:05+0800
 #+TYPE: docs
 #+author: Jiacai Liu
 
 [[https://github.com/jiacai2050/zigcli][https://img.shields.io/github/stars/jiacai2050/zigcli.svg]]
 [[https://github.com/jiacai2050/loc/actions/workflows/CI.yml][https://github.com/jiacai2050/loc/actions/workflows/CI.yml/badge.svg]]
-[[https://github.com/jiacai2050/loc/actions/workflows/binary.yml][https://github.com/jiacai2050/loc/actions/workflows/release.yml/badge.svg]]
+[[https://github.com/jiacai2050/loc/actions/workflows/release.yml][https://github.com/jiacai2050/loc/actions/workflows/release.yml/badge.svg]]
 [[https://img.shields.io/badge/zig%20version-0.14.0-blue.svg]]
 
 #+begin_quote
