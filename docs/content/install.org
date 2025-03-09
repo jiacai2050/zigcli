@@ -1,6 +1,6 @@
 #+TITLE: Install
 #+DATE: 2025-01-02T23:20:23+0800
-#+LASTMOD: 2025-01-02T23:21:04+0800
+#+LASTMOD: 2025-03-09T16:51:26+0800
 #+TYPE: docs
 #+WEIGHT: 10
 #+AUTHOR: Jiacai Liu
@@ -27,7 +27,7 @@ The latest pre-built binaries are available on the [[https://github.com/jiacai20
 #+begin_src bash
 git clone https://github.com/jiacai2050/zigcli.git
 #+end_src
-Then build with zig 0.13.0
+Then build with zig 0.14.0
 #+begin_src bash
 make build
 #+end_src

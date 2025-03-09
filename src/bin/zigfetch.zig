@@ -102,10 +102,6 @@ fn calcHash(allocator: Allocator, dir: fs.Dir, root_dirname: []const u8, deleteI
     var manifest = try loadManifest(allocator, dir);
     defer if (manifest) |*m| m.deinit(allocator);
 
-    if (args.verbose) {
-        log.info("manifest = {any}", .{manifest});
-    }
-
     const filter: Filter = .{
         .include_paths = if (manifest) |m| m.paths else .{},
     };

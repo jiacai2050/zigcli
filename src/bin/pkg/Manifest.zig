@@ -232,7 +232,7 @@ const Parse = struct {
                 have_included_paths = true;
                 try parseIncludedPaths(p, field_init);
             } else if (mem.eql(u8, field_name, "name")) {
-                p.name = try parseString(p, field_init);
+                p.name = try parseName(p, field_init);
                 have_name = true;
             } else if (mem.eql(u8, field_name, "version")) {
                 p.version_node = field_init;
@@ -400,6 +400,24 @@ const Parse = struct {
         } else {
             return fail(p, ident_token, "expected boolean", .{});
         }
+    }
+
+    fn parseName(p: *Parse, node: Ast.Node.Index) ![]const u8 {
+        const ast = p.ast;
+        const node_tags = ast.nodes.items(.tag);
+        const main_tokens = ast.nodes.items(.main_token);
+        const main_token = main_tokens[node];
+
+        if (node_tags[node] == .enum_literal) {
+            const ident_name = ast.tokenSlice(main_token);
+            if (mem.startsWith(u8, ident_name, "@"))
+                return fail(p, main_token, "name must be a valid bare zig identifier", .{});
+
+            return ident_name;
+        }
+
+        // try string name, used before zig 0.14.
+        return p.parseString(node);
     }
 
     fn parseString(p: *Parse, node: Ast.Node.Index) ![]const u8 {
