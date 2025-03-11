@@ -97,7 +97,8 @@ pub fn main() anyerror!void {
     _ = try writer.write(root_dir);
     _ = try writer.write("\n");
 
-    const dir = try fs.cwd().openDir(root_dir, .{ .iterate = true });
+    var dir = try fs.cwd().openDir(root_dir, .{ .iterate = true });
+    defer dir.close();
     var iter = dir.iterate();
     const ret = try walk(allocator, opt.args, &iter, &writer, "", 1);
 
@@ -224,6 +225,7 @@ fn walk(
                 _ = try writer.write("\n");
                 ret.directories += 1;
                 var sub_dir = try iter.dir.openDir(entry.name, .{ .iterate = true });
+                defer sub_dir.close();
                 var sub_iter_dir = sub_dir.iterate();
 
                 const new_prefix =
