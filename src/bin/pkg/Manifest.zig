@@ -57,6 +57,7 @@ comptime {
 }
 
 name: []const u8,
+id: u32,
 version: std.SemanticVersion,
 version_node: Ast.Node.Index,
 dependencies: std.StringArrayHashMapUnmanaged(Dependency),
