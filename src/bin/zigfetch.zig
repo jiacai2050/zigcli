@@ -132,14 +132,12 @@ fn calcHash(allocator: Allocator, dir: fs.Dir, root_dirname: []const u8, deleteI
 
                     if (dep.hash) |hash| {
                         if (std.mem.startsWith(u8, pkg_url, "git+")) {
-                            const inner_package_hash = try cachePackageFromGit(allocator, pkg_url, hash);
-                            defer allocator.free(inner_package_hash);
+                            _ = try cachePackageFromGit(allocator, pkg_url, hash);
                         } else {
                             const u = try std.fmt.allocPrintZ(allocator, "{s}", .{pkg_url});
                             defer allocator.free(u);
 
-                            const inner_package_hash = try cachePackageFromUrl(allocator, u, hash);
-                            defer allocator.free(inner_package_hash);
+                            _ = try cachePackageFromUrl(allocator, u, hash);
                         }
                     } else {
                         log.err("{s} has no hash field, url:{s}", .{ entry.key_ptr.*, pkg_url });
@@ -167,7 +165,6 @@ fn handleDir(allocator: Allocator, path: []const u8) !void {
     defer dir.close();
 
     const hash = try cachePackageFromLocal(allocator, dir);
-    defer allocator.free(hash);
     print("{s}", .{hash});
 }
 
@@ -183,7 +180,6 @@ fn handleHTTP(allocator: Allocator, url: [:0]const u8) !void {
     try fetched_packages.put(allocator, url, {});
 
     const hash = try cachePackageFromUrl(allocator, url, null);
-    defer allocator.free(hash);
     print("{s}", .{hash});
 }
 

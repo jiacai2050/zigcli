@@ -134,7 +134,7 @@ pub fn parse(gpa: Allocator, ast: Ast, options: ParseOptions) Error!Manifest {
     };
 
     return .{
-        .name = p.name,
+        .name = try p.arena.dupe(u8, p.name),
         .id = p.id,
         .version = p.version,
         .version_node = p.version_node,
@@ -497,28 +497,7 @@ const Parse = struct {
     }
 
     fn parseHash(p: *Parse, node: Ast.Node.Index) ![]const u8 {
-        const ast = p.ast;
-        const main_tokens = ast.nodes.items(.main_token);
-        const tok = main_tokens[node];
         const h = try parseString(p, node);
-
-        if (h.len >= 2) {
-            const their_multihash_func = std.fmt.parseInt(u8, h[0..2], 16) catch |err| {
-                return fail(p, tok, "invalid multihash value: unable to parse hash function: {s}", .{
-                    @errorName(err),
-                });
-            };
-            if (@as(MultihashFunction, @enumFromInt(their_multihash_func)) != multihash_function) {
-                return fail(p, tok, "unsupported hash function: only sha2-256 is supported", .{});
-            }
-        }
-
-        if (h.len != multihash_hex_digest_len) {
-            return fail(p, tok, "wrong hash size. expected: {d}, found: {d}", .{
-                multihash_hex_digest_len, h.len,
-            });
-        }
-
         return h;
     }
 
