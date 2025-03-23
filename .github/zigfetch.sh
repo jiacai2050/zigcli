@@ -18,8 +18,8 @@ check_hash() {
   return 0
 }
 
-# For zig 0.13.0
-check_hash "https://github.com/jiacai2050/zig-curl/archive/c8e2f43f8f042f52373c86043ec16b0f2c3388a2.tar.gz" 1220e9b279355ce92cd217684a2449bd8024274eb3fc09a576deb33ca1733b9f0a1f
+check_hash "https://github.com/karlseguin/websocket.zig/archive/7c3f1149bffcde1dec98dea88a442e2b580d750a.tar.gz" \
+           "websocket-0.1.0-ZPISdXNIAwCXG7oHBj4zc1CfmZcDeyR6hfTEOo8_YI4r"
 
-# For zig 0.14.0
-check_hash "https://github.com/jiacai2050/zig-curl/archive/refs/tags/v0.1.0.tar.gz" 122057495ccd5029387615e6786a56626a88cd39614b4ebeb0bf559989c16fe47a3f
+check_hash "https://github.com/jiacai2050/zig-curl/archive/refs/tags/v0.1.1.tar.gz" \
+           "curl-0.1.1-P4tT4WzAAAD0MGbSfsyGV1hPdooNwZ5odcQYUB9iYlHe"

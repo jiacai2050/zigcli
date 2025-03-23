@@ -6,6 +6,29 @@ pub const multihash_len = 1 + 1 + Hash.digest_length;
 pub const multihash_hex_digest_len = 2 * multihash_len;
 pub const MultiHashHexDigest = [multihash_hex_digest_len]u8;
 
+pub const Fingerprint = packed struct(u64) {
+    id: u32,
+    checksum: u32,
+
+    pub fn generate(name: []const u8) Fingerprint {
+        return .{
+            .id = std.crypto.random.intRangeLessThan(u32, 1, 0xffffffff),
+            .checksum = std.hash.Crc32.hash(name),
+        };
+    }
+
+    pub fn validate(n: Fingerprint, name: []const u8) bool {
+        switch (n.id) {
+            0x00000000, 0xffffffff => return false,
+            else => return std.hash.Crc32.hash(name) == n.checksum,
+        }
+    }
+
+    pub fn int(n: Fingerprint) u64 {
+        return @bitCast(n);
+    }
+};
+
 pub const Dependency = struct {
     location: Location,
     location_tok: Ast.TokenIndex,
@@ -57,6 +80,7 @@ comptime {
 }
 
 name: []const u8,
+id: u32,
 version: std.SemanticVersion,
 version_node: Ast.Node.Index,
 dependencies: std.StringArrayHashMapUnmanaged(Dependency),
@@ -89,6 +113,7 @@ pub fn parse(gpa: Allocator, ast: Ast, options: ParseOptions) Error!Manifest {
         .errors = .{},
 
         .name = undefined,
+        .id = undefined,
         .version = undefined,
         .version_node = 0,
         .dependencies = .{},
@@ -109,7 +134,8 @@ pub fn parse(gpa: Allocator, ast: Ast, options: ParseOptions) Error!Manifest {
     };
 
     return .{
-        .name = p.name,
+        .name = try p.arena.dupe(u8, p.name),
+        .id = p.id,
         .version = p.version,
         .version_node = p.version_node,
         .dependencies = try p.dependencies.clone(p.arena),
@@ -195,6 +221,7 @@ const Parse = struct {
     errors: std.ArrayListUnmanaged(ErrorMessage),
 
     name: []const u8,
+    id: u32,
     version: std.SemanticVersion,
     version_node: Ast.Node.Index,
     dependencies: std.StringArrayHashMapUnmanaged(Dependency),
@@ -218,6 +245,7 @@ const Parse = struct {
         var have_name = false;
         var have_version = false;
         var have_included_paths = false;
+        var fingerprint: ?Fingerprint = null;
 
         for (struct_init.ast.fields) |field_init| {
             const name_token = ast.firstToken(field_init) - 2;
@@ -234,6 +262,8 @@ const Parse = struct {
             } else if (mem.eql(u8, field_name, "name")) {
                 p.name = try parseName(p, field_init);
                 have_name = true;
+            } else if (mem.eql(u8, field_name, "fingerprint")) {
+                fingerprint = try parseFingerprint(p, field_init);
             } else if (mem.eql(u8, field_name, "version")) {
                 p.version_node = field_init;
                 const version_text = try parseString(p, field_init);
@@ -256,6 +286,17 @@ const Parse = struct {
 
         if (!have_name) {
             try appendError(p, main_token, "missing top-level 'name' field", .{});
+        } else {
+            if (fingerprint) |n| {
+                if (!n.validate(p.name)) {
+                    return fail(p, main_token, "invalid fingerprint: 0x{x}; if this is a new or forked package, use this value: 0x{x}", .{
+                        n.int(), Fingerprint.generate(p.name).int(),
+                    });
+                }
+                p.id = n.id;
+            } else {
+                p.id = 0;
+            }
         }
 
         if (!have_version) {
@@ -420,6 +461,26 @@ const Parse = struct {
         return p.parseString(node);
     }
 
+    fn parseFingerprint(p: *Parse, node: Ast.Node.Index) !Fingerprint {
+        const ast = p.ast;
+        const node_tags = ast.nodes.items(.tag);
+        const main_tokens = ast.nodes.items(.main_token);
+        const main_token = main_tokens[node];
+
+        if (node_tags[node] != .number_literal) {
+            return fail(p, main_token, "expected integer literal", .{});
+        }
+        const token_bytes = ast.tokenSlice(main_token);
+        const parsed = std.zig.parseNumberLiteral(token_bytes);
+        switch (parsed) {
+            .int => |n| return @bitCast(n),
+            .big_int, .float => return fail(p, main_token, "expected u64 integer literal, found {s}", .{
+                @tagName(parsed),
+            }),
+            .failure => |err| return fail(p, main_token, "bad integer literal: {s}", .{@tagName(err)}),
+        }
+    }
+
     fn parseString(p: *Parse, node: Ast.Node.Index) ![]const u8 {
         const ast = p.ast;
         const node_tags = ast.nodes.items(.tag);
@@ -436,28 +497,7 @@ const Parse = struct {
     }
 
     fn parseHash(p: *Parse, node: Ast.Node.Index) ![]const u8 {
-        const ast = p.ast;
-        const main_tokens = ast.nodes.items(.main_token);
-        const tok = main_tokens[node];
         const h = try parseString(p, node);
-
-        if (h.len >= 2) {
-            const their_multihash_func = std.fmt.parseInt(u8, h[0..2], 16) catch |err| {
-                return fail(p, tok, "invalid multihash value: unable to parse hash function: {s}", .{
-                    @errorName(err),
-                });
-            };
-            if (@as(MultihashFunction, @enumFromInt(their_multihash_func)) != multihash_function) {
-                return fail(p, tok, "unsupported hash function: only sha2-256 is supported", .{});
-            }
-        }
-
-        if (h.len != multihash_hex_digest_len) {
-            return fail(p, tok, "wrong hash size. expected: {d}, found: {d}", .{
-                multihash_hex_digest_len, h.len,
-            });
-        }
-
         return h;
     }
 

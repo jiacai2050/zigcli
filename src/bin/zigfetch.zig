@@ -3,6 +3,7 @@ const curl = @import("curl");
 const simargs = @import("simargs");
 const util = @import("util.zig");
 const Manifest = @import("./pkg/Manifest.zig");
+const package = @import("./pkg/package.zig");
 const builtin = @import("builtin");
 const fs = std.fs;
 const ascii = std.ascii;
@@ -98,7 +99,7 @@ pub fn main() !void {
     }
 }
 
-fn calcHash(allocator: Allocator, dir: fs.Dir, root_dirname: []const u8, deleteIgnore: bool) anyerror!Manifest.MultiHashHexDigest {
+fn calcHash(allocator: Allocator, dir: fs.Dir, root_dirname: []const u8, deleteIgnore: bool) anyerror![]const u8 {
     var manifest = try loadManifest(allocator, dir);
     defer if (manifest) |*m| m.deinit(allocator);
 
@@ -112,8 +113,9 @@ fn calcHash(allocator: Allocator, dir: fs.Dir, root_dirname: []const u8, deleteI
         filter,
         deleteIgnore,
     );
+    const computed_package_hash = computedPackageHash(actual_hash, manifest).toSlice();
     if (args.@"no-dep") {
-        return Manifest.hexDigest(actual_hash);
+        return try allocator.dupe(u8, computed_package_hash);
     }
 
     if (manifest) |m| {
@@ -152,7 +154,7 @@ fn calcHash(allocator: Allocator, dir: fs.Dir, root_dirname: []const u8, deleteI
         }
     }
 
-    return Manifest.hexDigest(actual_hash);
+    return try allocator.dupe(u8, computed_package_hash);
 }
 
 fn handleDir(allocator: Allocator, path: []const u8) !void {
@@ -169,7 +171,7 @@ fn handleDir(allocator: Allocator, path: []const u8) !void {
 fn cachePackageFromLocal(
     allocator: Allocator,
     dir: fs.Dir,
-) anyerror!Manifest.MultiHashHexDigest {
+) anyerror![]const u8 {
     const hash = try calcHash(allocator, dir, "", false);
     return hash;
 }
@@ -185,7 +187,7 @@ fn cachePackageFromUrl(
     allocator: Allocator,
     url: [:0]const u8,
     expected_hash: ?[]const u8,
-) anyerror!Manifest.MultiHashHexDigest {
+) anyerror![]const u8 {
     log.info("Cache from url: {s}", .{url});
     if (expected_hash) |hash| blk: {
         cache_dep_dir.access(hash, .{}) catch {
@@ -195,7 +197,7 @@ fn cachePackageFromUrl(
         if (args.verbose) {
             log.info("Already cached, skip", .{});
         }
-        return hash[0..Manifest.multihash_hex_digest_len].*;
+        return hash;
     }
 
     const tmp_dirname = try makeTmpDir(allocator);
@@ -217,7 +219,7 @@ fn cachePackageFromUrl(
     defer sub_dir.close();
     const actual_hash = try calcHash(allocator, sub_dir, sub_dirname, true);
     if (expected_hash) |expected| {
-        if (!std.mem.eql(u8, expected, &actual_hash)) {
+        if (!std.mem.eql(u8, expected, actual_hash)) {
             log.err("Hash incorrect for {s}, expected:{s}, actual:{s}", .{
                 url, expected, actual_hash,
             });
@@ -235,6 +237,7 @@ fn handleGit(allocator: Allocator, git_url: [:0]const u8) !void {
     try fetched_packages.put(allocator, git_url, {});
 
     const hash = try cachePackageFromGit(allocator, git_url, null);
+    defer allocator.free(hash);
     print("{s}", .{hash});
 }
 
@@ -242,7 +245,7 @@ fn cachePackageFromGit(
     allocator: Allocator,
     git_url: []const u8,
     expected_hash: ?[]const u8,
-) anyerror!Manifest.MultiHashHexDigest {
+) anyerror![]const u8 {
     const uri = try std.Uri.parse(git_url);
     const commit_id = if (uri.fragment) |fragment|
         try fragment.toRawMaybeAlloc(allocator)
@@ -281,7 +284,7 @@ fn cachePackageFromGit(
         if (args.verbose) {
             log.info("Already cached, skip", .{});
         }
-        return hash[0..Manifest.multihash_hex_digest_len].*;
+        return hash;
     }
 
     const rand_int = std.crypto.random.int(u64);
@@ -325,7 +328,7 @@ fn cachePackageFromGit(
     defer dir.close();
     const actual_hash = try calcHash(allocator, dir, "", true);
     if (expected_hash) |expected| {
-        if (!std.mem.eql(u8, expected, &actual_hash)) {
+        if (!std.mem.eql(u8, expected, actual_hash)) {
             log.err("Hash incorrect for {s}, expected:{s}, actual:{s}", .{
                 repo_url, expected, actual_hash,
             });
@@ -357,7 +360,7 @@ fn execShell(allocator: Allocator, argv: []const []const u8) !void {
     }
 }
 
-fn moveToCache(allocator: Allocator, src_dir: []const u8, hex: Manifest.MultiHashHexDigest) !void {
+fn moveToCache(allocator: Allocator, src_dir: []const u8, hex: []const u8) !void {
     const dst = try std.fmt.allocPrint(allocator, "{s}/p/{s}", .{ cache_dirname, hex });
     defer allocator.free(dst);
 
@@ -524,14 +527,18 @@ const Filter = struct {
     }
 };
 
+const ComputedHash = struct {
+    digest: Manifest.Digest,
+    total_size: u64,
+};
+
 fn computeHash(
     allocator: Allocator,
     root_dir: fs.Dir,
     root_dirname: []const u8,
     filter: Filter,
     deleteIgnore: bool,
-) !Manifest.Digest {
-
+) !ComputedHash {
     // Collect all files, recursively, then sort.
     var all_files = std.ArrayList(*HashedFile).init(allocator);
     defer all_files.deinit();
@@ -607,6 +614,7 @@ fn computeHash(
                 .kind = kind,
                 .hash = undefined, // to be populated by the worker
                 .failure = undefined, // to be populated by the worker
+                .size = undefined, // to be populated by the worker
             };
             thread_pool.spawnWg(&wait_group, workerHashFile, .{ root_dir, hashed_file });
             try all_files.append(hashed_file);
@@ -647,6 +655,7 @@ fn computeHash(
 
     var hasher = Manifest.Hash.init(.{});
     var any_failures = false;
+    var total_size: u64 = 0;
     for (all_files.items) |hashed_file| {
         hashed_file.failure catch |err| {
             any_failures = true;
@@ -655,6 +664,7 @@ fn computeHash(
             });
         };
         hasher.update(&hashed_file.hash);
+        total_size += hashed_file.size;
     }
     for (deleted_files.items) |deleted_file| {
         deleted_file.failure catch |err| {
@@ -676,7 +686,22 @@ fn computeHash(
         };
     }
 
-    return hasher.finalResult();
+    return .{
+        .digest = hasher.finalResult(),
+        .total_size = total_size,
+    };
+}
+
+pub fn computedPackageHash(raw: ComputedHash, manifest: ?Manifest) package.Hash {
+    const saturated_size = std.math.cast(u32, raw.total_size) orelse std.math.maxInt(u32);
+    if (manifest) |man| {
+        var version_buffer: [32]u8 = undefined;
+        const version: []const u8 = std.fmt.bufPrint(&version_buffer, "{}", .{man.version}) catch &version_buffer;
+        return .init(raw.digest, man.name, version, man.id, saturated_size);
+    }
+    // In the future build.zig.zon fields will be added to allow overriding these values
+    // for naked tarballs.
+    return .init(raw.digest, "N", "V", 0xffff, saturated_size);
 }
 
 const HashedFile = struct {
@@ -685,6 +710,7 @@ const HashedFile = struct {
     hash: Manifest.Digest,
     failure: Error!void,
     kind: Kind,
+    size: u64,
 
     const Error =
         fs.File.OpenError ||
@@ -733,6 +759,7 @@ fn hashFileFallible(dir: fs.Dir, hashed_file: *HashedFile) HashedFile.Error!void
     var buf: [8000]u8 = undefined;
     var hasher = Manifest.Hash.init(.{});
     hasher.update(hashed_file.normalized_path);
+    var file_size: u64 = 0;
 
     switch (hashed_file.kind) {
         .file => {
@@ -744,6 +771,7 @@ fn hashFileFallible(dir: fs.Dir, hashed_file: *HashedFile) HashedFile.Error!void
             while (true) {
                 const bytes_read = try file.read(&buf);
                 if (bytes_read == 0) break;
+                file_size += bytes_read;
                 hasher.update(buf[0..bytes_read]);
                 file_header.update(buf[0..bytes_read]);
             }
@@ -763,6 +791,7 @@ fn hashFileFallible(dir: fs.Dir, hashed_file: *HashedFile) HashedFile.Error!void
         },
     }
     hasher.final(&hashed_file.hash);
+    hashed_file.size = file_size;
 }
 
 fn deleteFileFallible(dir: fs.Dir, deleted_file: *DeletedFile) DeletedFile.Error!void {
