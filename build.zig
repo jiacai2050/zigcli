@@ -10,7 +10,7 @@ pub fn build(b: *Build) !void {
     const vendor_libcurl = b.option(bool, "vendor-libcurl", "Static link libcurl") orelse false;
     var all_tests = std.ArrayList(*Build.Step).init(b.allocator);
 
-    try addModules(b, target, &all_tests);
+    try addModules(b, target, optimize, &all_tests);
     try buildBinaries(b, optimize, target, &all_tests, skip_zigfetch, vendor_libcurl);
     try buildExamples(b, optimize, target, &all_tests);
 
@@ -52,6 +52,7 @@ const Source = union(enum) {
 fn addModules(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
+    optimize: std.builtin.Mode,
     all_tests: *std.ArrayList(*Build.Step),
 ) !void {
     inline for (.{ "pretty-table", "simargs" }) |name| {
@@ -82,12 +83,11 @@ fn addModules(
         b.option([]const u8, "git_commit", "Git commit") orelse
             "Unknown",
     );
-    opt.addOption([]const u8, "build_mode", switch (b.release_mode) {
-        .any => "any",
-        .off => "Dev",
-        .fast => "ReleaseFast",
-        .small => "ReleaseSmall",
-        .safe => "ReleaseSafe",
+    opt.addOption([]const u8, "build_mode", switch (optimize) {
+        .Debug => "Dev",
+        .ReleaseFast => "ReleaseFast",
+        .ReleaseSmall => "ReleaseSmall",
+        .ReleaseSafe => "ReleaseSafe",
     });
     try b.modules.put("build_info", opt.createModule());
 }
