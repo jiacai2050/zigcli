@@ -95,7 +95,9 @@ pub fn main() !void {
         try handleGit(allocator, url_or_path);
     } else {
         // it's a directory
-        try handleDir(allocator, url_or_path);
+        const path = try fs.path.resolve(allocator, &.{url_or_path});
+        defer allocator.free(path);
+        try handleDir(allocator, path);
     }
 }
 
@@ -161,7 +163,7 @@ fn handleDir(allocator: Allocator, path: []const u8) !void {
     log.info("Cache from dir: {s}", .{path});
     try fetched_packages.put(allocator, path, {});
 
-    var dir = try fs.cwd().openDir(path, .{});
+    var dir = try fs.cwd().openDir(path, .{ .iterate = true });
     defer dir.close();
 
     const hash = try cachePackageFromLocal(allocator, dir);
