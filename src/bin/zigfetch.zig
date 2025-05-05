@@ -397,9 +397,16 @@ fn fetchPackage(allocator: Allocator, url: [:0]const u8, out_dir: fs.Dir) ![]con
                 break :blk .Tar;
             } else if (ascii.eqlIgnoreCase(mime_type, "application/gzip") or
                 ascii.eqlIgnoreCase(mime_type, "application/x-gzip") or
-                ascii.eqlIgnoreCase(mime_type, "application/tar+gzip"))
+                ascii.eqlIgnoreCase(mime_type, "application/tar+gzip") or
+                ascii.eqlIgnoreCase(mime_type, "application/x-tar-gz") or
+                ascii.eqlIgnoreCase(mime_type, "application/x-gtar-compressed"))
             {
                 break :blk .TarGz;
+            } else if (ascii.eqlIgnoreCase(mime_type, "application/x-xz")) {
+                break :blk .TarXz;
+            }
+            if (ascii.eqlIgnoreCase(mime_type, "application/zstd")) {
+                break :blk .TarZst;
             } else if (ascii.eqlIgnoreCase(mime_type, "application/zip")) {
                 break :blk .Zip;
             } else {
@@ -416,6 +423,19 @@ fn fetchPackage(allocator: Allocator, url: [:0]const u8, out_dir: fs.Dir) ![]con
             .TarGz => {
                 var stream = std.io.fixedBufferStream(buffer.items);
                 var dcp = std.compress.gzip.decompressor(stream.reader());
+                return try unpackTarball(allocator, out_dir, dcp.reader());
+            },
+            .TarXz => {
+                var stream = std.io.fixedBufferStream(buffer.items);
+                var dcp = try std.compress.xz.decompress(allocator, stream.reader());
+                defer dcp.deinit();
+                return try unpackTarball(allocator, out_dir, dcp.reader());
+            },
+            .TarZst => {
+                const window_size = std.compress.zstd.DecompressorOptions.default_window_buffer_len;
+                var stream = std.io.fixedBufferStream(buffer.items);
+                const window_buffer = try allocator.alloc(u8, window_size);
+                var dcp = std.compress.zstd.decompressor(stream.reader(), .{ .window_buffer = window_buffer });
                 return try unpackTarball(allocator, out_dir, dcp.reader());
             },
             .Zip => {
@@ -883,17 +903,20 @@ pub fn resolveGlobalCacheDir(allocator: Allocator) ![]u8 {
 const MimeType = enum {
     Tar,
     TarGz,
+    TarXz,
+    TarZst,
     Zip,
 };
 
 fn guessMimeType(url: []const u8) ?MimeType {
-    if (std.mem.endsWith(u8, url, "tar.gz")) {
-        return .TarGz;
-    } else if (std.mem.endsWith(u8, url, "tar")) {
-        return .Tar;
-    } else if (std.mem.endsWith(u8, url, "zip")) {
-        return .Zip;
-    }
+    if (std.mem.endsWith(u8, url, ".tar")) return .Tar;
+    if (std.mem.endsWith(u8, url, ".tgz")) return .TarGz;
+    if (std.mem.endsWith(u8, url, ".tar.gz")) return .TarGz;
+    if (std.mem.endsWith(u8, url, ".txz")) return .TarXz;
+    if (std.mem.endsWith(u8, url, ".tar.xz")) return .TarXz;
+    if (std.mem.endsWith(u8, url, ".tzst")) return .TarZst;
+    if (std.mem.endsWith(u8, url, ".tar.zst")) return .TarZst;
+    if (std.mem.endsWith(u8, url, ".zip")) return .Zip;
     return null;
 }
 
