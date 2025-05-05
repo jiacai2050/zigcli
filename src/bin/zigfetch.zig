@@ -25,6 +25,7 @@ const Args = struct {
     timeout: usize = 60,
     @"no-dep": bool = false,
     @"debug-hash": bool = false,
+    @"no-check": bool = false,
 
     pub const __shorts__ = .{
         .version = .V,
@@ -33,6 +34,7 @@ const Args = struct {
         .help = .h,
         .@"no-dep" = .n,
         .@"debug-hash" = .d,
+        .@"no-check" = .c,
     };
     pub const __messages__ = .{
         .help = "Show help",
@@ -41,6 +43,7 @@ const Args = struct {
         .timeout = "Libcurl http timeout in seconds",
         .@"debug-hash" = "Print hash for each file",
         .@"no-dep" = "Disable fetch dependencies",
+        .@"no-check" = "Skip hash field check",
     };
 };
 
@@ -219,8 +222,14 @@ fn cachePackageFromUrl(
 
     var sub_dir = try out_dir.openDir(sub_dirname, .{ .iterate = true });
     defer sub_dir.close();
+    const src_dirname = try fs.path.join(allocator, &[_][]const u8{ tmp_dirname, sub_dirname });
+    defer allocator.free(src_dirname);
     const actual_hash = try calcHash(allocator, sub_dir, sub_dirname, true);
     if (expected_hash) |expected| {
+        if (args.@"no-check") {
+            try moveToCache(allocator, src_dirname, expected);
+            return expected;
+        }
         if (!std.mem.eql(u8, expected, actual_hash)) {
             log.err("Hash incorrect for {s}, expected:{s}, actual:{s}", .{
                 url, expected, actual_hash,
@@ -228,8 +237,6 @@ fn cachePackageFromUrl(
             return error.HashNotExpected;
         }
     }
-    const src_dirname = try fs.path.join(allocator, &[_][]const u8{ tmp_dirname, sub_dirname });
-    defer allocator.free(src_dirname);
 
     try moveToCache(allocator, src_dirname, actual_hash);
     return actual_hash;
@@ -330,6 +337,10 @@ fn cachePackageFromGit(
     defer dir.close();
     const actual_hash = try calcHash(allocator, dir, "", true);
     if (expected_hash) |expected| {
+        if (args.@"no-check") {
+            try moveToCache(allocator, tmp_dirname, expected);
+            return expected;
+        }
         if (!std.mem.eql(u8, expected, actual_hash)) {
             log.err("Hash incorrect for {s}, expected:{s}, actual:{s}", .{
                 repo_url, expected, actual_hash,
