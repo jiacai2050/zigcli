@@ -25,7 +25,7 @@ const Args = struct {
     timeout: usize = 60,
     @"no-dep": bool = false,
     @"debug-hash": bool = false,
-    @"no-check": bool = false,
+    @"skip-check": bool = false,
 
     pub const __shorts__ = .{
         .version = .V,
@@ -34,7 +34,7 @@ const Args = struct {
         .help = .h,
         .@"no-dep" = .n,
         .@"debug-hash" = .d,
-        .@"no-check" = .c,
+        .@"skip-check" = .s,
     };
     pub const __messages__ = .{
         .help = "Show help",
@@ -43,7 +43,7 @@ const Args = struct {
         .timeout = "Libcurl http timeout in seconds",
         .@"debug-hash" = "Print hash for each file",
         .@"no-dep" = "Disable fetch dependencies",
-        .@"no-check" = "Skip hash field check",
+        .@"skip-check" = "Skip hash field check",
     };
 };
 
@@ -226,7 +226,7 @@ fn cachePackageFromUrl(
     defer allocator.free(src_dirname);
     const actual_hash = try calcHash(allocator, sub_dir, sub_dirname, true);
     if (expected_hash) |expected| {
-        if (args.@"no-check") {
+        if (args.@"skip-check") {
             try moveToCache(allocator, src_dirname, expected);
             return expected;
         }
@@ -337,7 +337,7 @@ fn cachePackageFromGit(
     defer dir.close();
     const actual_hash = try calcHash(allocator, dir, "", true);
     if (expected_hash) |expected| {
-        if (args.@"no-check") {
+        if (args.@"skip-check") {
             try moveToCache(allocator, tmp_dirname, expected);
             return expected;
         }
