@@ -25,6 +25,7 @@ const Args = struct {
     timeout: usize = 60,
     @"no-dep": bool = false,
     @"debug-hash": bool = false,
+    @"no-check": bool = false,
 
     pub const __shorts__ = .{
         .version = .V,
@@ -33,6 +34,7 @@ const Args = struct {
         .help = .h,
         .@"no-dep" = .n,
         .@"debug-hash" = .d,
+        .@"no-check" = .c,
     };
     pub const __messages__ = .{
         .help = "Show help",
@@ -41,6 +43,7 @@ const Args = struct {
         .timeout = "Libcurl http timeout in seconds",
         .@"debug-hash" = "Print hash for each file",
         .@"no-dep" = "Disable fetch dependencies",
+        .@"no-check" = "Skip hash field check",
     };
 };
 
@@ -95,7 +98,9 @@ pub fn main() !void {
         try handleGit(allocator, url_or_path);
     } else {
         // it's a directory
-        try handleDir(allocator, url_or_path);
+        const path = try fs.path.resolve(allocator, &.{url_or_path});
+        defer allocator.free(path);
+        try handleDir(allocator, path);
     }
 }
 
@@ -161,7 +166,7 @@ fn handleDir(allocator: Allocator, path: []const u8) !void {
     log.info("Cache from dir: {s}", .{path});
     try fetched_packages.put(allocator, path, {});
 
-    var dir = try fs.cwd().openDir(path, .{});
+    var dir = try fs.cwd().openDir(path, .{ .iterate = true });
     defer dir.close();
 
     const hash = try cachePackageFromLocal(allocator, dir);
@@ -217,8 +222,14 @@ fn cachePackageFromUrl(
 
     var sub_dir = try out_dir.openDir(sub_dirname, .{ .iterate = true });
     defer sub_dir.close();
+    const src_dirname = try fs.path.join(allocator, &[_][]const u8{ tmp_dirname, sub_dirname });
+    defer allocator.free(src_dirname);
     const actual_hash = try calcHash(allocator, sub_dir, sub_dirname, true);
     if (expected_hash) |expected| {
+        if (args.@"no-check") {
+            try moveToCache(allocator, src_dirname, expected);
+            return expected;
+        }
         if (!std.mem.eql(u8, expected, actual_hash)) {
             log.err("Hash incorrect for {s}, expected:{s}, actual:{s}", .{
                 url, expected, actual_hash,
@@ -226,8 +237,6 @@ fn cachePackageFromUrl(
             return error.HashNotExpected;
         }
     }
-    const src_dirname = try fs.path.join(allocator, &[_][]const u8{ tmp_dirname, sub_dirname });
-    defer allocator.free(src_dirname);
 
     try moveToCache(allocator, src_dirname, actual_hash);
     return actual_hash;
@@ -328,6 +337,10 @@ fn cachePackageFromGit(
     defer dir.close();
     const actual_hash = try calcHash(allocator, dir, "", true);
     if (expected_hash) |expected| {
+        if (args.@"no-check") {
+            try moveToCache(allocator, tmp_dirname, expected);
+            return expected;
+        }
         if (!std.mem.eql(u8, expected, actual_hash)) {
             log.err("Hash incorrect for {s}, expected:{s}, actual:{s}", .{
                 repo_url, expected, actual_hash,
@@ -395,9 +408,16 @@ fn fetchPackage(allocator: Allocator, url: [:0]const u8, out_dir: fs.Dir) ![]con
                 break :blk .Tar;
             } else if (ascii.eqlIgnoreCase(mime_type, "application/gzip") or
                 ascii.eqlIgnoreCase(mime_type, "application/x-gzip") or
-                ascii.eqlIgnoreCase(mime_type, "application/tar+gzip"))
+                ascii.eqlIgnoreCase(mime_type, "application/tar+gzip") or
+                ascii.eqlIgnoreCase(mime_type, "application/x-tar-gz") or
+                ascii.eqlIgnoreCase(mime_type, "application/x-gtar-compressed"))
             {
                 break :blk .TarGz;
+            } else if (ascii.eqlIgnoreCase(mime_type, "application/x-xz")) {
+                break :blk .TarXz;
+            }
+            if (ascii.eqlIgnoreCase(mime_type, "application/zstd")) {
+                break :blk .TarZst;
             } else if (ascii.eqlIgnoreCase(mime_type, "application/zip")) {
                 break :blk .Zip;
             } else {
@@ -414,6 +434,19 @@ fn fetchPackage(allocator: Allocator, url: [:0]const u8, out_dir: fs.Dir) ![]con
             .TarGz => {
                 var stream = std.io.fixedBufferStream(buffer.items);
                 var dcp = std.compress.gzip.decompressor(stream.reader());
+                return try unpackTarball(allocator, out_dir, dcp.reader());
+            },
+            .TarXz => {
+                var stream = std.io.fixedBufferStream(buffer.items);
+                var dcp = try std.compress.xz.decompress(allocator, stream.reader());
+                defer dcp.deinit();
+                return try unpackTarball(allocator, out_dir, dcp.reader());
+            },
+            .TarZst => {
+                const window_size = std.compress.zstd.DecompressorOptions.default_window_buffer_len;
+                var stream = std.io.fixedBufferStream(buffer.items);
+                const window_buffer = try allocator.alloc(u8, window_size);
+                var dcp = std.compress.zstd.decompressor(stream.reader(), .{ .window_buffer = window_buffer });
                 return try unpackTarball(allocator, out_dir, dcp.reader());
             },
             .Zip => {
@@ -881,17 +914,20 @@ pub fn resolveGlobalCacheDir(allocator: Allocator) ![]u8 {
 const MimeType = enum {
     Tar,
     TarGz,
+    TarXz,
+    TarZst,
     Zip,
 };
 
 fn guessMimeType(url: []const u8) ?MimeType {
-    if (std.mem.endsWith(u8, url, "tar.gz")) {
-        return .TarGz;
-    } else if (std.mem.endsWith(u8, url, "tar")) {
-        return .Tar;
-    } else if (std.mem.endsWith(u8, url, "zip")) {
-        return .Zip;
-    }
+    if (std.mem.endsWith(u8, url, ".tar")) return .Tar;
+    if (std.mem.endsWith(u8, url, ".tgz")) return .TarGz;
+    if (std.mem.endsWith(u8, url, ".tar.gz")) return .TarGz;
+    if (std.mem.endsWith(u8, url, ".txz")) return .TarXz;
+    if (std.mem.endsWith(u8, url, ".tar.xz")) return .TarXz;
+    if (std.mem.endsWith(u8, url, ".tzst")) return .TarZst;
+    if (std.mem.endsWith(u8, url, ".tar.zst")) return .TarZst;
+    if (std.mem.endsWith(u8, url, ".zip")) return .Zip;
     return null;
 }
 
