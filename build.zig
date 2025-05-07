@@ -205,9 +205,9 @@ fn makeCompileStep(
 ) ?*Build.Step.Compile {
     const name = comptime source.name();
     const path = comptime source.path();
-    // We can't use `target.result.isDarwin()` here
-    // Since when cross compile to darwin, there is no framework in the host!
-    const is_darwin = @import("builtin").os.tag == .macos;
+    // We can't use `target.result.isDarwin()` alone here,
+    // Since when cross compile to darwin on linux, there is no framework in the host!
+    const is_darwin = @import("builtin").os.tag == .macos and target.result.os.tag == .macos;
     const is_win = target.result.os.tag == .windows;
     if (!is_darwin) {
         if (std.mem.eql(u8, name, "night-shift") or std.mem.eql(u8, name, "dark-mode")) {

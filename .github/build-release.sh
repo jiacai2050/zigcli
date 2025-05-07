@@ -36,7 +36,7 @@ for target in "${targets[@]}"; do
   dst_dir=zig-out/${filename}
 
   # 1. Build
-  if [[ "${target}" = "x86_64-linux" ]];then
+  if [[ "${target}" = *linux* ]];then
     zig build -Doptimize=ReleaseSafe -p ${dst_dir} \
         -Dgit_commit=${GIT_COMMIT} -Dbuild_date=${BUILD_DATE}
   else
