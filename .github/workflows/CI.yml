@@ -7,12 +7,14 @@ on:
   pull_request:
     paths:
       - '**.zig'
+      - ".github/build-release.sh"
       - '.github/workflows/CI.yml'
   push:
     branches:
       - main
     paths:
       - '**.zig'
+      - ".github/build-release.sh"
       - '.github/workflows/CI.yml'
 
 concurrency:
@@ -41,10 +43,6 @@ jobs:
           zig.exe fmt --check .
           zig.exe build test
           zig.exe build
-      - name: deps(ubuntu)
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          sudo apt update && sudo apt-get install -y libcurl4-openssl-dev
       - name: fmt and test(unix)
         if: matrix.os != 'windows-latest'
         run: |
@@ -53,7 +51,7 @@ jobs:
           zig build
           find zig-out
       - name: zigfetch compare
-        if: matrix.os == 'macos-latest'
+        if: matrix.os != 'windows-latest'
         run: |
           bash .github/zigfetch.sh
 
@@ -70,10 +68,6 @@ jobs:
       - uses: mlugg/setup-zig@v1
         with:
           version: 0.14.0
-      - name: deps(ubuntu)
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          sudo apt update && sudo apt-get install -y libcurl4-openssl-dev
       - name: Build
         run: |
-          zig build -Dtarget=${{ matrix.targets }} -Dskip-zigfetch=true
+          zig build -Dtarget=${{ matrix.targets }}

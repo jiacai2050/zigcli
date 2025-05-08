@@ -5,6 +5,7 @@ on:
   pull_request:
     paths:
       - "**.zig"
+      - ".github/build-release.sh"
       - ".github/workflows/CI.yml"
       - ".github/workflows/release.yml"
   push:
@@ -50,7 +51,6 @@ jobs:
       - name: Build(Ubuntu)
         if: matrix.os == 'ubuntu-latest'
         run: |
-          sudo apt update && sudo apt-get install -y libcurl4-openssl-dev
           bash .github/build-release.sh
       - name: Build(MacOS)
         if: matrix.os == 'macos-latest'
