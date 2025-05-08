@@ -1,7 +1,7 @@
 .{
     .name = .zigcli,
     .fingerprint = 0x9e1fddac8cbb1039,
-    .version = "0.2.2",
+    .version = "0.2.3",
     .paths = .{
         "src",
         "build.zig",
