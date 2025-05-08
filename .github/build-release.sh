@@ -37,7 +37,9 @@ for target in "${targets[@]}"; do
   dst_dir=zig-out/${filename}
 
   # 1. Build
-  # baseline is required, see https://github.com/jiacai2050/zigcli/issues/43
+  # The '-Dcpu=baseline' flag ensures compatibility with a baseline CPU architecture,
+  # which is necessary for certain build targets. For more details, see:
+  # https://github.com/jiacai2050/zigcli/issues/43
   zig build -Doptimize=ReleaseSafe -Dtarget="${target}" -p ${dst_dir} \
       -Dcpu=baseline -Dgit_commit=${GIT_COMMIT} -Dbuild_date=${BUILD_DATE}
 
