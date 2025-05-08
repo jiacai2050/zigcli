@@ -245,7 +245,11 @@ fn makeCompileStep(
             return null;
         }
         if (host_os == .linux or host_os == .macos) {
-            const dep_curl = b.dependency("curl", .{ .link_vendor = vendor_libcurl });
+            const dep_curl = b.dependency("curl", .{
+                .link_vendor = vendor_libcurl,
+                .target = target,
+                .optimize = optimize,
+            });
             if (!vendor_libcurl) {
                 exe.linkSystemLibrary("curl");
             }
