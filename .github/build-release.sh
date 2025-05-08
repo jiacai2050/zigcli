@@ -25,6 +25,7 @@ targets=(
   # "aarch64-macos"
   "x86_64-macos"
   "x86_64-windows"
+  "aarch64-windows"
 )
 
 export BUILD_DATE=$(date +'%Y-%m-%dT%H:%M:%S%z')
@@ -36,8 +37,9 @@ for target in "${targets[@]}"; do
   dst_dir=zig-out/${filename}
 
   # 1. Build
+  # baseline is required, see https://github.com/jiacai2050/zigcli/issues/43
   zig build -Doptimize=ReleaseSafe -Dtarget="${target}" -p ${dst_dir} \
-      -Dvendor-libcurl=true -Dgit_commit=${GIT_COMMIT} -Dbuild_date=${BUILD_DATE}
+      -Dcpu=baseline -Dgit_commit=${GIT_COMMIT} -Dbuild_date=${BUILD_DATE}
 
   # 2. Prepare files
   rm -f ${dst_dir}/bin/*demo

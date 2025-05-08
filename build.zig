@@ -6,12 +6,10 @@ const macos_private_framework = "/Applications/Xcode.app/Contents/Developer/Plat
 pub fn build(b: *Build) !void {
     const optimize = b.standardOptimizeOption(.{});
     const target = b.standardTargetOptions(.{});
-    const skip_zigfetch = b.option(bool, "skip-zigfetch", "Skip zig fetch") orelse false;
-    const vendor_libcurl = b.option(bool, "vendor-libcurl", "Static link libcurl") orelse false;
     var all_tests = std.ArrayList(*Build.Step).init(b.allocator);
 
     try addModules(b, target, optimize, &all_tests);
-    try buildBinaries(b, optimize, target, &all_tests, skip_zigfetch, vendor_libcurl);
+    try buildBinaries(b, optimize, target, &all_tests);
     try buildExamples(b, optimize, target, &all_tests);
 
     const test_all_step = b.step("test", "Run all tests");
@@ -102,7 +100,7 @@ fn buildExamples(
         "simargs-demo",
         "pretty-table-demo",
     }) |name| {
-        try buildBinary(b, .{ .ex = name }, optimize, target, all_tests, false, false);
+        try buildBinary(b, .{ .ex = name }, optimize, target, all_tests);
     }
 }
 
@@ -111,8 +109,6 @@ fn buildBinaries(
     optimize: std.builtin.Mode,
     target: std.Build.ResolvedTarget,
     all_tests: *std.ArrayList(*Build.Step),
-    skip_zigfetch: bool,
-    vendor_libcurl: bool,
 ) !void {
     inline for (.{
         "zigfetch",
@@ -132,8 +128,6 @@ fn buildBinaries(
             optimize,
             target,
             all_tests,
-            skip_zigfetch,
-            vendor_libcurl,
         );
     }
 
@@ -147,16 +141,12 @@ fn buildBinary(
     optimize: std.builtin.Mode,
     target: std.Build.ResolvedTarget,
     all_tests: *std.ArrayList(*Build.Step),
-    skip_zigfetch: bool,
-    vendor_libcurl: bool,
 ) !void {
     if (makeCompileStep(
         b,
         source,
         optimize,
         target,
-        skip_zigfetch,
-        vendor_libcurl,
     )) |exe| {
         var deps = b.modules.iterator();
         while (deps.next()) |dep| {
@@ -200,8 +190,6 @@ fn makeCompileStep(
     comptime source: Source,
     optimize: std.builtin.Mode,
     target: std.Build.ResolvedTarget,
-    skip_zigfetch: bool,
-    vendor_libcurl: bool,
 ) ?*Build.Step.Compile {
     const name = comptime source.name();
     const path = comptime source.path();
@@ -236,28 +224,13 @@ fn makeCompileStep(
         }
         exe.linkLibC();
     } else if (std.mem.eql(u8, name, "zigfetch")) {
-        if (skip_zigfetch) {
-            return null;
-        }
-        const host_os = @import("builtin").os.tag;
-        const build_os = target.result.os.tag;
-        if (host_os != build_os) { // don't support cross compile
-            return null;
-        }
-        if (host_os == .linux or host_os == .macos) {
-            const dep_curl = b.dependency("curl", .{
-                .link_vendor = vendor_libcurl,
-                .target = target,
-                .optimize = optimize,
-            });
-            if (!vendor_libcurl) {
-                exe.linkSystemLibrary("curl");
-            }
-            exe.root_module.addImport("curl", dep_curl.module("curl"));
-            exe.linkLibC();
-        } else {
-            return null;
-        }
+        const dep_curl = b.dependency("curl", .{
+            .link_vendor = true,
+            .target = target,
+            .optimize = optimize,
+        });
+        exe.root_module.addImport("curl", dep_curl.module("curl"));
+        exe.linkLibC();
     } else if (std.mem.eql(u8, name, "pidof")) {
         // only build for macOS
         if (is_darwin) {
