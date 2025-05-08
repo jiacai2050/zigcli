@@ -37,7 +37,7 @@ for target in "${targets[@]}"; do
 
   # 1. Build
   zig build -Doptimize=ReleaseSafe -Dtarget="${target}" -p ${dst_dir} \
-      -Dgit_commit=${GIT_COMMIT} -Dbuild_date=${BUILD_DATE}
+      -Dvendor-libcurl=true -Dgit_commit=${GIT_COMMIT} -Dbuild_date=${BUILD_DATE}
 
   # 2. Prepare files
   rm -f ${dst_dir}/bin/*demo
