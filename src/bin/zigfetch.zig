@@ -71,9 +71,12 @@ pub fn main() !void {
     }
     // Init global vars
     args = opt.args;
+    const ca_bundle = try curl.allocCABundle(allocator);
+    defer ca_bundle.deinit();
     easy = try curl.Easy.init(allocator, .{
         .default_timeout_ms = args.timeout * 1000,
         .default_user_agent = "zigfetch",
+        .ca_bundle = ca_bundle,
     });
 
     {

@@ -7,7 +7,7 @@ check_hash() {
   local expected="$2"
 
   # zig fetch --debug-hash "${pkg}"
-  # "${script_dir}/../zig-out/bin/zigfetch" "${pkg}"
+  "${script_dir}/../zig-out/bin/zigfetch" "${pkg}"
   local actual=$("${script_dir}/../zig-out/bin/zigfetch" "${pkg}" 2>&1 | tail -1)
 
   if [ "${actual}" != "${expected}" ]; then

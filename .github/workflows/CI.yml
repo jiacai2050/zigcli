@@ -51,7 +51,7 @@ jobs:
           zig build
           find zig-out
       - name: zigfetch compare
-        if: matrix.os == 'macos-latest'
+        if: matrix.os != 'windows-latest'
         run: |
           bash .github/zigfetch.sh
 
