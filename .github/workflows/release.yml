@@ -5,6 +5,7 @@ on:
   pull_request:
     paths:
       - "**.zig"
+      - ".github/build-release.sh"
       - ".github/workflows/CI.yml"
       - ".github/workflows/release.yml"
   push:

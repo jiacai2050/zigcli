@@ -7,12 +7,14 @@ on:
   pull_request:
     paths:
       - '**.zig'
+      - ".github/build-release.sh"
       - '.github/workflows/CI.yml'
   push:
     branches:
       - main
     paths:
       - '**.zig'
+      - ".github/build-release.sh"
       - '.github/workflows/CI.yml'
 
 concurrency:

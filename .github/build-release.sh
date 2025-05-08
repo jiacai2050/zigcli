@@ -36,13 +36,8 @@ for target in "${targets[@]}"; do
   dst_dir=zig-out/${filename}
 
   # 1. Build
-  if [[ "${target}" = *linux* ]];then
-    zig build -Doptimize=ReleaseSafe -p ${dst_dir} \
-        -Dgit_commit=${GIT_COMMIT} -Dbuild_date=${BUILD_DATE}
-  else
-    zig build -Dskip-zigfetch=true -Doptimize=ReleaseSafe -Dtarget="${target}" -p ${dst_dir} \
-        -Dgit_commit=${GIT_COMMIT} -Dbuild_date=${BUILD_DATE}
-  fi
+  zig build -Doptimize=ReleaseSafe -p ${dst_dir} \
+      -Dgit_commit=${GIT_COMMIT} -Dbuild_date=${BUILD_DATE}
 
   # 2. Prepare files
   rm -f ${dst_dir}/bin/*demo
