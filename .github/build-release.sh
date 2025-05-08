@@ -36,7 +36,7 @@ for target in "${targets[@]}"; do
   dst_dir=zig-out/${filename}
 
   # 1. Build
-  zig build -Doptimize=ReleaseSafe -p ${dst_dir} \
+  zig build -Doptimize=ReleaseSafe -Dtarget="${target}" -p ${dst_dir} \
       -Dgit_commit=${GIT_COMMIT} -Dbuild_date=${BUILD_DATE}
 
   # 2. Prepare files
