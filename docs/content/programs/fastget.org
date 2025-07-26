@@ -1,0 +1,7 @@
+#+TITLE: fastget
+#+DATE: 2025-07-26T18:25:38+0800
+#+LASTMOD: 2025-07-26T18:37:14+0800
+#+TYPE: docs
+#+DESCRIPTION: Fastget is a universal binary installer that provides fast, secure, and reliable binary installation.
+
+Tired of tedious installation processes? =fastget= is here to help you install binaries quickly and securely. It supports various platforms and architectures, making it easy to install software on your system.

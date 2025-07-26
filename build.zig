@@ -121,6 +121,7 @@ fn buildBinaries(
         "repeat",
         "tcp-proxy",
         "timeout",
+        "fastget",
     }) |name| {
         try buildBinary(
             b,
