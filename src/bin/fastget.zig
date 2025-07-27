@@ -38,14 +38,17 @@ pub fn main() !void {
         return;
     }
 
-    const root_dir = std.process.getEnvVarOwned(allocator, "FASTGET_ROOT") catch |e| switch (e) {
+    const root_dir = std.process.getEnvVarOwned(allocator, "FASTGET_ROOT_DIR") catch |e| switch (e) {
         error.EnvironmentVariableNotFound => blk: {
-            const home = std.posix.getenv("HOME") orelse @panic("cannot find HOME dir");
+            const home = std.posix.getenv("HOME") orelse {
+                std.log.err("Environment variable HOME is not set. Please configure it.", .{});
+                return error.EnvironmentVariableNotFound;
+            };
             break :blk try std.fmt.allocPrint(allocator, "{s}/.fastget", .{home});
         },
         else => return e,
     };
-    std.debug.print("got {any}-{s}", .{ opt.args, root_dir });
+    sl.debug("got {any}-{s}", .{ opt.args, root_dir });
     defer allocator.free(root_dir);
     std.fs.accessAbsolute(root_dir, .{}) catch |e| switch (e) {
         error.FileNotFound => try initDirectories(allocator, root_dir),
@@ -66,6 +69,9 @@ fn initDirectories(allocator: Allocator, root_dir: []const u8) !void {
 fn ensureDir(dir: []const u8) !void {
     std.fs.makeDirAbsolute(dir) catch |e| switch (e) {
         error.PathAlreadyExists => {},
-        else => return e,
+        else => {
+            std.log.err("Failed to create directory {s}: {any}", .{ dir, e });
+            return e;
+        },
     };
 }
