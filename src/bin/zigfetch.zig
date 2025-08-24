@@ -73,7 +73,7 @@ pub fn main() !void {
     args = opt.args;
     const ca_bundle = try curl.allocCABundle(allocator);
     defer ca_bundle.deinit();
-    easy = try curl.Easy.init(allocator, .{
+    easy = try curl.Easy.init(.{
         .default_timeout_ms = args.timeout * 1000,
         .default_user_agent = "zigfetch",
         .ca_bundle = ca_bundle,
@@ -395,14 +395,17 @@ fn fetchPackage(allocator: Allocator, url: [:0]const u8, out_dir: fs.Dir) ![]con
     try easy.setFollowLocation(true);
     try easy.setVerbose(args.verbose);
 
-    const resp = try easy.get(url);
-    defer resp.deinit();
+    var writer = curl.ResizableResponseWriter.init(allocator);
+    defer writer.deinit();
+    const resp = try easy.fetch(url, .{
+        .response_writer = writer.asAny(),
+    });
 
     if (resp.status_code >= 400) {
         log.err("Failed to fetch {s}: {d}\n", .{ url, resp.status_code });
         return error.BadFetch;
     }
-    const buffer = resp.body.?;
+    const body = writer.asSlice();
     const header = try resp.getHeader("content-type");
     const mime: ?MimeType =
         if (header) |h| blk: {
@@ -431,29 +434,29 @@ fn fetchPackage(allocator: Allocator, url: [:0]const u8, out_dir: fs.Dir) ![]con
     if (mime) |m| {
         switch (m) {
             .Tar => {
-                var stream = std.io.fixedBufferStream(buffer.items);
+                var stream = std.io.fixedBufferStream(body);
                 return try unpackTarball(allocator, out_dir, stream.reader());
             },
             .TarGz => {
-                var stream = std.io.fixedBufferStream(buffer.items);
+                var stream = std.io.fixedBufferStream(body);
                 var dcp = std.compress.gzip.decompressor(stream.reader());
                 return try unpackTarball(allocator, out_dir, dcp.reader());
             },
             .TarXz => {
-                var stream = std.io.fixedBufferStream(buffer.items);
+                var stream = std.io.fixedBufferStream(body);
                 var dcp = try std.compress.xz.decompress(allocator, stream.reader());
                 defer dcp.deinit();
                 return try unpackTarball(allocator, out_dir, dcp.reader());
             },
             .TarZst => {
                 const window_size = std.compress.zstd.DecompressorOptions.default_window_buffer_len;
-                var stream = std.io.fixedBufferStream(buffer.items);
+                var stream = std.io.fixedBufferStream(body);
                 const window_buffer = try allocator.alloc(u8, window_size);
                 var dcp = std.compress.zstd.decompressor(stream.reader(), .{ .window_buffer = window_buffer });
                 return try unpackTarball(allocator, out_dir, dcp.reader());
             },
             .Zip => {
-                return try unzip(allocator, out_dir, buffer.items);
+                return try unzip(allocator, out_dir, body);
             },
         }
     } else {

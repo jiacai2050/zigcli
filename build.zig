@@ -2,6 +2,7 @@ const std = @import("std");
 const Build = std.Build;
 
 const macos_private_framework = "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/PrivateFrameworks/";
+const macos_private_framework2 = "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/PrivateFrameworks/";
 
 pub fn build(b: *Build) !void {
     const optimize = b.standardOptimizeOption(.{});
@@ -212,9 +213,11 @@ fn makeCompileStep(
     if (std.mem.eql(u8, name, "night-shift")) {
         exe.linkSystemLibrary("objc");
         exe.addFrameworkPath(.{ .cwd_relative = macos_private_framework });
+        exe.addFrameworkPath(.{ .cwd_relative = macos_private_framework2 });
         exe.linkFramework("CoreBrightness");
     } else if (std.mem.eql(u8, name, "dark-mode")) {
         exe.addFrameworkPath(.{ .cwd_relative = macos_private_framework });
+        exe.addFrameworkPath(.{ .cwd_relative = macos_private_framework2 });
         exe.linkFramework("SkyLight");
     } else if (std.mem.eql(u8, name, "tcp-proxy")) {
         exe.linkLibC();
