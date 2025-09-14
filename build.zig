@@ -4,10 +4,12 @@ const Build = std.Build;
 const macos_private_framework = "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/PrivateFrameworks/";
 const macos_private_framework2 = "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/PrivateFrameworks/";
 
+const Steps = std.array_list.Managed(*Build.Step);
+
 pub fn build(b: *Build) !void {
     const optimize = b.standardOptimizeOption(.{});
     const target = b.standardTargetOptions(.{});
-    var all_tests = std.ArrayList(*Build.Step).init(b.allocator);
+    var all_tests = Steps.init(b.allocator);
 
     try addModules(b, target, optimize, &all_tests);
     try buildBinaries(b, optimize, target, &all_tests);
@@ -51,8 +53,8 @@ const Source = union(enum) {
 fn addModules(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
-    optimize: std.builtin.Mode,
-    all_tests: *std.ArrayList(*Build.Step),
+    optimize: std.builtin.OptimizeMode,
+    all_tests: *Steps,
 ) !void {
     inline for (.{ "pretty-table", "simargs" }) |name| {
         _ = b.addModule(name, .{
@@ -93,9 +95,9 @@ fn addModules(
 
 fn buildExamples(
     b: *std.Build,
-    optimize: std.builtin.Mode,
+    optimize: std.builtin.OptimizeMode,
     target: std.Build.ResolvedTarget,
-    all_tests: *std.ArrayList(*Build.Step),
+    all_tests: *Steps,
 ) !void {
     inline for (.{
         "simargs-demo",
@@ -107,9 +109,9 @@ fn buildExamples(
 
 fn buildBinaries(
     b: *std.Build,
-    optimize: std.builtin.Mode,
+    optimize: std.builtin.OptimizeMode,
     target: std.Build.ResolvedTarget,
-    all_tests: *std.ArrayList(*Build.Step),
+    all_tests: *Steps,
 ) !void {
     inline for (.{
         "zigfetch",
@@ -139,9 +141,9 @@ fn buildBinaries(
 fn buildBinary(
     b: *std.Build,
     comptime source: Source,
-    optimize: std.builtin.Mode,
+    optimize: std.builtin.OptimizeMode,
     target: std.Build.ResolvedTarget,
-    all_tests: *std.ArrayList(*Build.Step),
+    all_tests: *Steps,
 ) !void {
     if (makeCompileStep(
         b,
@@ -177,8 +179,10 @@ fn buildTestStep(
     const name = comptime source.name();
     const path = comptime source.path();
     const exe_tests = b.addTest(.{
-        .root_source_file = b.path(path ++ "/" ++ name ++ ".zig"),
-        .target = target,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path(path ++ "/" ++ name ++ ".zig"),
+            .target = target,
+        }),
     });
     const test_step = b.step("test-" ++ name, "Run " ++ name ++ " tests");
     // https://github.com/ziglang/zig/issues/15009#issuecomment-1475350701
@@ -189,7 +193,7 @@ fn buildTestStep(
 fn makeCompileStep(
     b: *std.Build,
     comptime source: Source,
-    optimize: std.builtin.Mode,
+    optimize: std.builtin.OptimizeMode,
     target: std.Build.ResolvedTarget,
 ) ?*Build.Step.Compile {
     const name = comptime source.name();
@@ -205,9 +209,11 @@ fn makeCompileStep(
     }
     const exe = b.addExecutable(.{
         .name = name,
-        .root_source_file = b.path(path ++ "/" ++ name ++ ".zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path(path ++ "/" ++ name ++ ".zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
     });
 
     if (std.mem.eql(u8, name, "night-shift")) {
