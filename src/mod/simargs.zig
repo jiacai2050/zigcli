@@ -641,8 +641,10 @@ fn OptionParser(
                             // if current option is help, print help_message and exit directly.
                             if (!is_test) {
                                 if (std.mem.eql(u8, opt.long_name, "help")) {
-                                    const stdout = std.io.getStdOut();
-                                    msg_helper.printHelp(Args, sub_cmd_name, stdout.writer()) catch @panic("OOM");
+                                    var stdout_buffer: [1024]u8 = undefined;
+                                    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+                                    const stdout = &stdout_writer.interface;
+                                    msg_helper.printHelp(Args, sub_cmd_name, stdout) catch @panic("OOM");
                                     std.process.exit(0);
                                 } else if (std.mem.eql(u8, opt.long_name, "version")) {
                                     msg_helper.printVersion() catch @panic("OOM");

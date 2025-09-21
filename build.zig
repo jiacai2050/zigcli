@@ -1,24 +1,16 @@
 const std = @import("std");
 const Build = std.Build;
-
+const Step = Build.Step;
 const macos_private_framework = "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/PrivateFrameworks/";
 const macos_private_framework2 = "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/PrivateFrameworks/";
-
-const Steps = std.array_list.Managed(*Build.Step);
 
 pub fn build(b: *Build) !void {
     const optimize = b.standardOptimizeOption(.{});
     const target = b.standardTargetOptions(.{});
-    var all_tests = Steps.init(b.allocator);
-
-    try addModules(b, target, optimize, &all_tests);
-    try buildBinaries(b, optimize, target, &all_tests);
-    try buildExamples(b, optimize, target, &all_tests);
-
     const test_all_step = b.step("test", "Run all tests");
-    for (all_tests.items) |step| {
-        test_all_step.dependOn(step);
-    }
+    try addModules(b, target, optimize, test_all_step);
+    try buildBinaries(b, optimize, target, test_all_step);
+    try buildExamples(b, optimize, target, test_all_step);
 }
 
 const Source = union(enum) {
@@ -54,14 +46,14 @@ fn addModules(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
-    all_tests: *Steps,
+    all_tests: *Step,
 ) !void {
     inline for (.{ "pretty-table", "simargs" }) |name| {
         _ = b.addModule(name, .{
             .root_source_file = b.path("src/mod/" ++ name ++ ".zig"),
         });
 
-        try all_tests.append(buildTestStep(b, .{ .mod = name }, target));
+        all_tests.dependOn(buildTestStep(b, .{ .mod = name }, target));
     }
 
     const opt = b.addOptions();
@@ -97,7 +89,7 @@ fn buildExamples(
     b: *std.Build,
     optimize: std.builtin.OptimizeMode,
     target: std.Build.ResolvedTarget,
-    all_tests: *Steps,
+    all_tests: *Step,
 ) !void {
     inline for (.{
         "simargs-demo",
@@ -111,7 +103,7 @@ fn buildBinaries(
     b: *std.Build,
     optimize: std.builtin.OptimizeMode,
     target: std.Build.ResolvedTarget,
-    all_tests: *Steps,
+    all_tests: *Step,
 ) !void {
     inline for (.{
         "zigfetch",
@@ -135,7 +127,7 @@ fn buildBinaries(
     }
 
     // TODO: move util out of `bin`
-    try all_tests.append(buildTestStep(b, .{ .bin = "util" }, target));
+    all_tests.dependOn(buildTestStep(b, .{ .bin = "util" }, target));
 }
 
 fn buildBinary(
@@ -143,7 +135,7 @@ fn buildBinary(
     comptime source: Source,
     optimize: std.builtin.OptimizeMode,
     target: std.Build.ResolvedTarget,
-    all_tests: *Steps,
+    all_tests: *Step,
 ) !void {
     if (makeCompileStep(
         b,
@@ -166,7 +158,7 @@ fn buildBinary(
             .dependOn(&run_cmd.step);
 
         if (source.need_test()) {
-            try all_tests.append(buildTestStep(b, source, target));
+            all_tests.dependOn(buildTestStep(b, source, target));
         }
     }
 }
@@ -175,7 +167,7 @@ fn buildTestStep(
     b: *std.Build,
     comptime source: Source,
     target: std.Build.ResolvedTarget,
-) *Build.Step {
+) *Step {
     const name = comptime source.name();
     const path = comptime source.path();
     const exe_tests = b.addTest(.{
