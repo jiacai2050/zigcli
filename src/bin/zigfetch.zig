@@ -65,8 +65,11 @@ pub fn main() !void {
     defer opt.deinit();
 
     if (opt.positional_args.len == 0) {
-        const stdout = std.io.getStdOut();
-        try opt.printHelp(stdout.writer());
+        const stdout = std.fs.File.stdout();
+        var buf: [1024]u8 = undefined;
+        var writer = stdout.writer(&buf);
+        try opt.printHelp(&writer.interface);
+        try writer.interface.flush();
         return;
     }
     // Init global vars
@@ -882,19 +885,18 @@ fn normalizePath(bytes: []u8) void {
 }
 
 fn dumpHashInfo(all_files: []const *const HashedFile) !void {
-    const stdout = std.io.getStdOut();
-    var bw = std.io.bufferedWriter(stdout.writer());
-    const w = bw.writer();
-
+    const stdout = std.fs.File.stdout();
+    var buf: [1024]u8 = undefined;
+    var writer = stdout.writer(&buf);
     for (all_files) |hashed_file| {
-        try w.print("{s}: {s}: {s}\n", .{
+        try writer.interface.print("{s}: {s}: {s}\n", .{
             @tagName(hashed_file.kind),
             std.fmt.fmtSliceHexLower(&hashed_file.hash),
             hashed_file.normalized_path,
         });
     }
 
-    try bw.flush();
+    try writer.interface.flush();
 }
 
 /// Caller owns returned memory.

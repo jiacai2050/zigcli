@@ -12,7 +12,7 @@ pub fn main() !void {
     posix.sigaction(posix.SIG.ALRM, &posix.Sigaction{
         .handler = .{
             .handler = struct {
-                pub fn handler(got: c_int) callconv(.C) void {
+                pub fn handler(got: c_int) callconv(.c) void {
                     std.debug.assert(got == posix.SIG.ALRM);
                     _ = child.kill() catch |e| {
                         std.log.err("Kill child failed, err:{any}", .{e});

@@ -246,7 +246,9 @@ fn printLocMap(
     padding: usize,
 ) !void {
     var iter = loc_map.iterator();
-    var list = std.ArrayList(*LinesOfCode).init(allocator);
+    var list: std.ArrayList(*LinesOfCode) = .empty;
+    defer list.deinit(allocator);
+
     var total_entry = LinesOfCode{
         .lang = .Total,
         .codes = 0,
@@ -257,14 +259,16 @@ fn printLocMap(
     };
 
     while (iter.next()) |entry| {
-        try list.append(entry.value);
+        try list.append(allocator, entry.value);
         total_entry.merge(entry.value.*);
     }
     std.sort.heap(*LinesOfCode, list.items, sort_col, LinesOfCode.cmp);
 
-    var table_data = std.ArrayList(LinesOfCode.LOCTableData).init(allocator);
+    var table_data: std.ArrayList(LinesOfCode.LOCTableData) = .empty;
+    defer table_data.deinit(allocator);
+
     for (list.items) |entry| {
-        try table_data.append(entry.toTableData(allocator));
+        try table_data.append(allocator, entry.toTableData(allocator));
     }
     const table = LinesOfCode.LOCTable{
         .header = LinesOfCode.header,
@@ -273,7 +277,11 @@ fn printLocMap(
         .mode = mode,
         .padding = padding,
     };
-    try std.io.getStdOut().writer().print("{}\n", .{table});
+    const stdout = std.fs.File.stdout();
+    var buf: [1024]u8 = undefined;
+    var writer = stdout.writer(&buf);
+    try writer.interface.print("{}\n", .{table});
+    try writer.interface.flush();
 }
 
 fn walk(allocator: std.mem.Allocator, loc_map: *LocMap, dir: fs.Dir) anyerror!void {
