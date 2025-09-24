@@ -255,10 +255,16 @@ const MessageHelper = struct {
 
             if (sub_cmds) |cmds|
             blk: {
+                const cmd_msg_offset = 10;
                 var lst = std.ArrayList([]const u8).init(aa);
                 try lst.append("[COMMANDS]\n\n COMMANDS:");
                 for (cmds) |cmd| {
-                    try lst.append(try std.fmt.allocPrint(aa, "  {s:<10} {s}", .{ cmd.name, cmd.message }));
+                    if (cmd.name.len <= cmd_msg_offset) {
+                        try lst.append(try std.fmt.allocPrint(aa, "  {s:<10} {s}", .{ cmd.name, cmd.message }));
+                    } else {
+                        const spaces = " " ** cmd_msg_offset;
+                        try lst.append(try std.fmt.allocPrint(aa, "  {s}\n  {s} {s}", .{ cmd.name, spaces, cmd.message }));
+                    }
                 }
                 break :blk try std.mem.join(aa, "\n", lst.items);
             } else if (self.arg_prompt) |p|
@@ -292,9 +298,13 @@ const MessageHelper = struct {
 
             var blanks: usize = msg_offset;
             for (curr_opt.items) |v| {
-                blanks -= v.len;
+                blanks = if (blanks > v.len) blanks - v.len else 0;
             }
-            while (blanks > 0) {
+
+            if (blanks == 0) {
+                try curr_opt.append("\n");
+                try curr_opt.append(" " ** msg_offset);
+            } else while (blanks > 0) {
                 try curr_opt.append(" ");
                 blanks -= 1;
             }
