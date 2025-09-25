@@ -21,6 +21,6 @@ pub fn main() !void {
     var buf: [1024]u8 = undefined;
     var writer = out.writer(&buf);
 
-    try writer.interface.print("{}", .{t});
+    try writer.interface.print("{f}", .{t});
     try writer.interface.flush();
 }

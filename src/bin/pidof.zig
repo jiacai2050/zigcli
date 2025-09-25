@@ -60,7 +60,7 @@ pub fn searchPids(allocator: std.mem.Allocator, opt: Options, program: []const u
 
     // procSize may change between two calls of sysctl, so we cannot iterate
     // procList directly with for(procList) |proc|.
-    var pids = std.ArrayList(c.pid_t).init(allocator);
+    var pids: std.ArrayList(c.pid_t) = .empty;
     const uid = if (opt.user_only) c.getuid() else null;
     for (0..procSize / @sizeOf(c.struct_kinfo_proc)) |i| {
         if (opt.single and pids.items.len == 1) {
@@ -76,11 +76,11 @@ pub fn searchPids(allocator: std.mem.Allocator, opt: Options, program: []const u
         const name = std.mem.sliceTo(&proc.kp_proc.p_comm, 0);
         if (opt.strict) {
             if (std.mem.eql(u8, name, program)) {
-                try pids.append(proc.kp_proc.p_pid);
+                try pids.append(allocator, proc.kp_proc.p_pid);
             }
         } else {
             if (std.ascii.eqlIgnoreCase(name, program)) {
-                try pids.append(proc.kp_proc.p_pid);
+                try pids.append(allocator, proc.kp_proc.p_pid);
             }
         }
     }
@@ -107,11 +107,14 @@ pub fn main() !void {
         std.posix.exit(1);
     }
 
-    var stdout = std.io.getStdOut().writer();
+    var stdout = std.fs.File.stdout();
+    var buf: [1024]u8 = undefined;
+    var writer = stdout.writer(&buf);
     for (pids.items, 0..) |pid, i| {
         if (i > 0) {
-            try stdout.writeAll(opt.args.delimiter);
+            try writer.interface.writeAll(opt.args.delimiter);
         }
-        try stdout.print("{d}", .{pid});
+        try writer.interface.print("{d}", .{pid});
     }
+    try writer.interface.flush();
 }

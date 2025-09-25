@@ -93,20 +93,23 @@ pub fn main() anyerror!void {
     else
         opt.positional_args[0];
 
-    var writer = std.io.bufferedWriter(std.io.getStdOut().writer());
-    _ = try writer.write(root_dir);
-    _ = try writer.write("\n");
+    const stdout = std.fs.File.stdout();
+    var buf: [1024]u8 = undefined;
+    var writer = stdout.writer(&buf);
+
+    try writer.interface.writeAll(root_dir);
+    try writer.interface.writeAll("\n");
 
     var dir = try fs.cwd().openDir(root_dir, .{ .iterate = true });
     defer dir.close();
     var iter = dir.iterate();
-    const ret = try walk(allocator, opt.args, &iter, &writer, "", 1);
+    const ret = try walk(allocator, opt.args, &iter, &writer.interface, "", 1);
 
-    _ = try writer.write(try std.fmt.allocPrint(allocator, "\n{d} directories, {d} files\n", .{
+    try writer.interface.writeAll(try std.fmt.allocPrint(allocator, "\n{d} directories, {d} files\n", .{
         ret.directories,
         ret.files,
     }));
-    try writer.flush();
+    try writer.interface.flush();
 }
 
 fn stringLessThan(a: []const u8, b: []const u8) bool {
@@ -147,7 +150,7 @@ fn walk(
     allocator: mem.Allocator,
     walk_ctx: anytype,
     iter: *fs.Dir.Iterator,
-    writer: anytype,
+    writer: *std.Io.Writer,
     prefix: []const u8,
     level: usize,
 ) !WalkResult {
@@ -158,12 +161,12 @@ fn walk(
         }
     }
 
-    var files = std.ArrayList(fs.Dir.Entry).init(allocator);
+    var files: std.ArrayList(fs.Dir.Entry) = .empty;
     defer {
         for (files.items) |entry| {
             allocator.free(entry.name);
         }
-        files.deinit();
+        files.deinit(allocator);
     }
 
     while (try iter.next()) |entry| {
@@ -182,7 +185,7 @@ fn walk(
             }
         }
 
-        try files.append(.{ .name = dupe_name, .kind = entry.kind });
+        try files.append(allocator, .{ .name = dupe_name, .kind = entry.kind });
     }
 
     std.sort.heap(fs.Dir.Entry, files.items, {}, struct {
@@ -208,21 +211,21 @@ fn walk(
         _ = try writer.write(prefix);
 
         if (i < files.items.len - 1) {
-            _ = try writer.write(getPrefix(walk_ctx.mode, Position.Normal));
+            try writer.writeAll(getPrefix(walk_ctx.mode, Position.Normal));
         } else {
-            _ = try writer.write(getPrefix(walk_ctx.mode, Position.Last));
+            try writer.writeAll(getPrefix(walk_ctx.mode, Position.Last));
         }
-        _ = try writer.write(entry.name);
+        try writer.writeAll(entry.name);
 
         if (walk_ctx.size) {
             const stat = try iter.dir.statFile(entry.name);
-            _ = try writer.write(" [");
-            _ = try writer.write(try StringUtil.humanSize(allocator, stat.size));
-            _ = try writer.write("]");
+            try writer.writeAll(" [");
+            try writer.writeAll(try StringUtil.humanSize(allocator, stat.size));
+            try writer.writeAll("]");
         }
         switch (entry.kind) {
             .directory => {
-                _ = try writer.write("\n");
+                try writer.writeAll("\n");
                 ret.directories += 1;
                 var sub_dir = try iter.dir.openDir(entry.name, .{ .iterate = true });
                 defer sub_dir.close();
@@ -239,13 +242,13 @@ fn walk(
             .sym_link => {
                 ret.files += 1;
                 const linked_name = try iter.dir.readLink(entry.name, &buf);
-                _ = try writer.write(" -> ");
-                _ = try writer.write(linked_name);
-                _ = try writer.write("\n");
+                try writer.writeAll(" -> ");
+                try writer.writeAll(linked_name);
+                try writer.writeAll("\n");
             },
             else => {
                 ret.files += 1;
-                _ = try writer.write("\n");
+                try writer.writeAll("\n");
             },
         }
     }

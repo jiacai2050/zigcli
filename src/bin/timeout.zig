@@ -22,7 +22,7 @@ pub fn main() !void {
                 }
             }.handler,
         },
-        .mask = posix.empty_sigset,
+        .mask = posix.sigemptyset(),
         .flags = 0,
     }, null);
 

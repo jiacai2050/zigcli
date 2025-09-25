@@ -280,7 +280,7 @@ fn printLocMap(
     const stdout = std.fs.File.stdout();
     var buf: [1024]u8 = undefined;
     var writer = stdout.writer(&buf);
-    try writer.interface.print("{}\n", .{table});
+    try writer.interface.print("{f}\n", .{table});
     try writer.interface.flush();
 }
 
@@ -342,8 +342,8 @@ fn populateLoc(allocator: std.mem.Allocator, loc_map: *LocMap, dir: fs.Dir, base
     defer file.close();
     loc_entry.files += 1;
 
-    const metadata = try file.metadata();
-    const file_size: usize = @truncate(metadata.size());
+    const stat = try file.stat();
+    const file_size: usize = @truncate(stat.size);
     if (file_size == 0) {
         return;
     }

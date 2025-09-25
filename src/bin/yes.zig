@@ -34,7 +34,8 @@ pub fn main() !void {
 
     var buffer: [BUFFER_CAP]u8 = undefined;
     const size = fillBuffer(&buffer, input);
-    const stdout = std.io.getStdOut();
-    var writer = stdout.writer();
-    while ((try writer.write(buffer[0..size])) > 0) {}
+    const stdout = std.fs.File.stdout();
+    while (true) {
+        try stdout.writeAll(buffer[0..size]);
+    }
 }

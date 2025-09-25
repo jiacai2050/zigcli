@@ -1,4 +1,5 @@
 const std = @import("std");
+const Writer = std.io.Writer;
 
 pub const String = []const u8;
 pub fn Row(comptime num: usize) type {
@@ -56,7 +57,7 @@ pub fn Table(comptime len: usize) type {
 
         const Self = @This();
 
-        fn writeRowDelimiter(self: Self, writer: anytype, row_pos: Separator.Position, col_lens: [len]usize) !void {
+        fn writeRowDelimiter(self: Self, writer: *Writer, row_pos: Separator.Position, col_lens: [len]usize) !void {
             inline for (0..len, col_lens) |col_idx, max_len| {
                 const first_col = col_idx == 0;
                 if (first_col) {
@@ -76,7 +77,7 @@ pub fn Table(comptime len: usize) type {
 
         fn writeRow(
             self: Self,
-            writer: anytype,
+            writer: *Writer,
             row: []const String,
             col_lens: [len]usize,
         ) !void {
@@ -128,15 +129,9 @@ pub fn Table(comptime len: usize) type {
 
         pub fn format(
             self: Self,
-            comptime fmt: String,
-            options: std.fmt.FormatOptions,
-            writer: anytype,
+            writer: *std.Io.Writer,
         ) !void {
-            _ = options;
-            _ = fmt;
-            _ = options;
-            _ = fmt;
-
+            // const self: Self = args[0];
             const column_lens = self.calculateColumnLens();
 
             try self.writeRowDelimiter(writer, .First, column_lens);
@@ -177,7 +172,7 @@ test "normal usage" {
 
     var out = std.ArrayList(u8).init(std.testing.allocator);
     defer out.deinit();
-    try out.writer().print("{}", .{t});
+    try out.writer().print("{f}", .{t});
 
     try std.testing.expectEqualStrings(
         \\+-------+----------+

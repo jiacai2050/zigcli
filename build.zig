@@ -106,7 +106,7 @@ fn buildBinaries(
     all_tests: *Step,
 ) !void {
     inline for (.{
-        "zigfetch",
+        // "zigfetch",
         "tree",
         "loc",
         "pidof",

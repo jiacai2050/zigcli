@@ -273,12 +273,12 @@ fn cachePackageFromGit(
 
     // Convert this git dep to http dep, since it's more efficient.
     if (std.mem.eql(u8, host, "github.com") or std.mem.eql(u8, host, "codeberg.org")) {
-        const archive_url = try std.fmt.allocPrintZ(allocator, "{s}://{s}{s}/archive/{s}.tar.gz", .{
+        const archive_url = try std.fmt.allocPrintSentinel(allocator, "{s}://{s}{s}/archive/{s}.tar.gz", .{
             uri.scheme["git+".len..],
             host,
             try uri.path.toRawMaybeAlloc(allocator),
             commit_id,
-        });
+        }, 0);
         defer allocator.free(archive_url);
 
         return cachePackageFromUrl(allocator, archive_url, expected_hash);
@@ -398,17 +398,15 @@ fn fetchPackage(allocator: Allocator, url: [:0]const u8, out_dir: fs.Dir) ![]con
     try easy.setFollowLocation(true);
     try easy.setVerbose(args.verbose);
 
-    var writer = curl.ResizableResponseWriter.init(allocator);
+    var writer = std.Io.Writer.Allocating.init(allocator);
     defer writer.deinit();
-    const resp = try easy.fetch(url, .{
-        .response_writer = writer.asAny(),
-    });
+    const resp = try easy.fetch(url, .{ .writer = &writer.writer });
 
     if (resp.status_code >= 400) {
         log.err("Failed to fetch {s}: {d}\n", .{ url, resp.status_code });
         return error.BadFetch;
     }
-    const body = writer.asSlice();
+    const body = writer.writer.buffered();
     const header = try resp.getHeader("content-type");
     const mime: ?MimeType =
         if (header) |h| blk: {
@@ -481,7 +479,7 @@ fn loadManifest(allocator: Allocator, pkg_dir: fs.Dir) !?Manifest {
         arena_allocator,
         Manifest.max_bytes,
         null,
-        1,
+        .@"1",
         0,
     );
     const ast = try std.zig.Ast.parse(arena_allocator, bytes, .zon);
@@ -582,11 +580,11 @@ fn computeHash(
     deleteIgnore: bool,
 ) !ComputedHash {
     // Collect all files, recursively, then sort.
-    var all_files = std.ArrayList(*HashedFile).init(allocator);
-    defer all_files.deinit();
+    var all_files: std.ArrayList(*HashedFile) = .empty;
+    defer all_files.deinit(allocator);
 
-    var deleted_files = std.ArrayList(*DeletedFile).init(allocator);
-    defer deleted_files.deinit();
+    var deleted_files: std.ArrayList(*DeletedFile) = .empty;
+    defer deleted_files.deinit(allocator);
 
     // Track directories which had any files deleted from them so that empty directories
     // can be deleted.
@@ -631,7 +629,7 @@ fn computeHash(
                     .failure = undefined, // to be populated by the worker
                 };
                 thread_pool.spawnWg(&wait_group, workerDeleteFile, .{ root_dir, deleted_file });
-                try deleted_files.append(deleted_file);
+                try deleted_files.append(allocator, deleted_file);
                 continue;
             }
 
@@ -659,7 +657,7 @@ fn computeHash(
                 .size = undefined, // to be populated by the worker
             };
             thread_pool.spawnWg(&wait_group, workerHashFile, .{ root_dir, hashed_file });
-            try all_files.append(hashed_file);
+            try all_files.append(allocator, hashed_file);
         }
     }
 
@@ -889,9 +887,9 @@ fn dumpHashInfo(all_files: []const *const HashedFile) !void {
     var buf: [1024]u8 = undefined;
     var writer = stdout.writer(&buf);
     for (all_files) |hashed_file| {
-        try writer.interface.print("{s}: {s}: {s}\n", .{
+        try writer.interface.print("{s}: {x}: {s}\n", .{
             @tagName(hashed_file.kind),
-            std.fmt.fmtSliceHexLower(&hashed_file.hash),
+            hashed_file.hash[0..],
             hashed_file.normalized_path,
         });
     }
