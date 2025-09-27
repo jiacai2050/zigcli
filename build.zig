@@ -107,7 +107,7 @@ fn buildBinaries(
 ) !void {
     inline for (.{
         // TODO: zigfetch is broken on zig 0.15.1
-        // "zigfetch",
+        "zigfetch",
         "tree",
         "loc",
         "pidof",

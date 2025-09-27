@@ -468,23 +468,20 @@ fn fetchPackage(allocator: Allocator, url: [:0]const u8, out_dir: fs.Dir) ![]con
 }
 
 fn loadManifest(allocator: Allocator, pkg_dir: fs.Dir) !?Manifest {
-    var arena = std.heap.ArenaAllocator.init(allocator);
-    defer arena.deinit();
-    const arena_allocator = arena.allocator();
-
     const file = pkg_dir.openFile(Manifest.basename, .{}) catch |err| switch (err) {
         error.FileNotFound => return null,
         else => return err,
     };
     defer file.close();
     const bytes = try file.readToEndAllocOptions(
-        arena_allocator,
+        allocator,
         Manifest.max_bytes,
         null,
         .@"1",
         0,
     );
-    const ast = try std.zig.Ast.parse(arena_allocator, bytes, .zon);
+
+    const ast = try std.zig.Ast.parse(allocator, bytes, .zon);
     const manifest = try Manifest.parse(allocator, ast, .{
         .allow_missing_paths_field = true,
     });
