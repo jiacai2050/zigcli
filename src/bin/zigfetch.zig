@@ -439,7 +439,7 @@ fn fetchPackage(allocator: Allocator, url: [:0]const u8, out_dir: fs.Dir) ![]con
                 return try unpackTarball(allocator, out_dir, &reader);
             },
             .TarGz => {
-                var buf: [8192]u8 = undefined;
+                var buf: [std.compress.flate.max_window_len]u8 = undefined;
                 var dcp = std.compress.flate.Decompress.init(&reader, .gzip, &buf);
                 return try unpackTarball(allocator, out_dir, &dcp.reader);
             },
