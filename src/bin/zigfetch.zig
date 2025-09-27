@@ -65,8 +65,11 @@ pub fn main() !void {
     defer opt.deinit();
 
     if (opt.positional_args.len == 0) {
-        const stdout = std.io.getStdOut();
-        try opt.printHelp(stdout.writer());
+        const stdout = std.fs.File.stdout();
+        var buf: [1024]u8 = undefined;
+        var writer = stdout.writer(&buf);
+        try opt.printHelp(&writer.interface);
+        try writer.interface.flush();
         return;
     }
     // Init global vars
@@ -142,7 +145,7 @@ fn calcHash(allocator: Allocator, dir: fs.Dir, root_dirname: []const u8, deleteI
                         if (std.mem.startsWith(u8, pkg_url, "git+")) {
                             _ = try cachePackageFromGit(allocator, pkg_url, hash);
                         } else {
-                            const u = try std.fmt.allocPrintZ(allocator, "{s}", .{pkg_url});
+                            const u = try std.fmt.allocPrintSentinel(allocator, "{s}", .{pkg_url}, 0);
                             defer allocator.free(u);
 
                             _ = try cachePackageFromUrl(allocator, u, hash);
@@ -270,12 +273,12 @@ fn cachePackageFromGit(
 
     // Convert this git dep to http dep, since it's more efficient.
     if (std.mem.eql(u8, host, "github.com") or std.mem.eql(u8, host, "codeberg.org")) {
-        const archive_url = try std.fmt.allocPrintZ(allocator, "{s}://{s}{s}/archive/{s}.tar.gz", .{
+        const archive_url = try std.fmt.allocPrintSentinel(allocator, "{s}://{s}{s}/archive/{s}.tar.gz", .{
             uri.scheme["git+".len..],
             host,
             try uri.path.toRawMaybeAlloc(allocator),
             commit_id,
-        });
+        }, 0);
         defer allocator.free(archive_url);
 
         return cachePackageFromUrl(allocator, archive_url, expected_hash);
@@ -395,17 +398,15 @@ fn fetchPackage(allocator: Allocator, url: [:0]const u8, out_dir: fs.Dir) ![]con
     try easy.setFollowLocation(true);
     try easy.setVerbose(args.verbose);
 
-    var writer = curl.ResizableResponseWriter.init(allocator);
+    var writer = std.Io.Writer.Allocating.init(allocator);
     defer writer.deinit();
-    const resp = try easy.fetch(url, .{
-        .response_writer = writer.asAny(),
-    });
+    const resp = try easy.fetch(url, .{ .writer = &writer.writer });
 
     if (resp.status_code >= 400) {
         log.err("Failed to fetch {s}: {d}\n", .{ url, resp.status_code });
         return error.BadFetch;
     }
-    const body = writer.asSlice();
+    const body = writer.writer.buffered();
     const header = try resp.getHeader("content-type");
     const mime: ?MimeType =
         if (header) |h| blk: {
@@ -431,29 +432,31 @@ fn fetchPackage(allocator: Allocator, url: [:0]const u8, out_dir: fs.Dir) ![]con
             }
         } else guessMimeType(url);
 
+    var reader = std.Io.Reader.fixed(body);
     if (mime) |m| {
         switch (m) {
             .Tar => {
-                var stream = std.io.fixedBufferStream(body);
-                return try unpackTarball(allocator, out_dir, stream.reader());
+                return try unpackTarball(allocator, out_dir, &reader);
             },
             .TarGz => {
-                var stream = std.io.fixedBufferStream(body);
-                var dcp = std.compress.gzip.decompressor(stream.reader());
-                return try unpackTarball(allocator, out_dir, dcp.reader());
+                var buf: [std.compress.flate.max_window_len]u8 = undefined;
+                var dcp = std.compress.flate.Decompress.init(&reader, .gzip, &buf);
+                return try unpackTarball(allocator, out_dir, &dcp.reader);
             },
             .TarXz => {
+                // XZ decompressor needs a reader that implements the old API.
                 var stream = std.io.fixedBufferStream(body);
                 var dcp = try std.compress.xz.decompress(allocator, stream.reader());
                 defer dcp.deinit();
-                return try unpackTarball(allocator, out_dir, dcp.reader());
+                var rdr = dcp.reader();
+                var buf: [1024]u8 = undefined;
+                var new_api = rdr.adaptToNewApi(&buf);
+                return try unpackTarball(allocator, out_dir, &new_api.new_interface);
             },
             .TarZst => {
-                const window_size = std.compress.zstd.DecompressorOptions.default_window_buffer_len;
-                var stream = std.io.fixedBufferStream(body);
-                const window_buffer = try allocator.alloc(u8, window_size);
-                var dcp = std.compress.zstd.decompressor(stream.reader(), .{ .window_buffer = window_buffer });
-                return try unpackTarball(allocator, out_dir, dcp.reader());
+                var buf: [8192]u8 = undefined;
+                var dcp = std.compress.zstd.Decompress.init(&reader, &buf, .{});
+                return try unpackTarball(allocator, out_dir, &dcp.reader);
             },
             .Zip => {
                 return try unzip(allocator, out_dir, body);
@@ -465,23 +468,20 @@ fn fetchPackage(allocator: Allocator, url: [:0]const u8, out_dir: fs.Dir) ![]con
 }
 
 fn loadManifest(allocator: Allocator, pkg_dir: fs.Dir) !?Manifest {
-    var arena = std.heap.ArenaAllocator.init(allocator);
-    defer arena.deinit();
-    const arena_allocator = arena.allocator();
-
     const file = pkg_dir.openFile(Manifest.basename, .{}) catch |err| switch (err) {
         error.FileNotFound => return null,
         else => return err,
     };
     defer file.close();
     const bytes = try file.readToEndAllocOptions(
-        arena_allocator,
+        allocator,
         Manifest.max_bytes,
         null,
-        1,
+        .@"1",
         0,
     );
-    const ast = try std.zig.Ast.parse(arena_allocator, bytes, .zon);
+
+    const ast = try std.zig.Ast.parse(allocator, bytes, .zon);
     const manifest = try Manifest.parse(allocator, ast, .{
         .allow_missing_paths_field = true,
     });
@@ -505,7 +505,9 @@ fn unzip(allocator: Allocator, out_dir: fs.Dir, src: []const u8) ![]const u8 {
     try zip_file.writeAll(src);
 
     var diagnostics: std.zip.Diagnostics = .{ .allocator = allocator };
-    std.zip.extract(out_dir, zip_file.seekableStream(), .{
+    var buf: [4096]u8 = undefined;
+    var reader = zip_file.reader(&buf);
+    std.zip.extract(out_dir, &reader, .{
         .allow_backslashes = true,
         .diagnostics = &diagnostics,
     }) catch |err| {
@@ -518,7 +520,7 @@ fn unzip(allocator: Allocator, out_dir: fs.Dir, src: []const u8) ![]const u8 {
     return diagnostics.root_dir;
 }
 
-fn unpackTarball(allocator: Allocator, out_dir: fs.Dir, reader: anytype) ![]const u8 {
+fn unpackTarball(allocator: Allocator, out_dir: fs.Dir, reader: *std.Io.Reader) ![]const u8 {
     var diagnostics: std.tar.Diagnostics = .{ .allocator = allocator };
     std.tar.pipeToFileSystem(out_dir, reader, .{
         .diagnostics = &diagnostics,
@@ -579,11 +581,11 @@ fn computeHash(
     deleteIgnore: bool,
 ) !ComputedHash {
     // Collect all files, recursively, then sort.
-    var all_files = std.ArrayList(*HashedFile).init(allocator);
-    defer all_files.deinit();
+    var all_files: std.ArrayList(*HashedFile) = .empty;
+    defer all_files.deinit(allocator);
 
-    var deleted_files = std.ArrayList(*DeletedFile).init(allocator);
-    defer deleted_files.deinit();
+    var deleted_files: std.ArrayList(*DeletedFile) = .empty;
+    defer deleted_files.deinit(allocator);
 
     // Track directories which had any files deleted from them so that empty directories
     // can be deleted.
@@ -628,7 +630,7 @@ fn computeHash(
                     .failure = undefined, // to be populated by the worker
                 };
                 thread_pool.spawnWg(&wait_group, workerDeleteFile, .{ root_dir, deleted_file });
-                try deleted_files.append(deleted_file);
+                try deleted_files.append(allocator, deleted_file);
                 continue;
             }
 
@@ -656,7 +658,7 @@ fn computeHash(
                 .size = undefined, // to be populated by the worker
             };
             thread_pool.spawnWg(&wait_group, workerHashFile, .{ root_dir, hashed_file });
-            try all_files.append(hashed_file);
+            try all_files.append(allocator, hashed_file);
         }
     }
 
@@ -735,7 +737,7 @@ pub fn computedPackageHash(raw: ComputedHash, manifest: ?Manifest) package.Hash 
     const saturated_size = std.math.cast(u32, raw.total_size) orelse std.math.maxInt(u32);
     if (manifest) |man| {
         var version_buffer: [32]u8 = undefined;
-        const version: []const u8 = std.fmt.bufPrint(&version_buffer, "{}", .{man.version}) catch &version_buffer;
+        const version: []const u8 = std.fmt.bufPrint(&version_buffer, "{f}", .{man.version}) catch &version_buffer;
         return .init(raw.digest, man.name, version, man.id, saturated_size);
     }
     // In the future build.zig.zon fields will be added to allow overriding these values
@@ -882,19 +884,18 @@ fn normalizePath(bytes: []u8) void {
 }
 
 fn dumpHashInfo(all_files: []const *const HashedFile) !void {
-    const stdout = std.io.getStdOut();
-    var bw = std.io.bufferedWriter(stdout.writer());
-    const w = bw.writer();
-
+    const stdout = std.fs.File.stdout();
+    var buf: [1024]u8 = undefined;
+    var writer = stdout.writer(&buf);
     for (all_files) |hashed_file| {
-        try w.print("{s}: {s}: {s}\n", .{
+        try writer.interface.print("{s}: {x}: {s}\n", .{
             @tagName(hashed_file.kind),
-            std.fmt.fmtSliceHexLower(&hashed_file.hash),
+            hashed_file.hash[0..],
             hashed_file.normalized_path,
         });
     }
 
-    try bw.flush();
+    try writer.interface.flush();
 }
 
 /// Caller owns returned memory.

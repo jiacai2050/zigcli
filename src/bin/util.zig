@@ -36,7 +36,7 @@ pub fn get_build_info() []const u8 {
         info.build_date,
         info.build_mode,
         builtin.zig_version_string,
-        builtin.zig_backend,
+        @tagName(builtin.zig_backend),
     });
 }
 

@@ -1,6 +1,7 @@
 //! A simple, opinionated, struct-based argument parser in Zig
 
 const std = @import("std");
+const Writer = std.Io.Writer;
 const testing = std.testing;
 const is_test = @import("builtin").is_test;
 
@@ -173,7 +174,7 @@ const MessageHelper = struct {
         };
     }
 
-    fn printDefault(comptime f: std.builtin.Type.StructField, writer: anytype) !void {
+    fn printDefault(comptime f: std.builtin.Type.StructField, writer: *Writer) !void {
         if (f.default_value_ptr == null) {
             if (@typeInfo(f.type) != .optional) {
                 try writer.writeAll("(required)");
@@ -198,8 +199,7 @@ const MessageHelper = struct {
             else
                 "{any}",
         } ++ ")";
-
-        try std.fmt.format(writer, format, .{switch (@typeInfo(f.type)) {
+        try writer.print(format, .{switch (@typeInfo(f.type)) {
             .@"enum" => @tagName(default),
             .optional => |opt| if (@typeInfo(opt.child) == .@"enum")
                 @tagName(default.?)
@@ -212,18 +212,22 @@ const MessageHelper = struct {
     pub fn printVersion(
         self: MessageHelper,
     ) !void {
-        const stdout = std.io.getStdOut();
+        const stdout = std.fs.File.stdout();
+        var buf: [1024]u8 = undefined;
+        var writer = stdout.writer(&buf);
         if (self.version) |v| {
-            try stdout.writer().writeAll(v);
+            try writer.interface.writeAll(v);
         } else {
-            try stdout.writer().writeAll("Unknown");
+            try writer.interface.writeAll("Unknown");
         }
+        try writer.interface.flush();
     }
+
     pub fn printHelp(
         self: MessageHelper,
         comptime T: type,
         sub_cmd_name: ?[]const u8,
-        writer: anytype,
+        writer: *Writer,
     ) !void {
         const fields = comptime buildOptionFields(T);
         const sub_cmds = if (@hasField(T, COMMAND_FIELD_NAME)) blk: {
@@ -256,14 +260,14 @@ const MessageHelper = struct {
             if (sub_cmds) |cmds|
             blk: {
                 const cmd_msg_offset = 10;
-                var lst = std.ArrayList([]const u8).init(aa);
-                try lst.append("[COMMANDS]\n\n COMMANDS:");
+                var lst: std.ArrayList([]const u8) = .empty;
+                try lst.append(aa, "[COMMANDS]\n\n COMMANDS:");
                 for (cmds) |cmd| {
                     if (cmd.name.len <= cmd_msg_offset) {
-                        try lst.append(try std.fmt.allocPrint(aa, "  {s:<10} {s}", .{ cmd.name, cmd.message }));
+                        try lst.append(aa, try std.fmt.allocPrint(aa, "  {s:<10} {s}", .{ cmd.name, cmd.message }));
                     } else {
                         const spaces = " " ** cmd_msg_offset;
-                        try lst.append(try std.fmt.allocPrint(aa, "  {s}\n  {s} {s}", .{ cmd.name, spaces, cmd.message }));
+                        try lst.append(aa, try std.fmt.allocPrint(aa, "  {s}\n  {s} {s}", .{ cmd.name, spaces, cmd.message }));
                     }
                 }
                 break :blk try std.mem.join(aa, "\n", lst.items);
@@ -281,20 +285,20 @@ const MessageHelper = struct {
         // TODO: Maybe be too small(or big)?
         const msg_offset = 35;
         for (fields) |opt_fld| {
-            var curr_opt = std.ArrayList([]const u8).init(aa);
-            defer curr_opt.deinit();
+            var curr_opt: std.ArrayList([]const u8) = .empty;
+            defer curr_opt.deinit(aa);
 
-            try curr_opt.append("  ");
+            try curr_opt.append(aa, "  ");
             if (opt_fld.short_name) |sn| {
-                try curr_opt.append("-");
-                try curr_opt.append(&[_]u8{sn});
-                try curr_opt.append(", ");
+                try curr_opt.append(aa, "-");
+                try curr_opt.append(aa, &[_]u8{sn});
+                try curr_opt.append(aa, ", ");
             } else {
-                try curr_opt.append("    ");
+                try curr_opt.append(aa, "    ");
             }
-            try curr_opt.append("--");
-            try curr_opt.append(opt_fld.long_name);
-            try curr_opt.append(opt_fld.opt_type.as_string());
+            try curr_opt.append(aa, "--");
+            try curr_opt.append(aa, opt_fld.long_name);
+            try curr_opt.append(aa, opt_fld.opt_type.as_string());
 
             var blanks: usize = msg_offset;
             for (curr_opt.items) |v| {
@@ -302,15 +306,15 @@ const MessageHelper = struct {
             }
 
             if (blanks == 0) {
-                try curr_opt.append("\n");
-                try curr_opt.append(" " ** msg_offset);
+                try curr_opt.append(aa, "\n");
+                try curr_opt.append(aa, " " ** msg_offset);
             } else while (blanks > 0) {
-                try curr_opt.append(" ");
+                try curr_opt.append(aa, " ");
                 blanks -= 1;
             }
 
             if (opt_fld.message) |msg| {
-                try curr_opt.append(msg);
+                try curr_opt.append(aa, msg);
             }
             const first_part = try std.mem.join(aa, "", curr_opt.items);
             try writer.writeAll(first_part);
@@ -333,7 +337,9 @@ const MessageHelper = struct {
             }
 
             try writer.writeAll("\n");
-        }
+        } // end for fields
+
+        try writer.flush();
     }
 };
 
@@ -360,7 +366,7 @@ fn StructArguments(
             }
         }
 
-        pub fn printHelp(self: Self, writer: anytype) !void {
+        pub fn printHelp(self: Self, writer: *Writer) !void {
             try MessageHelper.init(
                 self.allocator,
                 self.program,
@@ -651,8 +657,10 @@ fn OptionParser(
                             // if current option is help, print help_message and exit directly.
                             if (!is_test) {
                                 if (std.mem.eql(u8, opt.long_name, "help")) {
-                                    const stdout = std.io.getStdOut();
-                                    msg_helper.printHelp(Args, sub_cmd_name, stdout.writer()) catch @panic("OOM");
+                                    var stdout_buffer: [1024]u8 = undefined;
+                                    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+                                    const stdout = &stdout_writer.interface;
+                                    msg_helper.printHelp(Args, sub_cmd_name, stdout) catch @panic("OOM");
                                     std.process.exit(0);
                                 } else if (std.mem.eql(u8, opt.long_name, "version")) {
                                     msg_helper.printVersion() catch @panic("OOM");
@@ -853,21 +861,20 @@ test "parse/valid option values" {
     const expected = args[args.len - 2 ..];
     try std.testing.expectEqualDeep(opt.positional_args, expected);
 
-    var help_msg = std.ArrayList(u8).init(allocator);
-    defer help_msg.deinit();
-
-    try opt.printHelp(help_msg.writer());
+    var writer = std.Io.Writer.Allocating.init(allocator);
+    defer writer.deinit();
+    try opt.printHelp(&writer.writer);
     try std.testing.expectEqualStrings(
         \\ USAGE:
         \\     awesome-cli [OPTIONS] [--] ...
         \\
         \\ OPTIONS:
         \\  -h, --help                       print this help message(required)
-        \\  -r, --rate FLOAT                 (default: 2e0)
+        \\  -r, --rate FLOAT                 (default: 2)
         \\      --timeout INTEGER            (required)
         \\      --user-agent STRING          (default: Brave)
         \\
-    , help_msg.items);
+    , writer.writer.buffered());
 }
 
 test "parse/bool value" {
@@ -1010,9 +1017,9 @@ test "parse/default value" {
     const opt = try parser.parse("...", null, &args);
     try std.testing.expectEqualStrings("A1", opt.args.a1);
     try std.testing.expectEqual(opt.positional_args.len, 0);
-    var help_msg = std.ArrayList(u8).init(allocator);
-    defer help_msg.deinit();
-    try opt.printHelp(help_msg.writer());
+    var writer = std.Io.Writer.Allocating.init(allocator);
+    defer writer.deinit();
+    try opt.printHelp(&writer.writer);
     try std.testing.expectEqualStrings(
         \\ USAGE:
         \\     awesome-cli [OPTIONS] [--] ...
@@ -1022,12 +1029,12 @@ test "parse/default value" {
         \\      --a2 STRING                  (default: A2)
         \\      --b1 INTEGER                 (default: 1)
         \\      --b2 INTEGER                 (default: 11)
-        \\      --c1 FLOAT                   (default: 1.5e0)
-        \\      --c2 FLOAT                   (default: 2.5e0)
+        \\      --c1 FLOAT                   (default: 1.5)
+        \\      --c2 FLOAT                   (default: 2.5)
         \\      --d1                         (default: true)
         \\      --d2                         padding message
         \\
-    , help_msg.items);
+    , writer.writer.buffered());
 }
 
 test "parse/enum option" {
@@ -1049,9 +1056,10 @@ test "parse/enum option" {
     defer opt.deinit();
 
     try std.testing.expectEqual(opt.args.a1, .A);
-    var help_msg = std.ArrayList(u8).init(allocator);
-    defer help_msg.deinit();
-    try opt.printHelp(help_msg.writer());
+
+    var writer = std.Io.Writer.Allocating.init(allocator);
+    defer writer.deinit();
+    try opt.printHelp(&writer.writer);
     try std.testing.expectEqualStrings(
         \\ USAGE:
         \\     awesome-cli [OPTIONS] [--] ...
@@ -1061,7 +1069,7 @@ test "parse/enum option" {
         \\      --a2 STRING                   (valid: C|D)(default: D)
         \\      --a3 STRING                   (valid: X|Y)(required)
         \\
-    , help_msg.items);
+    , writer.writer.buffered());
 }
 
 test "parse/positional arguments" {
@@ -1085,9 +1093,9 @@ test "parse/positional arguments" {
     const expected = args[args.len - 2 ..];
     try std.testing.expectEqualDeep(opt.positional_args, expected);
 
-    var help_msg = std.ArrayList(u8).init(allocator);
-    defer help_msg.deinit();
-    try opt.printHelp(help_msg.writer());
+    var writer = std.Io.Writer.Allocating.init(allocator);
+    defer writer.deinit();
+    try opt.printHelp(&writer.writer);
     try std.testing.expectEqualStrings(
         \\ USAGE:
         \\     awesome-cli [OPTIONS] [--] ...
@@ -1095,7 +1103,7 @@ test "parse/positional arguments" {
         \\ OPTIONS:
         \\      --a INTEGER                  (default: 1)
         \\
-    , help_msg.items);
+    , writer.writer.buffered());
 }
 
 test "parse/sub commands" {
@@ -1133,9 +1141,9 @@ test "parse/sub commands" {
     try std.testing.expectEqualDeep(opt.args.a, 2);
     try std.testing.expectEqual(opt.positional_args.len, 0);
 
-    var help_msg = std.ArrayList(u8).init(allocator);
-    defer help_msg.deinit();
-    try opt.printHelp(help_msg.writer());
+    var writer = std.Io.Writer.Allocating.init(allocator);
+    defer writer.deinit();
+    try opt.printHelp(&writer.writer);
     try std.testing.expectEqualStrings(
         \\ USAGE:
         \\     awesome-cli [OPTIONS] [COMMANDS]
@@ -1147,7 +1155,7 @@ test "parse/sub commands" {
         \\ OPTIONS:
         \\      --a INTEGER                  (default: 1)
         \\
-    , help_msg.items);
+    , writer.writer.buffered());
 }
 
 fn isStruct(info: std.builtin.Type) bool {

@@ -7,7 +7,7 @@
 [[https://github.com/jiacai2050/zigcli][https://img.shields.io/github/stars/jiacai2050/zigcli.svg]]
 [[https://github.com/jiacai2050/loc/actions/workflows/CI.yml][https://github.com/jiacai2050/loc/actions/workflows/CI.yml/badge.svg]]
 [[https://github.com/jiacai2050/loc/actions/workflows/release.yml][https://github.com/jiacai2050/loc/actions/workflows/release.yml/badge.svg]]
-[[https://img.shields.io/badge/zig%20version-0.14.0-blue.svg]]
+[[https://img.shields.io/badge/zig%20version-0.15.1-blue.svg]]
 
 #+begin_quote
 [[https://zigcli.liujiacai.net/][Zigcli]] is a toolkit for building command line programs in Zig.

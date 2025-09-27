@@ -1,11 +1,41 @@
+const Manifest = @This();
+const std = @import("std");
+const mem = std.mem;
+const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;
+const Ast = std.zig.Ast;
+const testing = std.testing;
+
 pub const max_bytes = 10 * 1024 * 1024;
 pub const basename = "build.zig.zon";
+pub const max_name_len = 32;
+pub const max_version_len = 32;
 pub const Hash = std.crypto.hash.sha2.Sha256;
 pub const Digest = [Hash.digest_length]u8;
 pub const multihash_len = 1 + 1 + Hash.digest_length;
 pub const multihash_hex_digest_len = 2 * multihash_len;
 pub const MultiHashHexDigest = [multihash_hex_digest_len]u8;
-
+pub const MultihashFunction = enum(u16) {
+    identity = 0x00,
+    sha1 = 0x11,
+    @"sha2-256" = 0x12,
+    @"sha2-512" = 0x13,
+    @"sha3-512" = 0x14,
+    @"sha3-384" = 0x15,
+    @"sha3-256" = 0x16,
+    @"sha3-224" = 0x17,
+    @"sha2-384" = 0x20,
+    @"sha2-256-trunc254-padded" = 0x1012,
+    @"sha2-224" = 0x1013,
+    @"sha2-512-224" = 0x1014,
+    @"sha2-512-256" = 0x1015,
+    @"blake2b-256" = 0xb220,
+    _,
+};
+pub const multihash_function: MultihashFunction = switch (Hash) {
+    std.crypto.hash.sha2.Sha256 => .@"sha2-256",
+    else => @compileError("unreachable"),
+};
 pub const Fingerprint = packed struct(u64) {
     id: u32,
     checksum: u32,
@@ -32,8 +62,10 @@ pub const Fingerprint = packed struct(u64) {
 pub const Dependency = struct {
     location: Location,
     location_tok: Ast.TokenIndex,
+    location_node: Ast.Node.Index,
     hash: ?[]const u8,
-    hash_tok: Ast.TokenIndex,
+    hash_tok: Ast.OptionalTokenIndex,
+    hash_node: Ast.Node.OptionalIndex,
     node: Ast.Node.Index,
     name_tok: Ast.TokenIndex,
     lazy: bool,
@@ -50,41 +82,12 @@ pub const ErrorMessage = struct {
     off: u32,
 };
 
-pub const MultihashFunction = enum(u16) {
-    identity = 0x00,
-    sha1 = 0x11,
-    @"sha2-256" = 0x12,
-    @"sha2-512" = 0x13,
-    @"sha3-512" = 0x14,
-    @"sha3-384" = 0x15,
-    @"sha3-256" = 0x16,
-    @"sha3-224" = 0x17,
-    @"sha2-384" = 0x20,
-    @"sha2-256-trunc254-padded" = 0x1012,
-    @"sha2-224" = 0x1013,
-    @"sha2-512-224" = 0x1014,
-    @"sha2-512-256" = 0x1015,
-    @"blake2b-256" = 0xb220,
-    _,
-};
-
-pub const multihash_function: MultihashFunction = switch (Hash) {
-    std.crypto.hash.sha2.Sha256 => .@"sha2-256",
-    else => @compileError("unreachable"),
-};
-comptime {
-    // We avoid unnecessary uleb128 code in hexDigest by asserting here the
-    // values are small enough to be contained in the one-byte encoding.
-    assert(@intFromEnum(multihash_function) < 127);
-    assert(Hash.digest_length < 127);
-}
-
 name: []const u8,
 id: u32,
 version: std.SemanticVersion,
 version_node: Ast.Node.Index,
 dependencies: std.StringArrayHashMapUnmanaged(Dependency),
-dependencies_node: Ast.Node.Index,
+dependencies_node: Ast.Node.OptionalIndex,
 paths: std.StringArrayHashMapUnmanaged(void),
 minimum_zig_version: ?std.SemanticVersion,
 
@@ -93,15 +96,16 @@ arena_state: std.heap.ArenaAllocator.State,
 
 pub const ParseOptions = struct {
     allow_missing_paths_field: bool = false,
+    /// Deprecated, to be removed after 0.14.0 is tagged.
+    allow_name_string: bool = true,
+    /// Deprecated, to be removed after 0.14.0 is tagged.
+    allow_missing_fingerprint: bool = true,
 };
 
 pub const Error = Allocator.Error;
 
 pub fn parse(gpa: Allocator, ast: Ast, options: ParseOptions) Error!Manifest {
-    const node_tags = ast.nodes.items(.tag);
-    const node_datas = ast.nodes.items(.data);
-    assert(node_tags[0] == .root);
-    const main_node_index = node_datas[0].lhs;
+    const main_node_index = ast.nodeData(.root).node;
 
     var arena_instance = std.heap.ArenaAllocator.init(gpa);
     errdefer arena_instance.deinit();
@@ -113,13 +117,15 @@ pub fn parse(gpa: Allocator, ast: Ast, options: ParseOptions) Error!Manifest {
         .errors = .{},
 
         .name = undefined,
-        .id = undefined,
+        .id = 0,
         .version = undefined,
-        .version_node = 0,
+        .version_node = undefined,
         .dependencies = .{},
-        .dependencies_node = 0,
+        .dependencies_node = .none,
         .paths = .{},
         .allow_missing_paths_field = options.allow_missing_paths_field,
+        .allow_name_string = options.allow_name_string,
+        .allow_missing_fingerprint = options.allow_missing_fingerprint,
         .minimum_zig_version = null,
         .buf = .{},
     };
@@ -134,7 +140,7 @@ pub fn parse(gpa: Allocator, ast: Ast, options: ParseOptions) Error!Manifest {
     };
 
     return .{
-        .name = try p.arena.dupe(u8, p.name),
+        .name = p.name,
         .id = p.id,
         .version = p.version,
         .version_node = p.version_node,
@@ -159,8 +165,6 @@ pub fn copyErrorsIntoBundle(
     src_path: u32,
     eb: *std.zig.ErrorBundle.Wip,
 ) Allocator.Error!void {
-    const token_starts = ast.tokens.items(.start);
-
     for (man.errors) |msg| {
         const start_loc = ast.tokenLocation(0, msg.tok);
 
@@ -168,49 +172,15 @@ pub fn copyErrorsIntoBundle(
             .msg = try eb.addString(msg.msg),
             .src_loc = try eb.addSourceLocation(.{
                 .src_path = src_path,
-                .span_start = token_starts[msg.tok],
-                .span_end = @intCast(token_starts[msg.tok] + ast.tokenSlice(msg.tok).len),
-                .span_main = token_starts[msg.tok] + msg.off,
+                .span_start = ast.tokenStart(msg.tok),
+                .span_end = @intCast(ast.tokenStart(msg.tok) + ast.tokenSlice(msg.tok).len),
+                .span_main = ast.tokenStart(msg.tok) + msg.off,
                 .line = @intCast(start_loc.line),
                 .column = @intCast(start_loc.column),
                 .source_line = try eb.addString(ast.source[start_loc.line_start..start_loc.line_end]),
             }),
         });
     }
-}
-
-const hex_charset = "0123456789abcdef";
-
-pub fn hex64(x: u64) [16]u8 {
-    var result: [16]u8 = undefined;
-    var i: usize = 0;
-    while (i < 8) : (i += 1) {
-        const byte = @as(u8, @truncate(x >> @as(u6, @intCast(8 * i))));
-        result[i * 2 + 0] = hex_charset[byte >> 4];
-        result[i * 2 + 1] = hex_charset[byte & 15];
-    }
-    return result;
-}
-
-test hex64 {
-    const s = "[" ++ hex64(0x12345678_abcdef00) ++ "]";
-    try std.testing.expectEqualStrings("[00efcdab78563412]", s);
-}
-
-pub fn hexDigest(digest: Digest) MultiHashHexDigest {
-    var result: MultiHashHexDigest = undefined;
-
-    result[0] = hex_charset[@intFromEnum(multihash_function) >> 4];
-    result[1] = hex_charset[@intFromEnum(multihash_function) & 15];
-
-    result[2] = hex_charset[Hash.digest_length >> 4];
-    result[3] = hex_charset[Hash.digest_length & 15];
-
-    for (digest, 0..) |byte, i| {
-        result[4 + i * 2] = hex_charset[byte >> 4];
-        result[5 + i * 2] = hex_charset[byte & 15];
-    }
-    return result;
 }
 
 const Parse = struct {
@@ -225,17 +195,18 @@ const Parse = struct {
     version: std.SemanticVersion,
     version_node: Ast.Node.Index,
     dependencies: std.StringArrayHashMapUnmanaged(Dependency),
-    dependencies_node: Ast.Node.Index,
+    dependencies_node: Ast.Node.OptionalIndex,
     paths: std.StringArrayHashMapUnmanaged(void),
     allow_missing_paths_field: bool,
+    allow_name_string: bool,
+    allow_missing_fingerprint: bool,
     minimum_zig_version: ?std.SemanticVersion,
 
     const InnerError = error{ ParseFailure, OutOfMemory };
 
     fn parseRoot(p: *Parse, node: Ast.Node.Index) !void {
         const ast = p.ast;
-        const main_tokens = ast.nodes.items(.main_token);
-        const main_token = main_tokens[node];
+        const main_token = ast.nodeMainToken(node);
 
         var buf: [2]Ast.Node.Index = undefined;
         const struct_init = ast.fullStructInit(&buf, node) orelse {
@@ -254,7 +225,7 @@ const Parse = struct {
             // things manually provides an opportunity to do any additional verification
             // that is desirable on a per-field basis.
             if (mem.eql(u8, field_name, "dependencies")) {
-                p.dependencies_node = field_init;
+                p.dependencies_node = field_init.toOptional();
                 try parseDependencies(p, field_init);
             } else if (mem.eql(u8, field_name, "paths")) {
                 have_included_paths = true;
@@ -267,15 +238,18 @@ const Parse = struct {
             } else if (mem.eql(u8, field_name, "version")) {
                 p.version_node = field_init;
                 const version_text = try parseString(p, field_init);
+                if (version_text.len > max_version_len) {
+                    try appendError(p, ast.nodeMainToken(field_init), "version string length {d} exceeds maximum of {d}", .{ version_text.len, max_version_len });
+                }
                 p.version = std.SemanticVersion.parse(version_text) catch |err| v: {
-                    try appendError(p, main_tokens[field_init], "unable to parse semantic version: {s}", .{@errorName(err)});
+                    try appendError(p, ast.nodeMainToken(field_init), "unable to parse semantic version: {s}", .{@errorName(err)});
                     break :v undefined;
                 };
                 have_version = true;
             } else if (mem.eql(u8, field_name, "minimum_zig_version")) {
                 const version_text = try parseString(p, field_init);
                 p.minimum_zig_version = std.SemanticVersion.parse(version_text) catch |err| v: {
-                    try appendError(p, main_tokens[field_init], "unable to parse semantic version: {s}", .{@errorName(err)});
+                    try appendError(p, ast.nodeMainToken(field_init), "unable to parse semantic version: {s}", .{@errorName(err)});
                     break :v null;
                 };
             } else {
@@ -294,6 +268,10 @@ const Parse = struct {
                     });
                 }
                 p.id = n.id;
+            } else if (!p.allow_missing_fingerprint) {
+                try appendError(p, main_token, "missing top-level 'fingerprint' field; suggested value: 0x{x}", .{
+                    Fingerprint.generate(p.name).int(),
+                });
             } else {
                 p.id = 0;
             }
@@ -314,11 +292,10 @@ const Parse = struct {
 
     fn parseDependencies(p: *Parse, node: Ast.Node.Index) !void {
         const ast = p.ast;
-        const main_tokens = ast.nodes.items(.main_token);
 
         var buf: [2]Ast.Node.Index = undefined;
         const struct_init = ast.fullStructInit(&buf, node) orelse {
-            const tok = main_tokens[node];
+            const tok = ast.nodeMainToken(node);
             return fail(p, tok, "expected dependencies expression to be a struct", .{});
         };
 
@@ -332,21 +309,22 @@ const Parse = struct {
 
     fn parseDependency(p: *Parse, node: Ast.Node.Index) !Dependency {
         const ast = p.ast;
-        const main_tokens = ast.nodes.items(.main_token);
 
         var buf: [2]Ast.Node.Index = undefined;
         const struct_init = ast.fullStructInit(&buf, node) orelse {
-            const tok = main_tokens[node];
+            const tok = ast.nodeMainToken(node);
             return fail(p, tok, "expected dependency expression to be a struct", .{});
         };
 
         var dep: Dependency = .{
             .location = undefined,
-            .location_tok = 0,
+            .location_tok = undefined,
+            .location_node = undefined,
             .hash = null,
-            .hash_tok = 0,
+            .hash_tok = .none,
+            .hash_node = .none,
             .node = node,
-            .name_tok = 0,
+            .name_tok = undefined,
             .lazy = false,
         };
         var has_location = false;
@@ -360,7 +338,7 @@ const Parse = struct {
             // that is desirable on a per-field basis.
             if (mem.eql(u8, field_name, "url")) {
                 if (has_location) {
-                    return fail(p, main_tokens[field_init], "dependency should specify only one of 'url' and 'path' fields.", .{});
+                    return fail(p, ast.nodeMainToken(field_init), "dependency should specify only one of 'url' and 'path' fields.", .{});
                 }
                 dep.location = .{
                     .url = parseString(p, field_init) catch |err| switch (err) {
@@ -369,10 +347,11 @@ const Parse = struct {
                     },
                 };
                 has_location = true;
-                dep.location_tok = main_tokens[field_init];
+                dep.location_tok = ast.nodeMainToken(field_init);
+                dep.location_node = field_init;
             } else if (mem.eql(u8, field_name, "path")) {
                 if (has_location) {
-                    return fail(p, main_tokens[field_init], "dependency should specify only one of 'url' and 'path' fields.", .{});
+                    return fail(p, ast.nodeMainToken(field_init), "dependency should specify only one of 'url' and 'path' fields.", .{});
                 }
                 dep.location = .{
                     .path = parseString(p, field_init) catch |err| switch (err) {
@@ -381,13 +360,15 @@ const Parse = struct {
                     },
                 };
                 has_location = true;
-                dep.location_tok = main_tokens[field_init];
+                dep.location_tok = ast.nodeMainToken(field_init);
+                dep.location_node = field_init;
             } else if (mem.eql(u8, field_name, "hash")) {
                 dep.hash = parseHash(p, field_init) catch |err| switch (err) {
                     error.ParseFailure => continue,
                     else => |e| return e,
                 };
-                dep.hash_tok = main_tokens[field_init];
+                dep.hash_tok = .fromToken(ast.nodeMainToken(field_init));
+                dep.hash_node = field_init.toOptional();
             } else if (mem.eql(u8, field_name, "lazy")) {
                 dep.lazy = parseBool(p, field_init) catch |err| switch (err) {
                     error.ParseFailure => continue,
@@ -400,7 +381,7 @@ const Parse = struct {
         }
 
         if (!has_location) {
-            try appendError(p, main_tokens[node], "dependency requires location field, one of 'url' or 'path'.", .{});
+            try appendError(p, ast.nodeMainToken(node), "dependency requires location field, one of 'url' or 'path'.", .{});
         }
 
         return dep;
@@ -408,11 +389,10 @@ const Parse = struct {
 
     fn parseIncludedPaths(p: *Parse, node: Ast.Node.Index) !void {
         const ast = p.ast;
-        const main_tokens = ast.nodes.items(.main_token);
 
         var buf: [2]Ast.Node.Index = undefined;
         const array_init = ast.fullArrayInit(&buf, node) orelse {
-            const tok = main_tokens[node];
+            const tok = ast.nodeMainToken(node);
             return fail(p, tok, "expected paths expression to be a list of strings", .{});
         };
 
@@ -427,12 +407,10 @@ const Parse = struct {
 
     fn parseBool(p: *Parse, node: Ast.Node.Index) !bool {
         const ast = p.ast;
-        const node_tags = ast.nodes.items(.tag);
-        const main_tokens = ast.nodes.items(.main_token);
-        if (node_tags[node] != .identifier) {
-            return fail(p, main_tokens[node], "expected identifier", .{});
+        if (ast.nodeTag(node) != .identifier) {
+            return fail(p, ast.nodeMainToken(node), "expected identifier", .{});
         }
-        const ident_token = main_tokens[node];
+        const ident_token = ast.nodeMainToken(node);
         const token_bytes = ast.tokenSlice(ident_token);
         if (mem.eql(u8, token_bytes, "true")) {
             return true;
@@ -443,31 +421,10 @@ const Parse = struct {
         }
     }
 
-    fn parseName(p: *Parse, node: Ast.Node.Index) ![]const u8 {
-        const ast = p.ast;
-        const node_tags = ast.nodes.items(.tag);
-        const main_tokens = ast.nodes.items(.main_token);
-        const main_token = main_tokens[node];
-
-        if (node_tags[node] == .enum_literal) {
-            const ident_name = ast.tokenSlice(main_token);
-            if (mem.startsWith(u8, ident_name, "@"))
-                return fail(p, main_token, "name must be a valid bare zig identifier", .{});
-
-            return ident_name;
-        }
-
-        // try string name, used before zig 0.14.
-        return p.parseString(node);
-    }
-
     fn parseFingerprint(p: *Parse, node: Ast.Node.Index) !Fingerprint {
         const ast = p.ast;
-        const node_tags = ast.nodes.items(.tag);
-        const main_tokens = ast.nodes.items(.main_token);
-        const main_token = main_tokens[node];
-
-        if (node_tags[node] != .number_literal) {
+        const main_token = ast.nodeMainToken(node);
+        if (ast.nodeTag(node) != .number_literal) {
             return fail(p, main_token, "expected integer literal", .{});
         }
         const token_bytes = ast.tokenSlice(main_token);
@@ -481,14 +438,44 @@ const Parse = struct {
         }
     }
 
+    fn parseName(p: *Parse, node: Ast.Node.Index) ![]const u8 {
+        const ast = p.ast;
+        const main_token = ast.nodeMainToken(node);
+
+        if (p.allow_name_string and ast.nodeTag(node) == .string_literal) {
+            const name = try parseString(p, node);
+            if (!std.zig.isValidId(name))
+                return fail(p, main_token, "name must be a valid bare zig identifier (hint: switch from string to enum literal)", .{});
+
+            if (name.len > max_name_len)
+                return fail(p, main_token, "name '{f}' exceeds max length of {d}", .{
+                    std.zig.fmtId(name), max_name_len,
+                });
+
+            return name;
+        }
+
+        if (ast.nodeTag(node) != .enum_literal)
+            return fail(p, main_token, "expected enum literal", .{});
+
+        const ident_name = ast.tokenSlice(main_token);
+        if (mem.startsWith(u8, ident_name, "@"))
+            return fail(p, main_token, "name must be a valid bare zig identifier", .{});
+
+        if (ident_name.len > max_name_len)
+            return fail(p, main_token, "name '{f}' exceeds max length of {d}", .{
+                std.zig.fmtId(ident_name), max_name_len,
+            });
+
+        return ident_name;
+    }
+
     fn parseString(p: *Parse, node: Ast.Node.Index) ![]const u8 {
         const ast = p.ast;
-        const node_tags = ast.nodes.items(.tag);
-        const main_tokens = ast.nodes.items(.main_token);
-        if (node_tags[node] != .string_literal) {
-            return fail(p, main_tokens[node], "expected string literal", .{});
+        if (ast.nodeTag(node) != .string_literal) {
+            return fail(p, ast.nodeMainToken(node), "expected string literal", .{});
         }
-        const str_lit_token = main_tokens[node];
+        const str_lit_token = ast.nodeMainToken(node);
         const token_bytes = ast.tokenSlice(str_lit_token);
         p.buf.clearRetainingCapacity();
         try parseStrLit(p, str_lit_token, &p.buf, token_bytes, 0);
@@ -504,8 +491,7 @@ const Parse = struct {
     /// TODO: try to DRY this with AstGen.identifierTokenString
     fn identifierTokenString(p: *Parse, token: Ast.TokenIndex) InnerError![]const u8 {
         const ast = p.ast;
-        const token_tags = ast.tokens.items(.tag);
-        assert(token_tags[token] == .identifier);
+        assert(ast.tokenTag(token) == .identifier);
         const ident_name = ast.tokenSlice(token);
         if (!mem.startsWith(u8, ident_name, "@")) {
             return ident_name;
@@ -525,19 +511,103 @@ const Parse = struct {
         offset: u32,
     ) InnerError!void {
         const raw_string = bytes[offset..];
-        var buf_managed = buf.toManaged(p.gpa);
-        const result = std.zig.string_literal.parseWrite(buf_managed.writer(), raw_string);
-        buf.* = buf_managed.moveToUnmanaged();
-        switch (try result) {
+        const result = r: {
+            var aw: std.io.Writer.Allocating = .fromArrayList(p.gpa, buf);
+            defer buf.* = aw.toArrayList();
+            break :r std.zig.string_literal.parseWrite(&aw.writer, raw_string) catch |err| switch (err) {
+                error.WriteFailed => return error.OutOfMemory,
+            };
+        };
+        switch (result) {
             .success => {},
-            .failure => |e| {
-                std.log.err("parse str lit failed, err:{any}, token:{any}, bytes:{any}, offset:{any}", .{
-                    e,
+            .failure => |err| try p.appendStrLitError(err, token, bytes, offset),
+        }
+    }
+
+    /// TODO: try to DRY this with AstGen.failWithStrLitError
+    fn appendStrLitError(
+        p: *Parse,
+        err: std.zig.string_literal.Error,
+        token: Ast.TokenIndex,
+        bytes: []const u8,
+        offset: u32,
+    ) Allocator.Error!void {
+        const raw_string = bytes[offset..];
+        switch (err) {
+            .invalid_escape_character => |bad_index| {
+                try p.appendErrorOff(
                     token,
-                    bytes,
-                    offset,
-                });
-                return error.ParseFailure;
+                    offset + @as(u32, @intCast(bad_index)),
+                    "invalid escape character: '{c}'",
+                    .{raw_string[bad_index]},
+                );
+            },
+            .expected_hex_digit => |bad_index| {
+                try p.appendErrorOff(
+                    token,
+                    offset + @as(u32, @intCast(bad_index)),
+                    "expected hex digit, found '{c}'",
+                    .{raw_string[bad_index]},
+                );
+            },
+            .empty_unicode_escape_sequence => |bad_index| {
+                try p.appendErrorOff(
+                    token,
+                    offset + @as(u32, @intCast(bad_index)),
+                    "empty unicode escape sequence",
+                    .{},
+                );
+            },
+            .expected_hex_digit_or_rbrace => |bad_index| {
+                try p.appendErrorOff(
+                    token,
+                    offset + @as(u32, @intCast(bad_index)),
+                    "expected hex digit or '}}', found '{c}'",
+                    .{raw_string[bad_index]},
+                );
+            },
+            .invalid_unicode_codepoint => |bad_index| {
+                try p.appendErrorOff(
+                    token,
+                    offset + @as(u32, @intCast(bad_index)),
+                    "unicode escape does not correspond to a valid unicode scalar value",
+                    .{},
+                );
+            },
+            .expected_lbrace => |bad_index| {
+                try p.appendErrorOff(
+                    token,
+                    offset + @as(u32, @intCast(bad_index)),
+                    "expected '{{', found '{c}",
+                    .{raw_string[bad_index]},
+                );
+            },
+            .expected_rbrace => |bad_index| {
+                try p.appendErrorOff(
+                    token,
+                    offset + @as(u32, @intCast(bad_index)),
+                    "expected '}}', found '{c}",
+                    .{raw_string[bad_index]},
+                );
+            },
+            .expected_single_quote => |bad_index| {
+                try p.appendErrorOff(
+                    token,
+                    offset + @as(u32, @intCast(bad_index)),
+                    "expected single quote ('), found '{c}",
+                    .{raw_string[bad_index]},
+                );
+            },
+            .invalid_character => |bad_index| {
+                try p.appendErrorOff(
+                    token,
+                    offset + @as(u32, @intCast(bad_index)),
+                    "invalid byte in string or character literal: '{c}'",
+                    .{raw_string[bad_index]},
+                );
+            },
+            .empty_char_literal => {
+                try p.appendErrorOff(token, offset, "empty character literal", .{});
             },
         }
     }
@@ -571,116 +641,36 @@ const Parse = struct {
     }
 };
 
-const Manifest = @This();
-const std = @import("std");
-const mem = std.mem;
-const Allocator = std.mem.Allocator;
-const assert = std.debug.assert;
-const Ast = std.zig.Ast;
-const testing = std.testing;
+const hex_charset = "0123456789abcdef";
 
-test "basic" {
-    const gpa = testing.allocator;
-
-    const example =
-        \\.{
-        \\    .name = "foo",
-        \\    .version = "3.2.1",
-        \\    .paths = .{""},
-        \\    .dependencies = .{
-        \\        .bar = .{
-        \\            .url = "https://example.com/baz.tar.gz",
-        \\            .hash = "1220f1b680b6065fcfc94fe777f22e73bcb7e2767e5f4d99d4255fe76ded69c7a35f",
-        \\        },
-        \\    },
-        \\}
-    ;
-
-    var ast = try Ast.parse(gpa, example, .zon);
-    defer ast.deinit(gpa);
-
-    try testing.expect(ast.errors.len == 0);
-
-    var manifest = try Manifest.parse(gpa, ast, .{});
-    defer manifest.deinit(gpa);
-
-    try testing.expect(manifest.errors.len == 0);
-    try testing.expectEqualStrings("foo", manifest.name);
-
-    try testing.expectEqual(@as(std.SemanticVersion, .{
-        .major = 3,
-        .minor = 2,
-        .patch = 1,
-    }), manifest.version);
-
-    try testing.expect(manifest.dependencies.count() == 1);
-    try testing.expectEqualStrings("bar", manifest.dependencies.keys()[0]);
-    try testing.expectEqualStrings(
-        "https://example.com/baz.tar.gz",
-        manifest.dependencies.values()[0].location.url,
-    );
-    try testing.expectEqualStrings(
-        "1220f1b680b6065fcfc94fe777f22e73bcb7e2767e5f4d99d4255fe76ded69c7a35f",
-        manifest.dependencies.values()[0].hash orelse return error.TestFailed,
-    );
-
-    try testing.expect(manifest.minimum_zig_version == null);
+pub fn hex64(x: u64) [16]u8 {
+    var result: [16]u8 = undefined;
+    var i: usize = 0;
+    while (i < 8) : (i += 1) {
+        const byte = @as(u8, @truncate(x >> @as(u6, @intCast(8 * i))));
+        result[i * 2 + 0] = hex_charset[byte >> 4];
+        result[i * 2 + 1] = hex_charset[byte & 15];
+    }
+    return result;
 }
 
-test "minimum_zig_version" {
-    const gpa = testing.allocator;
-
-    const example =
-        \\.{
-        \\    .name = "foo",
-        \\    .version = "3.2.1",
-        \\    .paths = .{""},
-        \\    .minimum_zig_version = "0.11.1",
-        \\}
-    ;
-
-    var ast = try Ast.parse(gpa, example, .zon);
-    defer ast.deinit(gpa);
-
-    try testing.expect(ast.errors.len == 0);
-
-    var manifest = try Manifest.parse(gpa, ast, .{});
-    defer manifest.deinit(gpa);
-
-    try testing.expect(manifest.errors.len == 0);
-    try testing.expect(manifest.dependencies.count() == 0);
-
-    try testing.expect(manifest.minimum_zig_version != null);
-
-    try testing.expectEqual(@as(std.SemanticVersion, .{
-        .major = 0,
-        .minor = 11,
-        .patch = 1,
-    }), manifest.minimum_zig_version.?);
+test hex64 {
+    const s = "[" ++ hex64(0x12345678_abcdef00) ++ "]";
+    try std.testing.expectEqualStrings("[00efcdab78563412]", s);
 }
 
-test "minimum_zig_version - invalid version" {
-    const gpa = testing.allocator;
+pub fn hexDigest(digest: Digest) MultiHashHexDigest {
+    var result: MultiHashHexDigest = undefined;
 
-    const example =
-        \\.{
-        \\    .name = "foo",
-        \\    .version = "3.2.1",
-        \\    .minimum_zig_version = "X.11.1",
-        \\    .paths = .{""},
-        \\}
-    ;
+    result[0] = hex_charset[@intFromEnum(multihash_function) >> 4];
+    result[1] = hex_charset[@intFromEnum(multihash_function) & 15];
 
-    var ast = try Ast.parse(gpa, example, .zon);
-    defer ast.deinit(gpa);
+    result[2] = hex_charset[Hash.digest_length >> 4];
+    result[3] = hex_charset[Hash.digest_length & 15];
 
-    try testing.expect(ast.errors.len == 0);
-
-    var manifest = try Manifest.parse(gpa, ast, .{});
-    defer manifest.deinit(gpa);
-
-    try testing.expect(manifest.errors.len == 1);
-    try testing.expect(manifest.dependencies.count() == 0);
-
-    try testing.expect(manifest.minimum_zig_version == null);
+    for (digest, 0..) |byte, i| {
+        result[4 + i * 2] = hex_charset[byte >> 4];
+        result[5 + i * 2] = hex_charset[byte & 15];
+    }
+    return result;
 }

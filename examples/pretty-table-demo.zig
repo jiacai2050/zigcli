@@ -17,6 +17,10 @@ pub fn main() !void {
         .mode = .box,
     };
 
-    const out = std.io.getStdOut();
-    try out.writer().print("{}", .{t});
+    const out = std.fs.File.stdout();
+    var buf: [1024]u8 = undefined;
+    var writer = out.writer(&buf);
+
+    try writer.interface.print("{f}", .{t});
+    try writer.interface.flush();
 }

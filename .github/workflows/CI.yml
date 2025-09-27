@@ -2,20 +2,20 @@ name: CI
 
 on:
   schedule:
-    - cron: '10 20 * * *'
+    - cron: "10 20 * * *"
   workflow_dispatch:
   pull_request:
     paths:
-      - '**.zig'
+      - "**.zig"
       - ".github/build-release.sh"
-      - '.github/workflows/CI.yml'
+      - ".github/workflows/CI.yml"
   push:
     branches:
       - main
     paths:
-      - '**.zig'
+      - "**.zig"
       - ".github/build-release.sh"
-      - '.github/workflows/CI.yml'
+      - ".github/workflows/CI.yml"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -29,12 +29,12 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        zig-version: [0.14.0]
+        zig-version: [0.15.1]
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
-      - uses: mlugg/setup-zig@v1
+      - uses: mlugg/setup-zig@v2
         with:
           version: ${{ matrix.zig-version }}
       - name: fmt and test(windows)
@@ -65,9 +65,9 @@ jobs:
         targets: [x86_64-windows, x86_64-linux, x86_64-macos, aarch64-macos]
     steps:
       - uses: actions/checkout@v4
-      - uses: mlugg/setup-zig@v1
+      - uses: mlugg/setup-zig@v2
         with:
-          version: 0.14.0
+          version: 0.15.1
       - name: Build
         run: |
           zig build -Dtarget=${{ matrix.targets }}

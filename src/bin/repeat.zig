@@ -60,7 +60,7 @@ pub fn main() !void {
 
         if (keep_running) {
             if (opt.args.interval) |pause| {
-                time.sleep(pause * time.ns_per_s);
+                std.Thread.sleep(pause * time.ns_per_s);
             }
         }
     }

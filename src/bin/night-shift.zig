@@ -1,6 +1,7 @@
 //! Control Night shift in cli, build for macOS.
 //!
 const std = @import("std");
+const Writer = std.Io.Writer;
 const simargs = @import("simargs");
 const util = @import("util.zig");
 const c = @cImport({
@@ -68,7 +69,7 @@ const Status = extern struct {
         };
     }
 
-    fn display(self: Self, wtr: anytype) !void {
+    fn display(self: Self, wtr: *Writer) !void {
         if (!self.enabled) {
             try wtr.writeAll("Enabled: off");
             return;
@@ -91,11 +92,11 @@ const Client = struct {
     fn init(allocator: std.mem.Allocator) Self {
         // https://developer.limneos.net/?ios=14.4&framework=CoreBrightness.framework&header=CBBlueLightClient.h
         const clazz = c.objc_getClass("CBBlueLightClient");
-        const call: *fn (c.id, c.SEL) callconv(.C) c.id = @constCast(@ptrCast(&c.objc_msgSend));
+        const call: *fn (c.id, c.SEL) callconv(.c) c.id = @ptrCast(@constCast(&c.objc_msgSend));
 
         return Self{
             .inner = call(
-                call(@alignCast(@ptrCast(clazz.?)), c.sel_registerName("alloc")),
+                call(@ptrCast(@alignCast(clazz.?)), c.sel_registerName("alloc")),
                 c.sel_registerName("init"),
             ),
             .allocator = allocator,
@@ -104,8 +105,8 @@ const Client = struct {
 
     fn getStatus(self: Self) !*Status {
         const status = try self.allocator.create(Status);
-        const call: *fn (c.id, c.SEL, *Status) callconv(.C) bool =
-            @constCast(@ptrCast(&c.objc_msgSend));
+        const call: *fn (c.id, c.SEL, *Status) callconv(.c) bool =
+            @ptrCast(@constCast(&c.objc_msgSend));
         const ret = call(self.inner, c.sel_registerName("getBlueLightStatus:"), status);
         if (!ret) {
             return error.getBlueLightStatus;
@@ -116,7 +117,7 @@ const Client = struct {
 
     fn setSchedule(self: Self, schedule: Schedule) !void {
         {
-            const call: *fn (c.id, c.SEL, c_int) callconv(.C) bool = @constCast(@ptrCast(&c.objc_msgSend));
+            const call: *fn (c.id, c.SEL, c_int) callconv(.c) bool = @ptrCast(@constCast(&c.objc_msgSend));
             const ret = call(self.inner, c.sel_registerName("setMode:"), schedule.toMode());
             if (!ret) {
                 return error.setMode;
@@ -128,7 +129,7 @@ const Client = struct {
             .Custom => |custom| {
                 const ptr = try self.allocator.create(CustomSchedule);
                 ptr.* = custom;
-                const call: *fn (c.id, c.SEL, [*c]CustomSchedule) callconv(.C) bool = @constCast(@ptrCast(&c.objc_msgSend));
+                const call: *fn (c.id, c.SEL, [*c]CustomSchedule) callconv(.c) bool = @ptrCast(@constCast(&c.objc_msgSend));
                 const ret = call(self.inner, c.sel_registerName("setSchedule:"), ptr);
                 if (!ret) {
                     return error.setSchedule;
@@ -138,7 +139,7 @@ const Client = struct {
     }
 
     fn setEnabled(self: Self, enabled: bool) !void {
-        const call: *fn (c.id, c.SEL, bool) callconv(.C) bool = @constCast(@ptrCast(&c.objc_msgSend));
+        const call: *fn (c.id, c.SEL, bool) callconv(.c) bool = @ptrCast(@constCast(&c.objc_msgSend));
         const ret = call(self.inner, c.sel_registerName("setEnabled:"), enabled);
         if (!ret) {
             return error.getStrength;
@@ -155,7 +156,7 @@ const Client = struct {
 
     fn getStrength(self: Self) !f32 {
         var strength: f32 = 0;
-        const call: *fn (c.id, c.SEL, *f32) callconv(.C) bool = @constCast(@ptrCast(&c.objc_msgSend));
+        const call: *fn (c.id, c.SEL, *f32) callconv(.c) bool = @ptrCast(@constCast(&c.objc_msgSend));
         const ret = call(self.inner, c.sel_registerName("getStrength:"), &strength);
         if (!ret) {
             return error.getStrength;
@@ -165,7 +166,7 @@ const Client = struct {
     }
 
     fn setStrength(self: Self, strength: f32) !void {
-        const call: *fn (c.id, c.SEL, f32, bool) callconv(.C) bool = @constCast(@ptrCast(&c.objc_msgSend));
+        const call: *fn (c.id, c.SEL, f32, bool) callconv(.c) bool = @ptrCast(@constCast(&c.objc_msgSend));
         const ret = call(self.inner, c.sel_registerName("setStrength:commit:"), strength, true);
         if (!ret) {
             return error.setStrength;
@@ -242,11 +243,14 @@ pub fn main() !void {
         .Status;
 
     const client = Client.init(allocator);
-    var wtr = std.io.getStdOut().writer();
+    const stdout = std.fs.File.stdout();
+    var buf: [1024]u8 = undefined;
+    var writer = stdout.writer(&buf);
+    const wtr = &writer.interface;
 
     switch (cmd) {
         .Status => {
-            var status = try client.getStatus();
+            const status = try client.getStatus();
             defer client.destroyStatus(status);
             try status.display(wtr);
             if (status.enabled) {
@@ -255,6 +259,7 @@ pub fn main() !void {
                     \\Temperature: {d:.0}
                 , .{try client.getStrength() * 100});
             }
+            try wtr.flush();
         },
         .Temp => {
             if (args_iter.next()) |v| {
@@ -263,6 +268,7 @@ pub fn main() !void {
             } else {
                 const strength = try client.getStrength();
                 try wtr.print("{d:.0}\n", .{strength * 100});
+                try wtr.flush();
             }
         },
         .Toggle => {
@@ -283,8 +289,9 @@ pub fn main() !void {
             const sub_cmd = args_iter.next() orelse {
                 var status = try client.getStatus();
                 defer client.destroyStatus(status);
-                var buf = std.mem.zeroes([32]u8);
-                try wtr.writeAll(try status.formatSchedule(&buf));
+                var bufs = std.mem.zeroes([32]u8);
+                try wtr.writeAll(try status.formatSchedule(&bufs));
+                try wtr.flush();
                 return;
             };
 
@@ -302,5 +309,5 @@ pub fn main() !void {
                 try client.setSchedule(schedule);
             }
         },
-    }
+    } // end switch
 }
