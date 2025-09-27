@@ -4,15 +4,14 @@ on:
   workflow_dispatch:
   pull_request:
     paths:
-      - 'src/mod/simargs.zig'
+      - "src/mod/simargs.zig"
       - ".github/workflows/simargs.yml"
   push:
     branches:
       - main
     paths:
-      - 'src/mod/simargs.zig'
+      - "src/mod/simargs.zig"
       - ".github/workflows/simargs.yml"
-
 
 jobs:
   memory-leak:
@@ -22,10 +21,10 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
-        zig-version: [0.14.0]
+        zig-version: [0.15.1]
     steps:
       - uses: actions/checkout@v4
-      - uses: mlugg/setup-zig@v1
+      - uses: mlugg/setup-zig@v2
         with:
           version: ${{ matrix.zig-version }}
       - name: Memory leak detect

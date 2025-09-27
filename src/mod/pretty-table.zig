@@ -170,9 +170,9 @@ test "normal usage" {
         .footer = null,
     };
 
-    var out = std.ArrayList(u8).init(std.testing.allocator);
-    defer out.deinit();
-    try out.writer().print("{f}", .{t});
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(std.testing.allocator);
+    try out.writer(std.testing.allocator).print("{f}", .{t});
 
     try std.testing.expectEqualStrings(
         \\+-------+----------+
@@ -197,9 +197,9 @@ test "footer usage" {
         .footer = [2]String{ "Total", "5" },
     };
 
-    var out = std.ArrayList(u8).init(std.testing.allocator);
-    defer out.deinit();
-    try out.writer().print("{}", .{t});
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(std.testing.allocator);
+    try out.writer(std.testing.allocator).print("{f}", .{t});
 
     try std.testing.expectEqualStrings(
         \\+--------+-----+

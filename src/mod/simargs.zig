@@ -852,21 +852,20 @@ test "parse/valid option values" {
     const expected = args[args.len - 2 ..];
     try std.testing.expectEqualDeep(opt.positional_args, expected);
 
-    var help_msg = std.ArrayList(u8).init(allocator);
-    defer help_msg.deinit();
-
-    try opt.printHelp(help_msg.writer());
+    var writer = std.Io.Writer.Allocating.init(allocator);
+    defer writer.deinit();
+    try opt.printHelp(&writer.writer);
     try std.testing.expectEqualStrings(
         \\ USAGE:
         \\     awesome-cli [OPTIONS] [--] ...
         \\
         \\ OPTIONS:
         \\  -h, --help                       print this help message(required)
-        \\  -r, --rate FLOAT                 (default: 2e0)
+        \\  -r, --rate FLOAT                 (default: 2)
         \\      --timeout INTEGER            (required)
         \\      --user-agent STRING          (default: Brave)
         \\
-    , help_msg.items);
+    , writer.writer.buffered());
 }
 
 test "parse/bool value" {
@@ -1009,9 +1008,9 @@ test "parse/default value" {
     const opt = try parser.parse("...", null, &args);
     try std.testing.expectEqualStrings("A1", opt.args.a1);
     try std.testing.expectEqual(opt.positional_args.len, 0);
-    var help_msg = std.ArrayList(u8).init(allocator);
-    defer help_msg.deinit();
-    try opt.printHelp(help_msg.writer());
+    var writer = std.Io.Writer.Allocating.init(allocator);
+    defer writer.deinit();
+    try opt.printHelp(&writer.writer);
     try std.testing.expectEqualStrings(
         \\ USAGE:
         \\     awesome-cli [OPTIONS] [--] ...
@@ -1021,12 +1020,12 @@ test "parse/default value" {
         \\      --a2 STRING                  (default: A2)
         \\      --b1 INTEGER                 (default: 1)
         \\      --b2 INTEGER                 (default: 11)
-        \\      --c1 FLOAT                   (default: 1.5e0)
-        \\      --c2 FLOAT                   (default: 2.5e0)
+        \\      --c1 FLOAT                   (default: 1.5)
+        \\      --c2 FLOAT                   (default: 2.5)
         \\      --d1                         (default: true)
         \\      --d2                         padding message
         \\
-    , help_msg.items);
+    , writer.writer.buffered());
 }
 
 test "parse/enum option" {
@@ -1048,9 +1047,10 @@ test "parse/enum option" {
     defer opt.deinit();
 
     try std.testing.expectEqual(opt.args.a1, .A);
-    var help_msg = std.ArrayList(u8).init(allocator);
-    defer help_msg.deinit();
-    try opt.printHelp(help_msg.writer());
+
+    var writer = std.Io.Writer.Allocating.init(allocator);
+    defer writer.deinit();
+    try opt.printHelp(&writer.writer);
     try std.testing.expectEqualStrings(
         \\ USAGE:
         \\     awesome-cli [OPTIONS] [--] ...
@@ -1060,7 +1060,7 @@ test "parse/enum option" {
         \\      --a2 STRING                   (valid: C|D)(default: D)
         \\      --a3 STRING                   (valid: X|Y)(required)
         \\
-    , help_msg.items);
+    , writer.writer.buffered());
 }
 
 test "parse/positional arguments" {
@@ -1084,9 +1084,9 @@ test "parse/positional arguments" {
     const expected = args[args.len - 2 ..];
     try std.testing.expectEqualDeep(opt.positional_args, expected);
 
-    var help_msg = std.ArrayList(u8).init(allocator);
-    defer help_msg.deinit();
-    try opt.printHelp(help_msg.writer());
+    var writer = std.Io.Writer.Allocating.init(allocator);
+    defer writer.deinit();
+    try opt.printHelp(&writer.writer);
     try std.testing.expectEqualStrings(
         \\ USAGE:
         \\     awesome-cli [OPTIONS] [--] ...
@@ -1094,7 +1094,7 @@ test "parse/positional arguments" {
         \\ OPTIONS:
         \\      --a INTEGER                  (default: 1)
         \\
-    , help_msg.items);
+    , writer.writer.buffered());
 }
 
 test "parse/sub commands" {
@@ -1132,9 +1132,9 @@ test "parse/sub commands" {
     try std.testing.expectEqualDeep(opt.args.a, 2);
     try std.testing.expectEqual(opt.positional_args.len, 0);
 
-    var help_msg = std.ArrayList(u8).init(allocator);
-    defer help_msg.deinit();
-    try opt.printHelp(help_msg.writer());
+    var writer = std.Io.Writer.Allocating.init(allocator);
+    defer writer.deinit();
+    try opt.printHelp(&writer.writer);
     try std.testing.expectEqualStrings(
         \\ USAGE:
         \\     awesome-cli [OPTIONS] [COMMANDS]
@@ -1146,7 +1146,7 @@ test "parse/sub commands" {
         \\ OPTIONS:
         \\      --a INTEGER                  (default: 1)
         \\
-    , help_msg.items);
+    , writer.writer.buffered());
 }
 
 fn isStruct(info: std.builtin.Type) bool {

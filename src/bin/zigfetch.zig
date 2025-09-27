@@ -145,7 +145,7 @@ fn calcHash(allocator: Allocator, dir: fs.Dir, root_dirname: []const u8, deleteI
                         if (std.mem.startsWith(u8, pkg_url, "git+")) {
                             _ = try cachePackageFromGit(allocator, pkg_url, hash);
                         } else {
-                            const u = try std.fmt.allocPrintZ(allocator, "{s}", .{pkg_url});
+                            const u = try std.fmt.allocPrintSentinel(allocator, "{s}", .{pkg_url}, 0);
                             defer allocator.free(u);
 
                             _ = try cachePackageFromUrl(allocator, u, hash);
@@ -432,29 +432,31 @@ fn fetchPackage(allocator: Allocator, url: [:0]const u8, out_dir: fs.Dir) ![]con
             }
         } else guessMimeType(url);
 
+    var reader = std.Io.Reader.fixed(body);
     if (mime) |m| {
         switch (m) {
             .Tar => {
-                var stream = std.io.fixedBufferStream(body);
-                return try unpackTarball(allocator, out_dir, stream.reader());
+                return try unpackTarball(allocator, out_dir, &reader);
             },
             .TarGz => {
-                var stream = std.io.fixedBufferStream(body);
-                var dcp = std.compress.gzip.decompressor(stream.reader());
-                return try unpackTarball(allocator, out_dir, dcp.reader());
+                var buf: [8192]u8 = undefined;
+                var dcp = std.compress.flate.Decompress.init(&reader, .gzip, &buf);
+                return try unpackTarball(allocator, out_dir, &dcp.reader);
             },
             .TarXz => {
+                // XZ decompressor needs a reader that implements the old API.
                 var stream = std.io.fixedBufferStream(body);
                 var dcp = try std.compress.xz.decompress(allocator, stream.reader());
                 defer dcp.deinit();
-                return try unpackTarball(allocator, out_dir, dcp.reader());
+                var rdr = dcp.reader();
+                var buf: [1024]u8 = undefined;
+                var new_api = rdr.adaptToNewApi(&buf);
+                return try unpackTarball(allocator, out_dir, &new_api.new_interface);
             },
             .TarZst => {
-                const window_size = std.compress.zstd.DecompressorOptions.default_window_buffer_len;
-                var stream = std.io.fixedBufferStream(body);
-                const window_buffer = try allocator.alloc(u8, window_size);
-                var dcp = std.compress.zstd.decompressor(stream.reader(), .{ .window_buffer = window_buffer });
-                return try unpackTarball(allocator, out_dir, dcp.reader());
+                var buf: [8192]u8 = undefined;
+                var dcp = std.compress.zstd.Decompress.init(&reader, &buf, .{});
+                return try unpackTarball(allocator, out_dir, &dcp.reader);
             },
             .Zip => {
                 return try unzip(allocator, out_dir, body);
@@ -506,7 +508,9 @@ fn unzip(allocator: Allocator, out_dir: fs.Dir, src: []const u8) ![]const u8 {
     try zip_file.writeAll(src);
 
     var diagnostics: std.zip.Diagnostics = .{ .allocator = allocator };
-    std.zip.extract(out_dir, zip_file.seekableStream(), .{
+    var buf: [4096]u8 = undefined;
+    var reader = zip_file.reader(&buf);
+    std.zip.extract(out_dir, &reader, .{
         .allow_backslashes = true,
         .diagnostics = &diagnostics,
     }) catch |err| {
@@ -519,7 +523,7 @@ fn unzip(allocator: Allocator, out_dir: fs.Dir, src: []const u8) ![]const u8 {
     return diagnostics.root_dir;
 }
 
-fn unpackTarball(allocator: Allocator, out_dir: fs.Dir, reader: anytype) ![]const u8 {
+fn unpackTarball(allocator: Allocator, out_dir: fs.Dir, reader: *std.Io.Reader) ![]const u8 {
     var diagnostics: std.tar.Diagnostics = .{ .allocator = allocator };
     std.tar.pipeToFileSystem(out_dir, reader, .{
         .diagnostics = &diagnostics,
@@ -736,7 +740,7 @@ pub fn computedPackageHash(raw: ComputedHash, manifest: ?Manifest) package.Hash 
     const saturated_size = std.math.cast(u32, raw.total_size) orelse std.math.maxInt(u32);
     if (manifest) |man| {
         var version_buffer: [32]u8 = undefined;
-        const version: []const u8 = std.fmt.bufPrint(&version_buffer, "{}", .{man.version}) catch &version_buffer;
+        const version: []const u8 = std.fmt.bufPrint(&version_buffer, "{f}", .{man.version}) catch &version_buffer;
         return .init(raw.digest, man.name, version, man.id, saturated_size);
     }
     // In the future build.zig.zon fields will be added to allow overriding these values

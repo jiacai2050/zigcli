@@ -27,7 +27,7 @@ The latest pre-built binaries are available on the [[https://github.com/jiacai20
 #+begin_src bash
 git clone https://github.com/jiacai2050/zigcli.git
 #+end_src
-Then build with zig 0.14.0
+Then build with zig 0.15.1
 #+begin_src bash
 make build
 #+end_src
