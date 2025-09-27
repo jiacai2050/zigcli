@@ -106,7 +106,6 @@ fn buildBinaries(
     all_tests: *Step,
 ) !void {
     inline for (.{
-        // TODO: zigfetch is broken on zig 0.15.1
         "zigfetch",
         "tree",
         "loc",
