@@ -208,7 +208,7 @@ fn walk(
 
     var buf: [fs.max_path_bytes]u8 = undefined;
     for (files.items, 0..) |entry, i| {
-        _ = try writer.write(prefix);
+        try writer.writeAll(prefix);
 
         if (i < files.items.len - 1) {
             try writer.writeAll(getPrefix(walk_ctx.mode, Position.Normal));

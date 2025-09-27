@@ -352,12 +352,19 @@ fn populateLoc(allocator: std.mem.Allocator, loc_map: *LocMap, dir: fs.Dir, base
     var state = State.Unknown;
     switch (@import("builtin").os.tag) {
         .windows => {
-            const rdr = file.reader();
             var buf: [1024]u8 = undefined;
-            while (rdr.readUntilDelimiterOrEof(&buf, '\n') catch |e| {
-                std.log.err("File contains too long lines, name:{s}, err:{any}", .{ basename, e });
-                return;
-            }) |line| {
+            var rdr = file.reader(&buf);
+            while (true) {
+                const line = rdr.interface.takeDelimiterExclusive('\n') catch |e| {
+                    switch (e) {
+                        error.EndOfStream => return,
+                        else => {
+                            std.log.err("Error when seek line delimiter, name:{s}, err:{any}", .{ basename, e });
+                            return e;
+                        },
+                    }
+                };
+
                 state = updateLineType(state, line, lang, loc_entry);
             }
         },

@@ -309,5 +309,5 @@ pub fn main() !void {
                 try client.setSchedule(schedule);
             }
         },
-    } // end swith
+    } // end switch
 }
