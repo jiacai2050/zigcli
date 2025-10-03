@@ -2,6 +2,10 @@ baseURL = 'https://zigcli.liujiacai.net/'
 languageCode = 'en-us'
 title = 'Zigcli'
 enableGitInfo = true
+copyright = """
+&copy; 2023-2026 Jiacai Liu. Built with <a href="https://gohugo.io/">Hugo</a> using <a href="https://www.docsy.dev/">docsy theme</a> <br>
+<a href="https://github.com/jiacai2050/zigcli">Source Code</a>
+"""
 
 [params]
 github_repo = 'https://github.com/jiacai2050/zigcli'
@@ -13,12 +17,8 @@ proxy = "https://goproxy.cn,direct"
 [[module.imports]]
 path = "github.com/google/docsy"
 
-[params.copyright]
-  authors = "Jiacai Liu | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0) | "
-  from_year = 2023
-
 [params.ui]
-navbar_logo = false
+navbar_logo = true
 showLightDarkModeMenu = true
 
 [markup]

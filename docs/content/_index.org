@@ -1,6 +1,6 @@
 #+TITLE: Introduction
 #+DATE: 2023-10-21T12:09:48+0800
-#+LASTMOD: 2025-03-09T16:59:05+0800
+#+LASTMOD: 2025-10-03T11:24:44+0800
 #+TYPE: docs
 #+author: Jiacai Liu
 
@@ -8,6 +8,10 @@
 [[https://github.com/jiacai2050/loc/actions/workflows/CI.yml][https://github.com/jiacai2050/loc/actions/workflows/CI.yml/badge.svg]]
 [[https://github.com/jiacai2050/loc/actions/workflows/release.yml][https://github.com/jiacai2050/loc/actions/workflows/release.yml/badge.svg]]
 [[https://img.shields.io/badge/zig%20version-0.15.1-blue.svg]]
+
+#+begin_export html
+<img src="/images/logo.svg" alt="Zigcli logo" style="width: 350px;"/>
+#+end_export
 
 #+begin_quote
 [[https://zigcli.liujiacai.net/][Zigcli]] is a toolkit for building command line programs in Zig.

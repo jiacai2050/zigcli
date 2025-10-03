@@ -1,0 +1,34 @@
+<svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="zigGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#f7a41d;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#e8910f;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Dark terminal background -->
+  <rect width="32" height="32" rx="6" fill="#1a1a1a"/>
+  
+  <!-- Terminal header bar -->
+  <rect width="32" height="6" rx="6" fill="#2d2d2d"/>
+  <rect y="4" width="32" height="2" fill="#2d2d2d"/>
+  
+  <!-- Terminal dots -->
+  <circle cx="4" cy="3.5" r="1" fill="#ff5f56"/>
+  <circle cx="7.5" cy="3.5" r="1" fill="#ffbd2e"/>
+  <circle cx="11" cy="3.5" r="1" fill="#27c93f"/>
+  
+  <!-- Zig lightning bolt - prominent and centered -->
+  <path d="M 10 12 L 18 12 L 13 20 L 18 20 L 9 28 L 13 21 L 8 21 Z" 
+        fill="url(#zigGrad)" 
+        stroke="#d17d0a" 
+        stroke-width="1.5"
+        stroke-linejoin="round"/>
+  
+  <!-- Command prompt indicator -->
+  <text x="21" y="15" font-family="monospace" font-size="6" font-weight="bold" fill="#4ade80">$</text>
+  
+  <!-- Small command line -->
+  <line x1="21" y1="19" x2="28" y2="19" stroke="#4ade80" stroke-width="1.2" stroke-linecap="round"/>
+  <line x1="21" y1="23" x2="26" y2="23" stroke="#60a5fa" stroke-width="1.2" stroke-linecap="round"/>
+</svg>
