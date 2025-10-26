@@ -21,12 +21,9 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
-        zig-version: [0.15.1]
     steps:
       - uses: actions/checkout@v4
       - uses: mlugg/setup-zig@v2
-        with:
-          version: ${{ matrix.zig-version }}
       - name: Memory leak detect
         run: |
           sudo apt update && sudo apt install -y valgrind libcurl4-openssl-dev
