@@ -112,17 +112,14 @@ fn matchSegmentsRecursive(pattern_it: *std.mem.SplitIterator(u8, std.mem.Delimit
     const p_peek = pattern_it.peek();
     const pa_peek = path_it.peek();
 
-    // Base Case 1: Both pattern and path iterators are exhausted
-    if (p_peek == null and pa_peek == null) {
-        return true;
-    }
-    // Base Case 2: Pattern exhausted but path still has parts.
-    // This is a match because the pattern is a prefix of the path.
+    // Base Case 1: Pattern exhausted. This is a match because the pattern is a prefix of the path.
+    // This also implicitly handles the case where both are exhausted.
     if (p_peek == null) {
         return true;
     }
-    // Base Case 3: Path exhausted but pattern still has parts
-    // Only matches if remaining pattern parts are all '**'
+
+    // Base Case 2: Path exhausted, but pattern is not.
+    // This is a match only if the rest of the pattern consists of '**'.
     if (pa_peek == null) {
         if (!std.mem.eql(u8, p_peek.?, "**")) { // Check the currently peeked pattern part
             return false;
