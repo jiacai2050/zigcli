@@ -28,11 +28,21 @@ const Pattern = struct {
             p = p[1..];
         }
 
+        // Special case: a single "/"
+        if (std.mem.eql(u8, p, "/")) {
+            return Pattern{
+                .allocator = allocator,
+                .pattern = try allocator.dupe(u8, p),
+                .negation = negation,
+                .is_dir = true,
+                .anchored_to_root = true,
+                .contains_slash = true,
+            };
+        }
+
         var anchored_to_root = false;
         if (p.len > 0 and p[0] == '/') {
             anchored_to_root = true;
-            // The leading '/' is part of the pattern string but handled by matching logic.
-            // It is NOT stripped here, to allow matchers to interpret it.
         }
 
         var is_dir = false;
@@ -43,22 +53,26 @@ const Pattern = struct {
 
         return Pattern{
             .allocator = allocator,
-            .pattern = try allocator.dupe(u8, p), // Store original pattern for now
+            .pattern = try allocator.dupe(u8, p),
             .negation = negation,
             .is_dir = is_dir,
             .anchored_to_root = anchored_to_root,
-            // contains_slash is true if pattern contains '/' or '**' (as '**' implies directory traversal)
             .contains_slash = std.mem.indexOf(u8, p, "/") != null or std.mem.indexOf(u8, p, "**") != null,
         };
     }
 
-    fn deinit(self: *Pattern, allocator: Allocator) void {
-        allocator.free(self.pattern);
+    fn deinit(self: *Pattern) void {
+        self.allocator.free(self.pattern);
     }
 
     /// Checks if a given path matches the pattern.
     /// The `path` is always relative to the repository root.
     fn matches(self: Pattern, path: []const u8, is_dir_path: bool) !bool {
+        // Handle the special case of a single "/" pattern
+        if (std.mem.eql(u8, self.pattern, "/")) {
+            return true; // Matches everything
+        }
+
         // Rule: If the pattern is for a directory, it cannot match a file.
         if (self.is_dir and !is_dir_path) {
             return false;
@@ -69,8 +83,6 @@ const Pattern = struct {
         if (self.anchored_to_root) {
             // Path always comes without leading slash, so strip from pattern for comparison.
             pattern_to_match = self.pattern[1..];
-            // If the pattern was just "/", pattern_to_match would be empty.
-            // This case needs careful handling in matchPathSegments if it appears.
         }
 
         if (self.anchored_to_root or self.contains_slash) {
@@ -81,10 +93,11 @@ const Pattern = struct {
             // Rule: If pattern does not contain a slash, it matches against the filename
             // or directory name component anywhere in the path.
             // Example: "foo" matches "bar/foo" or "foo".
+            const c_pattern = try std.fmt.allocPrintSentinel(self.allocator, "{s}", .{pattern_to_match}, 0);
+            defer self.allocator.free(c_pattern);
+
             var path_parts = std.mem.splitScalar(u8, path, '/');
             while (path_parts.next()) |part| {
-                const c_pattern = try std.fmt.allocPrintSentinel(self.allocator, "{s}", .{pattern_to_match}, 0);
-                defer self.allocator.free(c_pattern);
                 const c_path = try std.fmt.allocPrintSentinel(self.allocator, "{s}", .{part}, 0);
                 defer self.allocator.free(c_path);
                 if (c.fnmatch(c_pattern.ptr, c_path.ptr, c.FNM_PATHNAME) == 0) {
@@ -209,7 +222,7 @@ pub const Gitignore = struct {
 
     pub fn deinit(self: *Gitignore) void {
         for (self.patterns.items) |*p| {
-            p.deinit(self.allocator);
+            p.deinit();
         }
         self.patterns.deinit(self.allocator);
     }
@@ -272,8 +285,8 @@ test "gitignore parsing and matching" {
 
     // Test build/
     try testing.expect(try gitignore.shouldIgnore("build", true));
+    try testing.expect(try gitignore.shouldIgnore("foo/build", true));
     try testing.expect(!(try gitignore.shouldIgnore("build", false)));
-    // This is incorrect according to gitignore spec. "build/" should only match "build" at the root.
 
     // Test doc/notes.txt
     try testing.expect(try gitignore.shouldIgnore("doc/notes.txt", false));
@@ -294,4 +307,13 @@ test "gitignore parsing and matching" {
 
     // Test foo/bar matches foo/bar/123
     try testing.expect(try gitignore.shouldIgnore("foo/bar/123", false));
+
+    // Test "/" matches everything
+    const content2 = 
+        \\/
+    ;
+    var gitignore2 = try Gitignore.init(allocator, content2);
+    defer gitignore2.deinit();
+    try testing.expect(try gitignore2.shouldIgnore("foo", false));
+    try testing.expect(try gitignore2.shouldIgnore("bar/baz", false));
 }
