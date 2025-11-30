@@ -309,7 +309,7 @@ test "gitignore parsing and matching" {
     try testing.expect(try gitignore.shouldIgnore("foo/bar/123", false));
 }
 
-test "specal case, rule /" {
+test "special case, rule /" {
     const allocator = testing.allocator;
 
     // Test "/" matches everything
