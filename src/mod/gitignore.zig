@@ -307,13 +307,17 @@ test "gitignore parsing and matching" {
 
     // Test foo/bar matches foo/bar/123
     try testing.expect(try gitignore.shouldIgnore("foo/bar/123", false));
+}
+
+test "specal case, rule /" {
+    const allocator = testing.allocator;
 
     // Test "/" matches everything
-    const content2 = 
+    const content =
         \\/
     ;
-    var gitignore2 = try Gitignore.init(allocator, content2);
-    defer gitignore2.deinit();
-    try testing.expect(try gitignore2.shouldIgnore("foo", false));
-    try testing.expect(try gitignore2.shouldIgnore("bar/baz", false));
+    var gitignore = try Gitignore.init(allocator, content);
+    defer gitignore.deinit();
+    try testing.expect(try gitignore.shouldIgnore("foo", false));
+    try testing.expect(try gitignore.shouldIgnore("bar/baz", false));
 }
