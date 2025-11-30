@@ -11,6 +11,17 @@ pub fn build(b: *Build) !void {
     try addModules(b, target, optimize, test_all_step);
     try buildBinaries(b, optimize, target, test_all_step);
     try buildExamples(b, optimize, target, test_all_step);
+
+    const gitignore_test = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/gitignore_test.zig"),
+            .target = target,
+        }),
+    });
+    gitignore_test.root_module.addImport("gitignore", b.modules.get("gitignore").?);
+    const test_gitignore_step = b.step("test-gitignore", "Run gitignore tests");
+    test_gitignore_step.dependOn(&b.addRunArtifact(gitignore_test).step);
+    test_all_step.dependOn(test_gitignore_step);
 }
 
 const Source = union(enum) {
@@ -55,6 +66,9 @@ fn addModules(
 
         all_tests.dependOn(buildTestStep(b, .{ .mod = name }, target));
     }
+    _ = b.addModule("gitignore", .{
+        .root_source_file = b.path("src/bin/pkg/gitignore.zig"),
+    });
 
     const opt = b.addOptions();
     opt.addOption(
