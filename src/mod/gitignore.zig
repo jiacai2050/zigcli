@@ -296,7 +296,7 @@ test "gitignore parsing and matching" {
     try testing.expect(try gitignore.shouldIgnore("test.log", false));
     try testing.expect(!(try gitignore.shouldIgnore("src/test.log", false)));
 
-    // Test **\/foo
+    // Test **/foo
     try testing.expect(try gitignore.shouldIgnore("foo", false));
     try testing.expect(try gitignore.shouldIgnore("src/foo", false));
 
