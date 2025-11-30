@@ -1,17 +1,17 @@
 .{
     .name = .zigcli,
     .fingerprint = 0x9e1fddac8cbb1039,
-    .version = "0.3.0",
+    .version = "0.3.1",
+    .minimum_zig_version = "0.15.2",
     .paths = .{
         "src",
         "build.zig",
         "build.zig.zon",
-        "README.org",
     },
     .dependencies = .{
         .curl = .{
-            .url = "https://github.com/jiacai2050/zig-curl/archive/refs/tags/v0.3.1.tar.gz",
-            .hash = "curl-0.3.1-P4tT4b_JAAC2bpWR1_NjsHTrg_Ufz2mmojU-e-y9k_99",
+            .url = "https://github.com/jiacai2050/zig-curl/archive/refs/tags/v0.3.2.tar.gz",
+            .hash = "curl-0.3.2-P4tT4SXPAACuV6f5eyh4jG_1SspjWwMm_vRJfoKrQep5",
         },
     },
 }
