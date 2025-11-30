@@ -51,6 +51,7 @@ fn addModules(
     inline for (.{ "pretty-table", "simargs", "gitignore" }) |name| {
         _ = b.addModule(name, .{
             .root_source_file = b.path("src/mod/" ++ name ++ ".zig"),
+            .link_libc = std.mem.eql(u8, name, "gitignore"),
         });
 
         all_tests.dependOn(buildTestStep(b, .{ .mod = name }, target));
@@ -174,6 +175,7 @@ fn buildTestStep(
         .root_module = b.createModule(.{
             .root_source_file = b.path(path ++ "/" ++ name ++ ".zig"),
             .target = target,
+            .link_libc = std.mem.eql(u8, name, "gitignore"),
         }),
     });
     const test_step = b.step("test-" ++ name, "Run " ++ name ++ " tests");
