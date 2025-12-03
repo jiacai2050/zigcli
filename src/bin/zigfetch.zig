@@ -454,8 +454,9 @@ fn fetchPackage(allocator: Allocator, url: [:0]const u8, out_dir: fs.Dir) ![]con
                 return try unpackTarball(allocator, out_dir, &new_api.new_interface);
             },
             .TarZst => {
-                var buf: [8192]u8 = undefined;
-                var dcp = std.compress.zstd.Decompress.init(&reader, &buf, .{});
+                const buf = try allocator.alloc(u8, std.compress.zstd.default_window_len + std.compress.zstd.block_size_max);
+                defer allocator.free(buf);
+                var dcp = std.compress.zstd.Decompress.init(&reader, buf, .{});
                 return try unpackTarball(allocator, out_dir, &dcp.reader);
             },
             .Zip => {
