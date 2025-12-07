@@ -1,8 +1,6 @@
 name: CI
 
 on:
-  schedule:
-    - cron: "10 20 * * *"
   workflow_dispatch:
   pull_request:
     paths:
@@ -38,8 +36,8 @@ jobs:
         if: matrix.os == 'windows-latest'
         run: |
           zig.exe fmt --check .
-          zig.exe build -Dtarget=native-native-gnu test
-          zig.exe build -Dtarget=native-native-gnu
+          zig.exe build test
+          zig.exe build
       - name: fmt and test(unix)
         if: matrix.os != 'windows-latest'
         run: |
