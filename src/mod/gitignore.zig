@@ -1,3 +1,6 @@
+/// A module for parsing and matching .gitignore patterns.
+/// This implementation follows the Git documentation for .gitignore patterns:
+/// https://git-scm.com/docs/gitignore
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const List = std.ArrayList;
@@ -6,6 +9,10 @@ const testing = std.testing;
 const c = @cImport({
     @cInclude("fnmatch.h");
 });
+
+const PatternError = error{
+    InvalidPattern,
+};
 
 /// Represents a single pattern from a .gitignore file.
 const Pattern = struct {
@@ -28,16 +35,9 @@ const Pattern = struct {
             p = p[1..];
         }
 
-        // Special case: a single "/"
+        // Special case: a single "/" is not a valid pattern for ignoring files, so we ignore it.
         if (std.mem.eql(u8, p, "/")) {
-            return Pattern{
-                .allocator = allocator,
-                .pattern = try allocator.dupe(u8, p),
-                .negation = negation,
-                .is_dir = true,
-                .anchored_to_root = true,
-                .contains_slash = true,
-            };
+            return PatternError.InvalidPattern;
         }
 
         var anchored_to_root = false;
@@ -68,11 +68,6 @@ const Pattern = struct {
     /// Checks if a given path matches the pattern.
     /// The `path` is always relative to the repository root.
     fn matches(self: Pattern, path: []const u8, is_dir_path: bool) !bool {
-        // Handle the special case of a single "/" pattern
-        if (std.mem.eql(u8, self.pattern, "/")) {
-            return true; // Matches everything
-        }
-
         // Rule: If the pattern is for a directory, it cannot match a file.
         if (self.is_dir and !is_dir_path) {
             return false;
@@ -151,31 +146,27 @@ fn matchSegmentsRecursive(pattern_it: *std.mem.SplitIterator(u8, std.mem.Delimit
     const current_pa_part = pa_peek.?;
 
     if (std.mem.eql(u8, current_p_part, "**")) {
-        // Handle "**" wildcard: matches zero or more path segments
-        var next_pattern_it_state = pattern_it.*;
-        _ = next_pattern_it_state.next(); // pattern_it state after consuming "**"
+        // Handle "**" wildcard.
+        var pattern_it_after_glob = pattern_it.*;
+        _ = pattern_it_after_glob.next(); // Consume "**"
 
-        // Option 1: "**" matches zero path segments
-        if (try matchSegmentsRecursive(&next_pattern_it_state, path_it, allocator)) {
-            return true;
-        }
-
-        // Option 2: "**" matches one or more path segments
-        // Try consuming path segments one by one with "**", and for each,
-        // try to match the rest of the pattern.
-        var current_path_it_state = path_it.*;
-        while (current_path_it_state.peek() != null) {
-            var path_it_after_segment = current_path_it_state;
-            _ = path_it_after_segment.next(); // Consume one path segment
-
-            // Try to match the rest of the pattern (after "**") against the rest of the path
-            if (try matchSegmentsRecursive(&next_pattern_it_state, &path_it_after_segment, allocator)) {
+        // We now loop, trying to match the rest of the pattern (after "**")
+        // against the rest of the path. On each iteration, we can either
+        // match immediately (so "**" matches zero segments) or consume
+        // one path segment and try again on the next iteration.
+        var path_it_fork = path_it.*;
+        while (true) {
+            // Try to match pattern after "**" against the current sub-path.
+            var pattern_it_copy = pattern_it_after_glob;
+            if (try matchSegmentsRecursive(&pattern_it_copy, &path_it_fork, allocator)) {
                 return true;
             }
-            // If it doesn't match, '**' tries to consume another path segment
-            current_path_it_state = path_it_after_segment; // Advance current_path_it_state for next iteration
+            // If that failed, "**" needs to consume a segment.
+            // If there are no more segments to consume, we've failed.
+            if (path_it_fork.next() == null) {
+                return false;
+            }
         }
-        return false;
     } else { // Current pattern segment matches current path segment (via fnmatch)
         const matched_fnmatch = blk: {
             const c_pattern = try std.fmt.allocPrintSentinel(allocator, "{s}", .{current_p_part}, 0);
@@ -214,7 +205,11 @@ pub const Gitignore = struct {
             if (trimmed.len == 0 or trimmed[0] == '#') {
                 continue;
             }
-            try self.patterns.append(allocator, try Pattern.init(allocator, trimmed));
+            const pattern = Pattern.init(allocator, trimmed) catch |e| switch (e) {
+                PatternError.InvalidPattern => continue,
+                else => return e,
+            };
+            try self.patterns.append(allocator, pattern);
         }
 
         return self;
@@ -309,15 +304,15 @@ test "gitignore parsing and matching" {
     try testing.expect(try gitignore.shouldIgnore("foo/bar/123", false));
 }
 
-test "special case, rule /" {
+test "invalid case, rule /" {
     const allocator = testing.allocator;
 
-    // Test "/" matches everything
+    // Test "/" is an invalid pattern and should not match anything.
     const content =
         \\/
     ;
     var gitignore = try Gitignore.init(allocator, content);
     defer gitignore.deinit();
-    try testing.expect(try gitignore.shouldIgnore("foo", false));
-    try testing.expect(try gitignore.shouldIgnore("bar/baz", false));
+    try testing.expect(!try gitignore.shouldIgnore("foo", false));
+    try testing.expect(!try gitignore.shouldIgnore("bar/baz", false));
 }
