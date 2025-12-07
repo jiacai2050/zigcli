@@ -38,8 +38,8 @@ jobs:
         if: matrix.os == 'windows-latest'
         run: |
           zig.exe fmt --check .
-          zig.exe build test
-          zig.exe build
+          zig.exe build -Dtarget=native-native-gnu test
+          zig.exe build -Dtarget=native-native-gnu
       - name: fmt and test(unix)
         if: matrix.os != 'windows-latest'
         run: |
