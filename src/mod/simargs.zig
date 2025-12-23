@@ -220,6 +220,7 @@ const MessageHelper = struct {
         } else {
             try writer.interface.writeAll("Unknown");
         }
+        try writer.interface.writeByte('\n');
         try writer.interface.flush();
     }
 
