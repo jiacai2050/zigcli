@@ -216,7 +216,7 @@ const MessageHelper = struct {
         var buf: [1024]u8 = undefined;
         var writer = stdout.writer(&buf);
         const version_str = self.version orelse "Unknown";
-        try writer.print("{s}\n", .{version_str});
+        try writer.interface.print("{s}\n", .{version_str});
         try writer.interface.flush();
     }
 
