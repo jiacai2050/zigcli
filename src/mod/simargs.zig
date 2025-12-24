@@ -215,11 +215,8 @@ const MessageHelper = struct {
         const stdout = std.fs.File.stdout();
         var buf: [1024]u8 = undefined;
         var writer = stdout.writer(&buf);
-        if (self.version) |v| {
-            try writer.interface.writeAll(v);
-        } else {
-            try writer.interface.writeAll("Unknown");
-        }
+        const version_str = self.version orelse "Unknown";
+        try writer.interface.print("{s}\n", .{version_str});
         try writer.interface.flush();
     }
 
