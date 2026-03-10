@@ -32,16 +32,12 @@ jobs:
         with:
           submodules: true
       - uses: mlugg/setup-zig@v2
-      - name: fmt and test(windows)
-        if: matrix.os == 'windows-latest'
-        run: |
-          zig.exe fmt --check .
-          zig.exe build test
-          zig.exe build
-      - name: fmt and test(unix)
-        if: matrix.os != 'windows-latest'
+      - name: fmt
+        if: matrix.os == 'ubuntu-latest'
         run: |
           zig fmt --check .
+      - name: test
+        run: |
           zig build test
           zig build
           find zig-out

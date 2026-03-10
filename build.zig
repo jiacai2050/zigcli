@@ -48,19 +48,13 @@ fn addModules(
     optimize: std.builtin.OptimizeMode,
     all_tests: *Step,
 ) !void {
-    inline for (.{ "pretty-table", "simargs", "gitignore" }) |name| loop: {
+    inline for (.{ "pretty-table", "simargs", "gitignore" }) |name| {
         _ = b.addModule(name, .{
             .root_source_file = b.path("src/mod/" ++ name ++ ".zig"),
-            .link_libc = std.mem.eql(u8, name, "gitignore"),
             .target = target,
             .optimize = optimize,
         });
 
-        const is_win = target.result.os.tag == .windows;
-        // 'fnmatch.h' file not found on Windows
-        if (std.mem.eql(u8, name, "gitignore") and is_win) {
-            break :loop;
-        }
         all_tests.dependOn(buildTestStep(b, .{ .mod = name }, target));
     }
 
