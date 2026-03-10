@@ -323,8 +323,7 @@ pub const Gitignore = struct {
             if (trimmed.len == 0) continue;
             if (trimmed[0] == '#') continue;
 
-            // Pass untrimmed line to Pattern.init for proper escape handling
-            // Actually, pass trimmed but Pattern.init re-trims with escape awareness
+            // Pass the original (untrimmed) line so Pattern.init can handle escaped trailing whitespace correctly.
             const pattern = Pattern.init(allocator, line) catch |e| switch (e) {
                 PatternError.InvalidPattern => continue,
                 else => return e,
