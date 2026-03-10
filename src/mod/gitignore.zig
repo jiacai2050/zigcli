@@ -549,6 +549,7 @@ test "** edge cases" {
     try testing.expect(gitignore.shouldIgnore("a/x/b", false));
     try testing.expect(gitignore.shouldIgnore("a/x/y/b", false));
     try testing.expect(!gitignore.shouldIgnore("b/a/b", false));
+    try testing.expect(!gitignore.shouldIgnore("a/x/c", false));
 }
 
 test "globMatch basic" {
