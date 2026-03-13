@@ -220,7 +220,8 @@ const Pattern = struct {
     }
 
     /// Checks if a given path matches the pattern.
-    /// The `path` is always relative to the repository root.
+    /// The `path` is always relative to the current gitignore root (for example,
+    /// the directory that this set of patterns applies to).
     pub fn matches(self: Pattern, path: []const u8, is_dir_path: bool) bool {
         if (self.is_dir and !is_dir_path) {
             return false;
@@ -388,7 +389,7 @@ pub const GitignoreStack = struct {
     pub fn tryPushDir(self: *GitignoreStack, dir: fs.Dir, rel_dir: []const u8, allocator: Allocator) !bool {
         const content = dir.readFileAlloc(allocator, ".gitignore", 1024 * 1024) catch |e| switch (e) {
             error.FileNotFound => return false,
-            else => return false, // ignore unreadable .gitignore files
+            else => return e,
         };
         defer allocator.free(content);
 
