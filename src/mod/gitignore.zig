@@ -221,7 +221,7 @@ const Pattern = struct {
 
     /// Checks if a given path matches the pattern.
     /// The `path` is always relative to the repository root.
-    fn matches(self: Pattern, path: []const u8, is_dir_path: bool) bool {
+    pub fn matches(self: Pattern, path: []const u8, is_dir_path: bool) bool {
         if (self.is_dir and !is_dir_path) {
             return false;
         }
@@ -353,6 +353,117 @@ pub const Gitignore = struct {
         return ignored;
     }
 };
+
+/// A stack of gitignore layers, one per directory level, enabling per-directory
+/// .gitignore files with correct last-match-wins semantics across all layers.
+pub const GitignoreStack = struct {
+    layers: std.ArrayListUnmanaged(Layer),
+
+    const Layer = struct {
+        gi: Gitignore,
+        /// Path of this layer's directory relative to the walk root. Empty string
+        /// means the walk root itself. Owned (heap-allocated) when non-empty.
+        rel_root: []const u8,
+        owns_rel_root: bool,
+
+        fn deinit(self: *Layer, allocator: Allocator) void {
+            self.gi.deinit();
+            if (self.owns_rel_root) allocator.free(self.rel_root);
+        }
+    };
+
+    pub fn init() GitignoreStack {
+        return .{ .layers = .empty };
+    }
+
+    pub fn deinit(self: *GitignoreStack, allocator: Allocator) void {
+        for (self.layers.items) |*layer| layer.deinit(allocator);
+        self.layers.deinit(allocator);
+    }
+
+    /// Try to read `.gitignore` from `dir` and push a new layer anchored at
+    /// `rel_dir` (relative to the walk root; pass `""` for the root directory).
+    /// Returns true if a layer was pushed, false if no `.gitignore` was found.
+    /// The caller must call `pop()` for every true return when leaving the directory.
+    pub fn tryPushDir(self: *GitignoreStack, dir: fs.Dir, rel_dir: []const u8, allocator: Allocator) !bool {
+        const content = dir.readFileAlloc(allocator, ".gitignore", 1024 * 1024) catch |e| switch (e) {
+            error.FileNotFound => return false,
+            else => return false, // ignore unreadable .gitignore files
+        };
+        defer allocator.free(content);
+
+        const gi = try Gitignore.init(allocator, content);
+        const rel_root = if (rel_dir.len == 0) rel_dir else try allocator.dupe(u8, rel_dir);
+        try self.layers.append(allocator, .{
+            .gi = gi,
+            .rel_root = rel_root,
+            .owns_rel_root = rel_dir.len != 0,
+        });
+        return true;
+    }
+
+    /// Pop the most-recently-pushed layer. Only call when `tryPushDir` returned true.
+    pub fn pop(self: *GitignoreStack, allocator: Allocator) void {
+        var layer = self.layers.pop().?;
+        layer.deinit(allocator);
+    }
+
+    /// Return true if `rel_path` (relative to the walk root) should be ignored.
+    /// `is_dir` must reflect whether the path is a directory.
+    /// Last-match-wins across all layers combined.
+    pub fn shouldIgnore(self: *const GitignoreStack, rel_path: []const u8, is_dir: bool) bool {
+        var ignored = false;
+        for (self.layers.items) |layer| {
+            const local_path = if (layer.rel_root.len == 0)
+                rel_path
+            else blk: {
+                const prefix = layer.rel_root;
+                if (rel_path.len <= prefix.len) continue;
+                if (!std.mem.startsWith(u8, rel_path, prefix)) continue;
+                if (rel_path[prefix.len] != '/') continue;
+                break :blk rel_path[prefix.len + 1 ..];
+            };
+            for (layer.gi.patterns.items) |p| {
+                if (p.matches(local_path, is_dir)) {
+                    ignored = !p.negation;
+                }
+            }
+        }
+        return ignored;
+    }
+};
+
+test "GitignoreStack basic" {
+    const allocator = std.testing.allocator;
+    // Simulate a root .gitignore that ignores *.log and build/
+    const root_content = "*.log\nbuild/\n";
+    const root_gi = try Gitignore.init(allocator, root_content);
+    var stack = GitignoreStack.init();
+    defer stack.deinit(allocator);
+    try stack.layers.append(allocator, .{ .gi = root_gi, .rel_root = "", .owns_rel_root = false });
+
+    try std.testing.expect(stack.shouldIgnore("foo.log", false));
+    try std.testing.expect(stack.shouldIgnore("build", true));
+    try std.testing.expect(!stack.shouldIgnore("build", false));
+    try std.testing.expect(!stack.shouldIgnore("foo.zig", false));
+
+    // Simulate a sub-directory .gitignore at "src/" that negates *.log
+    const sub_content = "!debug.log\n";
+    const sub_gi = try Gitignore.init(allocator, sub_content);
+    const sub_rel_root = try allocator.dupe(u8, "src");
+    try stack.layers.append(allocator, .{ .gi = sub_gi, .rel_root = sub_rel_root, .owns_rel_root = true });
+
+    // src/debug.log is negated by the sub-layer
+    try std.testing.expect(!stack.shouldIgnore("src/debug.log", false));
+    // src/other.log is still ignored by root layer (sub layer has no matching rule)
+    try std.testing.expect(stack.shouldIgnore("src/other.log", false));
+    // top-level foo.log unaffected by sub layer
+    try std.testing.expect(stack.shouldIgnore("foo.log", false));
+
+    stack.pop(allocator);
+    // After pop, src/debug.log is ignored again
+    try std.testing.expect(stack.shouldIgnore("src/debug.log", false));
+}
 
 test "gitignore parsing and matching" {
     const allocator = testing.allocator;

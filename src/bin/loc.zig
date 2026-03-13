@@ -3,14 +3,13 @@ const Table = @import("pretty-table").Table;
 const Separator = @import("pretty-table").Separator;
 const simargs = @import("simargs");
 const util = @import("util.zig");
+const gitignore = @import("gitignore");
 const StringUtil = util.StringUtil;
 const fs = std.fs;
 
 pub const std_options: std.Options = .{
     .log_level = .info,
 };
-
-const IGNORE_DIRS = [_][]const u8{ ".git", "zig-cache", "zig-out", "target", "vendor", "node_modules", "out" };
 
 const Language = enum {
     Zig,
@@ -187,6 +186,7 @@ pub fn main() !void {
         sort: Column = .line,
         mode: Separator.Mode = .box,
         padding: usize = 3,
+        @"no-gitignore": bool = false,
         version: bool = false,
         help: bool = false,
 
@@ -202,6 +202,7 @@ pub fn main() !void {
             .help = "Print help information",
             .mode = "Line drawing characters",
             .padding = "Column padding",
+            .@"no-gitignore" = "Do not use .gitignore rules to filter files.",
             .version = "Print version",
             .sort = "Column to sort by",
         };
@@ -228,7 +229,14 @@ pub fn main() !void {
         else => return err,
     };
     defer dir.close();
-    try walk(allocator, &loc_map, dir);
+
+    var gi_stack = gitignore.GitignoreStack.init();
+    defer gi_stack.deinit(allocator);
+    if (!opt.args.@"no-gitignore") {
+        _ = try gi_stack.tryPushDir(dir, "", allocator);
+    }
+
+    try walk(allocator, opt.args.@"no-gitignore", &gi_stack, &loc_map, dir, "");
     try printLocMap(
         allocator,
         &loc_map,
@@ -284,26 +292,45 @@ fn printLocMap(
     try writer.interface.flush();
 }
 
-fn walk(allocator: std.mem.Allocator, loc_map: *LocMap, dir: fs.Dir) anyerror!void {
+fn walk(
+    allocator: std.mem.Allocator,
+    no_gitignore: bool,
+    gi_stack: *gitignore.GitignoreStack,
+    loc_map: *LocMap,
+    dir: fs.Dir,
+    rel_dir: []const u8,
+) anyerror!void {
     var it = dir.iterate();
     while (try it.next()) |e| {
+        const rel_path = if (rel_dir.len == 0)
+            e.name
+        else
+            try std.fmt.allocPrint(allocator, "{s}/{s}", .{ rel_dir, e.name });
+        defer if (rel_dir.len != 0) allocator.free(rel_path);
+
+        if (gi_stack.shouldIgnore(rel_path, e.kind == .directory)) continue;
+
         switch (e.kind) {
             .file => {
                 try populateLoc(allocator, loc_map, dir, e.name);
             },
             .directory => {
-                var should_ignore = false;
-                for (IGNORE_DIRS) |ignore| {
-                    if (std.mem.eql(u8, ignore, e.name)) {
-                        should_ignore = true;
-                        break;
-                    }
-                }
-                if (!should_ignore) {
-                    var sub_dir = try dir.openDir(e.name, .{ .iterate = true });
-                    defer sub_dir.close();
-                    try walk(allocator, loc_map, sub_dir);
-                }
+                const new_rel_dir = if (rel_dir.len == 0)
+                    e.name
+                else
+                    try std.fmt.allocPrint(allocator, "{s}/{s}", .{ rel_dir, e.name });
+                defer if (rel_dir.len != 0) allocator.free(new_rel_dir);
+
+                var sub_dir = try dir.openDir(e.name, .{ .iterate = true });
+                defer sub_dir.close();
+
+                const layer_pushed = if (!no_gitignore)
+                    try gi_stack.tryPushDir(sub_dir, new_rel_dir, allocator)
+                else
+                    false;
+                defer if (layer_pushed) gi_stack.pop(allocator);
+
+                try walk(allocator, no_gitignore, gi_stack, loc_map, sub_dir, new_rel_dir);
             },
             else => {},
         }
