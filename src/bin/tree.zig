@@ -79,9 +79,9 @@ pub const WalkOptions = struct {
 };
 
 pub fn main() anyerror!void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    var gpa = util.Allocator.instance;
+    defer gpa.deinit();
+    const allocator = gpa.allocator();
 
     const opt = try simargs.parse(
         allocator,
@@ -115,10 +115,12 @@ pub fn main() anyerror!void {
     var iter = dir.iterate();
     const ret = try walk(allocator, opt.args, &gi_stack, &iter, &writer.interface, "", "", 1);
 
-    try writer.interface.writeAll(try std.fmt.allocPrint(allocator, "\n{d} directories, {d} files\n", .{
+    var summary_buf: [64]u8 = undefined;
+    const summary = try std.fmt.bufPrint(&summary_buf, "\n{d} directories, {d} files\n", .{
         ret.directories,
         ret.files,
-    }));
+    });
+    try writer.interface.writeAll(summary);
     try writer.interface.flush();
 }
 
@@ -157,6 +159,7 @@ const WalkResult = struct {
 };
 
 fn walk(
+    /// Long-lived allocator for GitignoreStack patterns and data that outlives this call.
     allocator: mem.Allocator,
     walk_ctx: anytype,
     gi_stack: *gitignore.GitignoreStack,
@@ -167,6 +170,12 @@ fn walk(
     rel_dir: []const u8,
     level: usize,
 ) !WalkResult {
+    // Per-level arena for temporary strings (rel_path, dupe_name, new_prefix, etc.)
+    // Freed when this call returns, so memory doesn't accumulate across the tree.
+    var local_arena = std.heap.ArenaAllocator.init(allocator);
+    defer local_arena.deinit();
+    const local = local_arena.allocator();
+
     var ret = WalkResult{ .files = 0, .directories = 0 };
     if (walk_ctx.level) |max| {
         if (level > max) {
@@ -175,17 +184,8 @@ fn walk(
     }
 
     var files: std.ArrayList(fs.Dir.Entry) = .empty;
-    defer {
-        for (files.items) |entry| {
-            allocator.free(entry.name);
-        }
-        files.deinit(allocator);
-    }
 
     while (try iter.next()) |entry| {
-        const dupe_name = try allocator.dupe(u8, entry.name);
-        errdefer allocator.free(dupe_name);
-
         if (walk_ctx.directory) {
             if (entry.kind != .directory) {
                 continue;
@@ -199,17 +199,14 @@ fn walk(
         }
 
         const rel_path = if (rel_dir.len == 0)
-            dupe_name
+            entry.name
         else
-            try std.fmt.allocPrint(allocator, "{s}/{s}", .{ rel_dir, dupe_name });
-        defer if (rel_dir.len != 0) allocator.free(rel_path);
+            try std.fmt.allocPrint(local, "{s}/{s}", .{ rel_dir, entry.name });
 
-        if (gi_stack.shouldIgnore(rel_path, entry.kind == .directory)) {
-            allocator.free(dupe_name);
-            continue;
-        }
+        if (gi_stack.shouldIgnore(rel_path, entry.kind == .directory)) continue;
 
-        try files.append(allocator, .{ .name = dupe_name, .kind = entry.kind });
+        const dupe_name = try local.dupe(u8, entry.name);
+        try files.append(local, .{ .name = dupe_name, .kind = entry.kind });
     }
 
     std.sort.heap(fs.Dir.Entry, files.items, {}, struct {
@@ -244,7 +241,7 @@ fn walk(
         if (walk_ctx.size) {
             const stat = try iter.dir.statFile(entry.name);
             try writer.writeAll(" [");
-            try writer.writeAll(try StringUtil.humanSize(allocator, stat.size));
+            try writer.writeAll(try StringUtil.humanSize(local, stat.size));
             try writer.writeAll("]");
         }
         switch (entry.kind) {
@@ -257,16 +254,16 @@ fn walk(
 
                 const new_prefix =
                     if (i < files.items.len - 1)
-                        try std.fmt.allocPrint(allocator, "{s}{s}", .{ prefix, getPrefix(walk_ctx.mode, Position.UpperNormal) })
+                        try std.fmt.allocPrint(local, "{s}{s}", .{ prefix, getPrefix(walk_ctx.mode, Position.UpperNormal) })
                     else
-                        try std.fmt.allocPrint(allocator, "{s}{s}", .{ prefix, getPrefix(walk_ctx.mode, Position.UpperLast) });
+                        try std.fmt.allocPrint(local, "{s}{s}", .{ prefix, getPrefix(walk_ctx.mode, Position.UpperLast) });
 
                 const new_rel_dir = if (rel_dir.len == 0)
                     entry.name
                 else
-                    try std.fmt.allocPrint(allocator, "{s}/{s}", .{ rel_dir, entry.name });
-                defer if (rel_dir.len != 0) allocator.free(new_rel_dir);
+                    try std.fmt.allocPrint(local, "{s}/{s}", .{ rel_dir, entry.name });
 
+                // Push gitignore layer using the long-lived allocator (patterns outlive this call)
                 const layer_pushed = if (!walk_ctx.@"no-gitignore")
                     try gi_stack.tryPushDir(sub_dir, new_rel_dir, allocator)
                 else

@@ -392,8 +392,10 @@ pub const GitignoreStack = struct {
         };
         defer allocator.free(content);
 
-        const gi = try Gitignore.init(allocator, content);
+        var gi = try Gitignore.init(allocator, content);
+        errdefer gi.deinit();
         const rel_root = if (rel_dir.len == 0) rel_dir else try allocator.dupe(u8, rel_dir);
+        errdefer if (rel_dir.len != 0) allocator.free(rel_root);
         try self.layers.append(allocator, .{
             .gi = gi,
             .rel_root = rel_root,
@@ -412,6 +414,15 @@ pub const GitignoreStack = struct {
     /// `is_dir` must reflect whether the path is a directory.
     /// Last-match-wins across all layers combined.
     pub fn shouldIgnore(self: *const GitignoreStack, rel_path: []const u8, is_dir: bool) bool {
+        // .git is always ignored (git itself never lists it in .gitignore)
+        if (is_dir) {
+            const basename = if (std.mem.lastIndexOfScalar(u8, rel_path, '/')) |pos|
+                rel_path[pos + 1 ..]
+            else
+                rel_path;
+            if (std.mem.eql(u8, basename, ".git")) return true;
+        }
+
         var ignored = false;
         for (self.layers.items) |layer| {
             const local_path = if (layer.rel_root.len == 0)
