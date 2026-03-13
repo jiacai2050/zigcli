@@ -3,6 +3,7 @@
 //! https://man7.org/linux/man-pages/man1/yes.1.html
 //!
 const std = @import("std");
+const util = @import("util.zig");
 
 const BUFFER_CAP = 32 * 1024;
 
@@ -24,9 +25,9 @@ fn fillBuffer(buf: []u8, text: []const u8) usize {
 }
 
 pub fn main() !void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    var gpa = util.Allocator.instance;
+    defer gpa.deinit();
+    const allocator = gpa.allocator();
 
     var iter = try std.process.argsWithAllocator(allocator);
     _ = iter.next() orelse unreachable; // program

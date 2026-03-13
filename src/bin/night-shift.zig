@@ -197,9 +197,9 @@ const Command = enum {
 };
 
 pub fn main() !void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    var gpa = util.Allocator.instance;
+    defer gpa.deinit();
+    const allocator = gpa.allocator();
 
     const opt = try simargs.parse(allocator, struct {
         version: bool = false,

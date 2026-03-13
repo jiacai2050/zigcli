@@ -3,14 +3,13 @@ const Table = @import("pretty-table").Table;
 const Separator = @import("pretty-table").Separator;
 const simargs = @import("simargs");
 const util = @import("util.zig");
+const gitignore = @import("gitignore");
 const StringUtil = util.StringUtil;
 const fs = std.fs;
 
 pub const std_options: std.Options = .{
     .log_level = .info,
 };
-
-const IGNORE_DIRS = [_][]const u8{ ".git", "zig-cache", "zig-out", "target", "vendor", "node_modules", "out" };
 
 const Language = enum {
     Zig,
@@ -179,14 +178,15 @@ const LinesOfCode = struct {
 const LocMap = std.enums.EnumMap(Language, LinesOfCode);
 
 pub fn main() !void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    var gpa = util.Allocator.instance;
+    defer gpa.deinit();
+    const allocator = gpa.allocator();
 
     const opt = try simargs.parse(allocator, struct {
         sort: Column = .line,
         mode: Separator.Mode = .box,
         padding: usize = 3,
+        @"no-gitignore": bool = false,
         version: bool = false,
         help: bool = false,
 
@@ -202,6 +202,7 @@ pub fn main() !void {
             .help = "Print help information",
             .mode = "Line drawing characters",
             .padding = "Column padding",
+            .@"no-gitignore" = "Do not use .gitignore rules to filter files.",
             .version = "Print version",
             .sort = "Column to sort by",
         };
@@ -228,7 +229,14 @@ pub fn main() !void {
         else => return err,
     };
     defer dir.close();
-    try walk(allocator, &loc_map, dir);
+
+    var gi_stack = gitignore.GitignoreStack.init();
+    defer gi_stack.deinit(allocator);
+    if (!opt.args.@"no-gitignore") {
+        _ = try gi_stack.tryPushDir(dir, "", allocator);
+    }
+
+    try walk(allocator, opt.args.@"no-gitignore", &gi_stack, &loc_map, dir, "");
     try printLocMap(
         allocator,
         &loc_map,
@@ -245,9 +253,14 @@ fn printLocMap(
     mode: Separator.Mode,
     padding: usize,
 ) !void {
+    // All allocations here are temporary (table strings, sort list).
+    // Use a local arena so they are freed together after printing.
+    var local_arena = std.heap.ArenaAllocator.init(allocator);
+    defer local_arena.deinit();
+    const local = local_arena.allocator();
+
     var iter = loc_map.iterator();
     var list: std.ArrayList(*LinesOfCode) = .empty;
-    defer list.deinit(allocator);
 
     var total_entry = LinesOfCode{
         .lang = .Total,
@@ -259,20 +272,19 @@ fn printLocMap(
     };
 
     while (iter.next()) |entry| {
-        try list.append(allocator, entry.value);
+        try list.append(local, entry.value);
         total_entry.merge(entry.value.*);
     }
     std.sort.heap(*LinesOfCode, list.items, sort_col, LinesOfCode.cmp);
 
     var table_data: std.ArrayList(LinesOfCode.LOCTableData) = .empty;
-    defer table_data.deinit(allocator);
 
     for (list.items) |entry| {
-        try table_data.append(allocator, entry.toTableData(allocator));
+        try table_data.append(local, entry.toTableData(local));
     }
     const table = LinesOfCode.LOCTable{
         .header = LinesOfCode.header,
-        .footer = total_entry.toTableData(allocator),
+        .footer = total_entry.toTableData(local),
         .rows = table_data.items,
         .mode = mode,
         .padding = padding,
@@ -284,26 +296,45 @@ fn printLocMap(
     try writer.interface.flush();
 }
 
-fn walk(allocator: std.mem.Allocator, loc_map: *LocMap, dir: fs.Dir) anyerror!void {
+fn walk(
+    /// Long-lived allocator for GitignoreStack patterns.
+    allocator: std.mem.Allocator,
+    no_gitignore: bool,
+    gi_stack: *gitignore.GitignoreStack,
+    loc_map: *LocMap,
+    dir: fs.Dir,
+    rel_dir: []const u8,
+) anyerror!void {
+    // Per-level arena for temporary strings (rel_path).
+    // Freed when this call returns, so memory doesn't accumulate.
+    var local_arena = std.heap.ArenaAllocator.init(allocator);
+    defer local_arena.deinit();
+    const local = local_arena.allocator();
+
     var it = dir.iterate();
     while (try it.next()) |e| {
+        const rel_path = if (rel_dir.len == 0)
+            e.name
+        else
+            try std.fmt.allocPrint(local, "{s}/{s}", .{ rel_dir, e.name });
+
+        if (gi_stack.shouldIgnore(rel_path, e.kind == .directory)) continue;
+
         switch (e.kind) {
             .file => {
                 try populateLoc(allocator, loc_map, dir, e.name);
             },
             .directory => {
-                var should_ignore = false;
-                for (IGNORE_DIRS) |ignore| {
-                    if (std.mem.eql(u8, ignore, e.name)) {
-                        should_ignore = true;
-                        break;
-                    }
-                }
-                if (!should_ignore) {
-                    var sub_dir = try dir.openDir(e.name, .{ .iterate = true });
-                    defer sub_dir.close();
-                    try walk(allocator, loc_map, sub_dir);
-                }
+                var sub_dir = try dir.openDir(e.name, .{ .iterate = true });
+                defer sub_dir.close();
+
+                const layer_pushed = if (!no_gitignore)
+                    try gi_stack.tryPushDir(sub_dir, rel_path, allocator)
+                else
+                    false;
+                defer if (layer_pushed) gi_stack.pop(allocator);
+
+                try walk(allocator, no_gitignore, gi_stack, loc_map, sub_dir, rel_path);
             },
             else => {},
         }

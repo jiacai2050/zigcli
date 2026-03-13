@@ -1,8 +1,36 @@
 const std = @import("std");
 const info = @import("build_info");
 const builtin = @import("builtin");
+const native_os = builtin.os.tag;
 const mem = std.mem;
 const fmt = std.fmt;
+
+pub const Allocator = struct {
+    debug_allocator: std.heap.DebugAllocator(.{}),
+    is_debug: bool,
+
+    pub const instance: Allocator = .{
+        .debug_allocator = .init,
+        .is_debug = switch (builtin.mode) {
+            .Debug, .ReleaseSafe => true,
+            .ReleaseFast, .ReleaseSmall => false,
+        },
+    };
+
+    pub fn allocator(self: *Allocator) mem.Allocator {
+        if (native_os == .wasi) return std.heap.wasm_allocator;
+        return switch (builtin.mode) {
+            .Debug, .ReleaseSafe => self.debug_allocator.allocator(),
+            .ReleaseFast, .ReleaseSmall => std.heap.smp_allocator,
+        };
+    }
+
+    pub fn deinit(self: *Allocator) void {
+        if (self.is_debug and self.debug_allocator.deinit() != .ok) {
+            @panic("mem leaked");
+        }
+    }
+};
 
 pub const MAX_I32: i32 = std.math.maxInt(i32);
 pub const StringUtil = struct {
