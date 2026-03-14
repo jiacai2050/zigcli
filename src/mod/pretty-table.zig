@@ -6,6 +6,13 @@ pub fn Row(comptime num: usize) type {
     return [num]String;
 }
 
+/// Text alignment within a table column.
+pub const Align = enum {
+    left,
+    center,
+    right,
+};
+
 pub const Separator = struct {
     pub const Mode = enum {
         ascii,
@@ -53,7 +60,12 @@ pub fn Table(comptime len: usize) type {
         footer: ?Row(len) = null,
         rows: []const Row(len),
         mode: Separator.Mode = .ascii,
+        /// Number of spaces added to both the left and right side of each cell's content.
         padding: usize = 0,
+        /// Per-column text alignment; defaults to left-alignment for all columns.
+        column_align: [len]Align = [_]Align{.left} ** len,
+        /// When true, a separator line is printed between every pair of adjacent data rows.
+        row_separator: bool = false,
 
         const Self = @This();
 
@@ -90,10 +102,22 @@ pub fn Table(comptime len: usize) type {
                     try writer.writeAll(Separator.get(m, .Text, .Sep));
                 }
 
-                try writer.writeAll(column);
+                // col_len = max_content_len + 2 * padding
+                const content_space = col_len - 2 * self.padding;
+                const remaining = content_space - column.len;
 
-                const left: usize = col_len - column.len;
-                for (0..left) |_| {
+                const left_spaces: usize = switch (self.column_align[col_idx]) {
+                    .left => self.padding,
+                    .right => self.padding + remaining,
+                    .center => self.padding + remaining / 2,
+                };
+                const right_spaces: usize = col_len - left_spaces - column.len;
+
+                for (0..left_spaces) |_| {
+                    try writer.writeAll(" ");
+                }
+                try writer.writeAll(column);
+                for (0..right_spaces) |_| {
                     try writer.writeAll(" ");
                 }
             }
@@ -122,7 +146,8 @@ pub fn Table(comptime len: usize) type {
             }
 
             for (&lens) |*n| {
-                n.* += self.padding;
+                // Each column is widened by padding on both left and right sides.
+                n.* += self.padding * 2;
             }
             return lens;
         }
@@ -131,7 +156,6 @@ pub fn Table(comptime len: usize) type {
             self: Self,
             writer: *std.Io.Writer,
         ) !void {
-            // const self: Self = args[0];
             const column_lens = self.calculateColumnLens();
 
             try self.writeRowDelimiter(writer, .First, column_lens);
@@ -144,8 +168,11 @@ pub fn Table(comptime len: usize) type {
             }
 
             try self.writeRowDelimiter(writer, .Sep, column_lens);
-            for (self.rows) |row| {
+            for (self.rows, 0..) |row, i| {
                 try self.writeRow(writer, &row, column_lens);
+                if (self.row_separator and i + 1 < self.rows.len) {
+                    try self.writeRowDelimiter(writer, .Sep, column_lens);
+                }
             }
 
             if (self.footer) |footer| {
@@ -210,6 +237,85 @@ test "footer usage" {
         \\+--------+-----+
         \\|Total   |5    |
         \\+--------+-----+
+        \\
+    , out.items);
+}
+
+test "right alignment with padding" {
+    const t = Table(2){
+        .header = [_]String{ "Name", "Score" },
+        .rows = &[_][2]String{
+            .{ "Alice", "10" },
+            .{ "Bob", "200" },
+        },
+        .column_align = .{ .left, .right },
+        .padding = 1,
+    };
+
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(std.testing.allocator);
+    try out.writer(std.testing.allocator).print("{f}", .{t});
+
+    try std.testing.expectEqualStrings(
+        \\+-------+-------+
+        \\| Name  | Score |
+        \\+-------+-------+
+        \\| Alice |    10 |
+        \\| Bob   |   200 |
+        \\+-------+-------+
+        \\
+    , out.items);
+}
+
+test "center alignment" {
+    const t = Table(3){
+        .header = [_]String{ "A", "B", "C" },
+        .rows = &[_][3]String{
+            .{ "x", "yy", "zzz" },
+        },
+        .column_align = .{ .center, .center, .center },
+        .padding = 1,
+    };
+
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(std.testing.allocator);
+    try out.writer(std.testing.allocator).print("{f}", .{t});
+
+    try std.testing.expectEqualStrings(
+        \\+---+----+-----+
+        \\| A | B  |  C  |
+        \\+---+----+-----+
+        \\| x | yy | zzz |
+        \\+---+----+-----+
+        \\
+    , out.items);
+}
+
+test "row separator" {
+    const t = Table(2){
+        .header = [_]String{ "K", "V" },
+        .rows = &[_][2]String{
+            .{ "a", "1" },
+            .{ "b", "2" },
+            .{ "c", "3" },
+        },
+        .row_separator = true,
+    };
+
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(std.testing.allocator);
+    try out.writer(std.testing.allocator).print("{f}", .{t});
+
+    try std.testing.expectEqualStrings(
+        \\+-+-+
+        \\|K|V|
+        \\+-+-+
+        \\|a|1|
+        \\+-+-+
+        \\|b|2|
+        \\+-+-+
+        \\|c|3|
+        \\+-+-+
         \\
     , out.items);
 }
