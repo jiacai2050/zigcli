@@ -13,6 +13,52 @@ pub const Align = enum {
     right,
 };
 
+/// ANSI terminal foreground color for a table cell.
+pub const Color = enum {
+    black,
+    red,
+    green,
+    yellow,
+    blue,
+    magenta,
+    cyan,
+    white,
+    // Bright (high-intensity) variants
+    bright_black,
+    bright_red,
+    bright_green,
+    bright_yellow,
+    bright_blue,
+    bright_magenta,
+    bright_cyan,
+    bright_white,
+
+    /// The ANSI SGR reset sequence that cancels all styling.
+    pub const reset = "\x1b[0m";
+
+    /// Returns the ANSI escape sequence that activates this foreground color.
+    pub fn toEscapeCode(self: Color) []const u8 {
+        return switch (self) {
+            .black => "\x1b[30m",
+            .red => "\x1b[31m",
+            .green => "\x1b[32m",
+            .yellow => "\x1b[33m",
+            .blue => "\x1b[34m",
+            .magenta => "\x1b[35m",
+            .cyan => "\x1b[36m",
+            .white => "\x1b[37m",
+            .bright_black => "\x1b[90m",
+            .bright_red => "\x1b[91m",
+            .bright_green => "\x1b[92m",
+            .bright_yellow => "\x1b[93m",
+            .bright_blue => "\x1b[94m",
+            .bright_magenta => "\x1b[95m",
+            .bright_cyan => "\x1b[96m",
+            .bright_white => "\x1b[97m",
+        };
+    }
+};
+
 pub const Separator = struct {
     pub const Mode = enum {
         ascii,
@@ -66,6 +112,14 @@ pub fn Table(comptime len: usize) type {
         column_align: [len]Align = [_]Align{.left} ** len,
         /// When true, a separator line is printed between every pair of adjacent data rows.
         row_separator: bool = false,
+        /// Per-cell foreground colors for data rows.
+        /// When non-null, length must equal `rows.len`.
+        /// A null entry means no color is applied to that cell.
+        cell_colors: ?[]const [len]?Color = null,
+        /// Foreground colors for the header row (one per column, null = no color).
+        header_color: ?[len]?Color = null,
+        /// Foreground colors for the footer row (one per column, null = no color).
+        footer_color: ?[len]?Color = null,
 
         const Self = @This();
 
@@ -92,6 +146,7 @@ pub fn Table(comptime len: usize) type {
             writer: *Writer,
             row: []const String,
             col_lens: [len]usize,
+            colors: ?[len]?Color,
         ) !void {
             const m = self.mode;
             for (row, col_lens, 0..) |column, col_len, col_idx| {
@@ -116,7 +171,16 @@ pub fn Table(comptime len: usize) type {
                 for (0..left_spaces) |_| {
                     try writer.writeAll(" ");
                 }
+                // Apply foreground color around the text content only (not padding),
+                // so that column-width arithmetic is unaffected.
+                const cell_color: ?Color = if (colors) |cs| cs[col_idx] else null;
+                if (cell_color) |c| {
+                    try writer.writeAll(c.toEscapeCode());
+                }
                 try writer.writeAll(column);
+                if (cell_color != null) {
+                    try writer.writeAll(Color.reset);
+                }
                 for (0..right_spaces) |_| {
                     try writer.writeAll(" ");
                 }
@@ -156,6 +220,9 @@ pub fn Table(comptime len: usize) type {
             self: Self,
             writer: *std.Io.Writer,
         ) !void {
+            if (self.cell_colors) |cc| {
+                std.debug.assert(cc.len == self.rows.len);
+            }
             const column_lens = self.calculateColumnLens();
 
             try self.writeRowDelimiter(writer, .First, column_lens);
@@ -164,12 +231,14 @@ pub fn Table(comptime len: usize) type {
                     writer,
                     &header,
                     column_lens,
+                    self.header_color,
                 );
             }
 
             try self.writeRowDelimiter(writer, .Sep, column_lens);
             for (self.rows, 0..) |row, i| {
-                try self.writeRow(writer, &row, column_lens);
+                const colors: ?[len]?Color = if (self.cell_colors) |cc| cc[i] else null;
+                try self.writeRow(writer, &row, column_lens, colors);
                 if (self.row_separator and i + 1 < self.rows.len) {
                     try self.writeRowDelimiter(writer, .Sep, column_lens);
                 }
@@ -177,7 +246,7 @@ pub fn Table(comptime len: usize) type {
 
             if (self.footer) |footer| {
                 try self.writeRowDelimiter(writer, .Sep, column_lens);
-                try self.writeRow(writer, &footer, column_lens);
+                try self.writeRow(writer, &footer, column_lens, self.footer_color);
             }
 
             try self.writeRowDelimiter(writer, .Last, column_lens);
@@ -318,4 +387,54 @@ test "row separator" {
         \\+-+-+
         \\
     , out.items);
+}
+
+test "cell colors produce ANSI escape codes" {
+    const t = Table(2){
+        .header = [_]String{ "Status", "Value" },
+        .rows = &[_][2]String{
+            .{ "OK", "100" },
+            .{ "FAIL", "0" },
+        },
+        .cell_colors = &[_][2]?Color{
+            .{ .green, null },
+            .{ .red, null },
+        },
+    };
+
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(std.testing.allocator);
+    try out.writer(std.testing.allocator).print("{f}", .{t});
+
+    // Borders and column widths are unchanged by color escapes.
+    try std.testing.expect(std.mem.indexOf(u8, out.items, "+------+-----+") != null);
+    // Green escape code wraps "OK", red escape code wraps "FAIL".
+    try std.testing.expect(std.mem.indexOf(u8, out.items, "\x1b[32mOK\x1b[0m") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.items, "\x1b[31mFAIL\x1b[0m") != null);
+    // Uncolored cells ("100", "0") do not have any escape codes.
+    try std.testing.expect(std.mem.indexOf(u8, out.items, "\x1b[32m100") == null);
+}
+
+test "header and footer colors" {
+    const t = Table(2){
+        .header = [_]String{ "Name", "Score" },
+        .rows = &[_][2]String{
+            .{ "Alice", "95" },
+        },
+        .footer = [2]String{ "Total", "95" },
+        .header_color = [2]?Color{ .bright_cyan, .bright_cyan },
+        .footer_color = [2]?Color{ .yellow, .yellow },
+    };
+
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(std.testing.allocator);
+    try out.writer(std.testing.allocator).print("{f}", .{t});
+
+    // Header cells are wrapped with bright cyan.
+    try std.testing.expect(std.mem.indexOf(u8, out.items, "\x1b[96mName\x1b[0m") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.items, "\x1b[96mScore\x1b[0m") != null);
+    // Footer cells are wrapped with yellow.
+    try std.testing.expect(std.mem.indexOf(u8, out.items, "\x1b[33mTotal\x1b[0m") != null);
+    // Data row has no color escape codes.
+    try std.testing.expect(std.mem.indexOf(u8, out.items, "\x1b[" ++ "mAlice") == null);
 }

@@ -4,6 +4,7 @@ const Table = @import("pretty-table").Table;
 const Separator = @import("pretty-table").Separator;
 const String = @import("pretty-table").String;
 const Align = @import("pretty-table").Align;
+const Color = @import("pretty-table").Color;
 
 pub fn main() !void {
     const out = std.fs.File.stdout();
@@ -64,6 +65,27 @@ pub fn main() !void {
         .row_separator = true,
     };
     try writer.interface.print("=== Row separators ===\n{f}\n", .{with_seps});
+
+    // Colors: per-cell foreground colors on data rows, colored header and footer
+    const colored = Table(3){
+        .header = [_]String{ "Service", "Status", "Uptime" },
+        .rows = &[_][3]String{
+            .{ "web", "UP", "99.9%" },
+            .{ "db", "UP", "99.5%" },
+            .{ "cache", "DOWN", "0.0%" },
+        },
+        .footer = [3]String{ "Summary", "2/3 UP", "" },
+        .mode = .box,
+        .padding = 1,
+        .header_color = [3]?Color{ .bright_white, .bright_white, .bright_white },
+        .footer_color = [3]?Color{ .yellow, .yellow, .yellow },
+        .cell_colors = &[_][3]?Color{
+            .{ null, .green, .green },
+            .{ null, .green, .green },
+            .{ null, .red, .red },
+        },
+    };
+    try writer.interface.print("=== Cell colors ===\n{f}\n", .{colored});
 
     try writer.interface.flush();
 }
