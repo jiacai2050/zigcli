@@ -93,7 +93,10 @@ pub fn main() !void {
     defer gpa.deinit();
     const allocator = gpa.allocator();
 
-    const opt = try simargs.parse(allocator, Options, "[program]", util.get_build_info());
+    const opt = try simargs.parse(allocator, Options, .{
+        .argument_prompt = "[program]",
+        .version_string = util.get_build_info(),
+    });
     defer opt.deinit();
 
     if (opt.positional_arguments.len == 0) {

@@ -206,7 +206,10 @@ pub fn main() !void {
             .version = "Print version",
             .sort = "Column to sort by",
         };
-    }, "[file or directory]", util.get_build_info());
+    }, .{
+        .argument_prompt = "[file or directory]",
+        .version_string = util.get_build_info(),
+    });
     defer opt.deinit();
 
     const file_or_dir = if (opt.positional_arguments.len == 0)

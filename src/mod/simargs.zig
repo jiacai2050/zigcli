@@ -23,17 +23,24 @@ const OptionError = ParseError ||
     std.fmt.ParseFloatError ||
     std.process.ArgIterator.InitError;
 
+/// Configuration options for the parser.
+pub const ParseOptions = struct {
+    argument_prompt: ?[]const u8 = null,
+    version_string: ?[]const u8 = null,
+};
+
 /// Parses arguments according to the given structure.
-/// - `T` is the configuration of the arguments.
+/// - `allocator` is used to allocate memory for raw arguments.
+/// - `Options` is the configuration of the arguments.
+/// - `options` contains metadata like argument prompt and version string.
 pub fn parse(
     allocator: std.mem.Allocator,
-    comptime T: type,
-    comptime argument_prompt: ?[]const u8,
-    comptime version_string: ?[]const u8,
-) OptionError!StructArguments(T, version_string, argument_prompt) {
+    comptime Options: type,
+    comptime options: ParseOptions,
+) OptionError!ParseResult(Options, options.version_string, options.argument_prompt) {
     const raw_arguments = try std.process.argsAlloc(allocator);
-    var parser = OptionParser(T).init(allocator);
-    return parser.parse(argument_prompt, version_string, raw_arguments);
+    var parser = OptionParser(Options).init(allocator);
+    return parser.parse(raw_arguments, options);
 }
 
 const OptionField = struct {
@@ -45,13 +52,13 @@ const OptionField = struct {
     is_set: bool = false,
 };
 
-fn getOptionLength(comptime T: type) usize {
-    const type_info = @typeInfo(T);
+fn getOptionLength(comptime Options: type) usize {
+    const type_info = @typeInfo(Options);
     if (type_info != .@"struct") {
-        @compileError("Option configuration should be defined using struct, found " ++ @typeName(T));
+        @compileError("Option configuration should be defined using struct, found " ++ @typeName(Options));
     }
 
-    const fields = std.meta.fields(T);
+    const fields = std.meta.fields(Options);
     inline for (fields) |field| {
         if (std.mem.eql(u8, field.name, command_field_name_default)) {
             return fields.len - 1;
@@ -61,14 +68,14 @@ fn getOptionLength(comptime T: type) usize {
     return fields.len;
 }
 
-fn buildOptionFields(comptime T: type) [getOptionLength(T)]OptionField {
-    const type_info = @typeInfo(T);
+fn buildOptionFields(comptime Options: type) [getOptionLength(Options)]OptionField {
+    const type_info = @typeInfo(Options);
     if (type_info != .@"struct") {
-        @compileError("Option configuration should be defined using struct, found " ++ @typeName(T));
+        @compileError("Option configuration should be defined using struct, found " ++ @typeName(Options));
     }
 
-    var option_fields: [getOptionLength(T)]OptionField = undefined;
-    const fields = std.meta.fields(T);
+    var option_fields: [getOptionLength(Options)]OptionField = undefined;
+    const fields = std.meta.fields(Options);
     var current_index: usize = 0;
     inline for (fields) |field| {
         if (std.mem.eql(u8, field.name, command_field_name_default)) {
@@ -87,8 +94,8 @@ fn buildOptionFields(comptime T: type) [getOptionLength(T)]OptionField {
     }
 
     // Parse short names.
-    if (@hasDecl(T, "__shorts__")) {
-        const shorts_type = @TypeOf(T.__shorts__);
+    if (@hasDecl(Options, "__shorts__")) {
+        const shorts_type = @TypeOf(Options.__shorts__);
         if (@typeInfo(shorts_type) != .@"struct") {
             @compileError("__shorts__ should be defined using struct, found " ++ @typeName(shorts_type));
         }
@@ -98,7 +105,7 @@ fn buildOptionFields(comptime T: type) [getOptionLength(T)]OptionField {
             const long_name = field.name;
             inline for (&option_fields) |*option_field| {
                 if (std.mem.eql(u8, option_field.long_name, long_name)) {
-                    const short_name_literal = @field(T.__shorts__, long_name);
+                    const short_name_literal = @field(Options.__shorts__, long_name);
                     if (@typeInfo(@TypeOf(short_name_literal)) != .enum_literal) {
                         @compileError("Short option value must be literal enum, found " ++ @typeName(@TypeOf(short_name_literal)));
                     }
@@ -113,8 +120,8 @@ fn buildOptionFields(comptime T: type) [getOptionLength(T)]OptionField {
     }
 
     // Parse messages.
-    if (@hasDecl(T, "__messages__")) {
-        const messages_type = @TypeOf(T.__messages__);
+    if (@hasDecl(Options, "__messages__")) {
+        const messages_type = @TypeOf(Options.__messages__);
         if (@typeInfo(messages_type) != .@"struct") {
             @compileError("__messages__ should be defined using struct, found " ++ @typeName(messages_type));
         }
@@ -124,7 +131,7 @@ fn buildOptionFields(comptime T: type) [getOptionLength(T)]OptionField {
             const long_name = field.name;
             inline for (&option_fields) |*option_field| {
                 if (std.mem.eql(u8, option_field.long_name, long_name)) {
-                    option_field.message = @field(T.__messages__, long_name);
+                    option_field.message = @field(Options.__messages__, long_name);
                     break;
                 }
             } else {
@@ -160,10 +167,10 @@ test "build option fields" {
     }, fields);
 }
 
-fn NonOptionType(comptime opt_type: type) type {
-    return switch (@typeInfo(opt_type)) {
+fn NonOptionType(comptime option_type: type) type {
+    return switch (@typeInfo(option_type)) {
         .optional => |optional_info| NonOptionType(optional_info.child),
-        else => opt_type,
+        else => option_type,
     };
 }
 
@@ -225,13 +232,13 @@ const MessageHelper = struct {
 
     pub fn printHelp(
         self: MessageHelper,
-        comptime T: type,
+        comptime Options: type,
         sub_command_name: ?[]const u8,
         writer: anytype,
     ) !void {
-        const option_fields = comptime buildOptionFields(T);
-        const sub_command_messages = if (@hasField(T, command_field_name_default)) blk: {
-            const fields = std.meta.fields(T);
+        const option_fields = comptime buildOptionFields(Options);
+        const sub_command_messages = if (@hasField(Options, command_field_name_default)) blk: {
+            const fields = std.meta.fields(Options);
             inline for (fields) |field| {
                 if (comptime std.mem.eql(u8, field.name, command_field_name_default)) {
                     break :blk subCommandsHelpMsg(
@@ -323,7 +330,7 @@ const MessageHelper = struct {
             const first_part_string = try std.mem.join(arena, "", current_option_list.items);
             try writer.writeAll(first_part_string);
 
-            const struct_fields = std.meta.fields(T);
+            const struct_fields = std.meta.fields(Options);
             inline for (struct_fields) |field| {
                 if (std.mem.eql(u8, field.name, option_field.long_name)) {
                     const real_type = NonOptionType(field.type);
@@ -355,15 +362,15 @@ const MessageHelper = struct {
     }
 };
 
-fn StructArguments(
-    comptime T: type,
+fn ParseResult(
+    comptime Options: type,
     comptime version_string: ?[]const u8,
     comptime argument_prompt: ?[]const u8,
 ) type {
     return struct {
         program_name: []const u8,
         // Parsed options (the user-defined struct)
-        options: T,
+        options: Options,
         positional_arguments: [][:0]u8,
 
         // Unparsed original input arguments
@@ -384,7 +391,7 @@ fn StructArguments(
                 self.program_name,
                 version_string,
                 argument_prompt,
-            ).printHelp(T, null, writer);
+            ).printHelp(Options, null, writer);
         }
     };
 }
@@ -406,13 +413,13 @@ const OptionType = enum(u32) {
     Enum,
 
     fn from_zig_type(
-        comptime T: type,
+        comptime Options: type,
     ) OptionType {
-        return Self.convert(T, false);
+        return Self.convert(Options, false);
     }
 
-    fn convert(comptime T: type, comptime is_optional: bool) OptionType {
-        const base_kind: Self = switch (@typeInfo(T)) {
+    fn convert(comptime Options: type, comptime is_optional: bool) OptionType {
+        const base_kind: Self = switch (@typeInfo(Options)) {
             .int => .RequiredInt,
             .bool => .RequiredBool,
             .float => .RequiredFloat,
@@ -422,11 +429,11 @@ const OptionType = enum(u32) {
                 if (pointer_info.size == .slice and pointer_info.child == u8 and pointer_info.is_const)
                     .RequiredString
                 else {
-                    @compileError("Not supported option type:" ++ @typeName(T));
+                    @compileError("Not supported option type:" ++ @typeName(Options));
                 },
             .@"enum" => .RequiredEnum,
             else => {
-                @compileError("Not supported option type:" ++ @typeName(T));
+                @compileError("Not supported option type:" ++ @typeName(Options));
             },
         };
         const kind_value = @intFromEnum(base_kind) + if (is_optional) @as(u32, REQUIRED_VERSION_SHIFT) else 0;
@@ -470,28 +477,28 @@ const MessageSubCommand = struct {
     message: []const u8,
 };
 
-fn subCommandsHelpMsg(comptime T: type, comptime length: usize) ?[length]MessageSubCommand {
-    const union_type_info = @typeInfo(T);
+fn subCommandsHelpMsg(comptime Options: type, comptime length: usize) ?[length]MessageSubCommand {
+    const union_type_info = @typeInfo(Options);
     if (union_type_info != .@"union") {
-        @compileError("Sub commands should be defined using Union(enum), found " ++ @typeName(T));
+        @compileError("Sub commands should be defined using Union(enum), found " ++ @typeName(Options));
     }
 
-    if (@hasDecl(T, "__messages__")) {
-        const messages_type = @TypeOf(T.__messages__);
+    if (@hasDecl(Options, "__messages__")) {
+        const messages_type = @TypeOf(Options.__messages__);
         if (comptime @typeInfo(messages_type) != .@"struct") {
             @compileError("__messages__ should be defined using struct");
         }
 
         var message_wrappers: [std.meta.fields(messages_type).len]MessageSubCommand = undefined;
         const messages_fields = std.meta.fields(messages_type);
-        const union_fields = std.meta.fields(T);
+        const union_fields = std.meta.fields(Options);
 
         inline for (messages_fields, 0..) |message_field, index| {
             inline for (union_fields) |union_field| {
                 if (comptime std.mem.eql(u8, message_field.name, union_field.name)) {
                     message_wrappers[index] = MessageSubCommand{
                         .name = message_field.name,
-                        .message = @field(T.__messages__, message_field.name),
+                        .message = @field(Options.__messages__, message_field.name),
                     };
                     break;
                 }
@@ -506,13 +513,13 @@ fn subCommandsHelpMsg(comptime T: type, comptime length: usize) ?[length]Message
     return null;
 }
 
-fn SubCommandsType(comptime T: type) type {
-    const union_type_info = @typeInfo(T);
+fn SubCommandsType(comptime Options: type) type {
+    const union_type_info = @typeInfo(Options);
     if (union_type_info != .@"union") {
-        @compileError("Sub commands should be defined using Union(enum), found " ++ @typeName(T));
+        @compileError("Sub commands should be defined using Union(enum), found " ++ @typeName(Options));
     }
 
-    const union_fields = std.meta.fields(T);
+    const union_fields = std.meta.fields(Options);
     var struct_fields: [union_fields.len]std.builtin.Type.StructField = undefined;
     inline for (union_fields, 0..) |union_field, index| {
         if (comptime @typeInfo(union_field.type) != .@"struct") {
@@ -537,11 +544,11 @@ fn SubCommandsType(comptime T: type) type {
     } });
 }
 
-fn CommandParser(comptime T: type) type {
+fn CommandParser(comptime Options: type) type {
     return struct {
-        option_fields: [getOptionLength(T)]OptionField = buildOptionFields(T),
-        option_commands: if (@hasField(T, command_field_name_default)) blk: {
-            const fields = std.meta.fields(T);
+        option_fields: [getOptionLength(Options)]OptionField = buildOptionFields(Options),
+        option_commands: if (@hasField(Options, command_field_name_default)) blk: {
+            const fields = std.meta.fields(Options);
             for (fields) |field| {
                 if (std.mem.eql(u8, field.name, command_field_name_default)) {
                     break :blk SubCommandsType(field.type);
@@ -549,13 +556,13 @@ fn CommandParser(comptime T: type) type {
             } else {
                 unreachable;
             }
-        } else void = if (@hasField(T, command_field_name_default)) .{} else {},
+        } else void = if (@hasField(Options, command_field_name_default)) .{} else {},
     };
 }
 
-/// `T` is a struct, which defines options.
+/// `Options` is a struct, which defines options.
 fn OptionParser(
-    comptime T: type,
+    comptime Options: type,
 ) type {
     return struct {
         allocator: std.mem.Allocator,
@@ -575,17 +582,30 @@ fn OptionParser(
         };
 
         fn parseCommand(
-            comptime Args: type,
+            comptime CurrentOptions: type,
             input_arguments: [][:0]u8,
             argument_index: *usize,
             message_helper: MessageHelper,
             sub_command_name: ?[]const u8,
-        ) !Args {
-            var options: Args = undefined;
-            var command_parser = CommandParser(Args){};
+        ) !CurrentOptions {
+            // State machine used to parse option flags and positional arguments.
+            // The parser transitions between states based on the prefix of each input.
+            //
+            // Available state transitions:
+            // 1. .start -> .arguments:
+            //    Encountered "--" or a non-flag string. Marks the end of options and
+            //    beginning of positional arguments or subcommands.
+            // 2. .start -> .waitValue -> .start:
+            //    Encountered an option flag requiring a value (e.g., --timeout 30).
+            //    The next input is consumed as the value before returning to search for flags.
+            // 3. .start -> .arguments -> subcommand.parseCommand:
+            //    When positional arguments start, if the first one matches a subcommand name,
+            //    the parser delegates control to that subcommand's logic.
+            var options: CurrentOptions = undefined;
+            var command_parser = CommandParser(CurrentOptions){};
             var sub_command_is_set = false;
 
-            const struct_fields = std.meta.fields(Args);
+            const struct_fields = std.meta.fields(CurrentOptions);
             inline for (struct_fields) |field| {
                 if (comptime std.mem.eql(u8, field.name, command_field_name_default)) {
                     if (field.default_value_ptr) |value_ptr| {
@@ -598,8 +618,8 @@ fn OptionParser(
                 if (field.default_value_ptr) |value_ptr| {
                     @field(options, field.name) = @as(*align(1) const field.type, @ptrCast(value_ptr)).*;
                 } else {
-                    const option_type = OptionType.from_zig_type(field.type);
-                    if (!option_type.is_required()) {
+                    const option_type_kind = OptionType.from_zig_type(field.type);
+                    if (!option_type_kind.is_required()) {
                         if (@typeInfo(field.type) == .optional) {
                             @field(options, field.name) = null;
                         }
@@ -661,7 +681,7 @@ fn OptionParser(
                         };
 
                         if (option.option_type == .Bool or option.option_type == .RequiredBool) {
-                            _ = try setOptionValue(Args, &options, option.long_name, "true");
+                            _ = try setOptionValue(CurrentOptions, &options, option.long_name, "true");
                             option.is_set = true;
                             state = .start;
                             current_option = null;
@@ -671,7 +691,7 @@ fn OptionParser(
                                     var stdout_buffer: [1024]u8 = undefined;
                                     var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
                                     const stdout = &stdout_writer.interface;
-                                    message_helper.printHelp(Args, sub_command_name, stdout) catch @panic("OOM");
+                                    message_helper.printHelp(CurrentOptions, sub_command_name, stdout) catch @panic("OOM");
                                     std.process.exit(0);
                                 } else if (std.mem.eql(u8, option.long_name, "version")) {
                                     message_helper.printVersion() catch @panic("OOM");
@@ -712,7 +732,7 @@ fn OptionParser(
                     },
                     .waitValue => {
                         const option = current_option.?;
-                        _ = try setOptionValue(Args, &options, option.long_name, argument);
+                        _ = try setOptionValue(CurrentOptions, &options, option.long_name, argument);
                         option.is_set = true;
                         state = .start;
                         current_option = null;
@@ -745,10 +765,9 @@ fn OptionParser(
 
         fn parse(
             self: *Self,
-            comptime argument_prompt: ?[]const u8,
-            comptime version_string: ?[]const u8,
             input_arguments: [][:0]u8,
-        ) OptionError!StructArguments(T, version_string, argument_prompt) {
+            comptime options: ParseOptions,
+        ) OptionError!ParseResult(Options, options.version_string, options.argument_prompt) {
             if (input_arguments.len == 0) {
                 return error.NoProgram;
             }
@@ -758,17 +777,17 @@ fn OptionParser(
             const message_helper = MessageHelper.init(
                 self.allocator,
                 input_arguments[0],
-                version_string,
-                argument_prompt,
+                options.version_string,
+                options.argument_prompt,
             );
             const parsed_options = try Self.parseCommand(
-                T,
+                Options,
                 arguments_to_parse,
                 &argument_index,
                 message_helper,
                 null,
             );
-            var result = StructArguments(T, version_string, argument_prompt){
+            var result = ParseResult(Options, options.version_string, options.argument_prompt){
                 .program_name = input_arguments[0],
                 .allocator = self.allocator,
                 .options = parsed_options,
@@ -791,8 +810,8 @@ fn getSignedness(comptime option_type: type) std.builtin.Signedness {
 }
 
 // return true when set successfully
-fn setOptionValue(comptime Args: type, options: *Args, long_name: []const u8, raw_value: []const u8) !bool {
-    const fields = std.meta.fields(Args);
+fn setOptionValue(comptime Options: type, options: *Options, long_name: []const u8, raw_value: []const u8) !bool {
+    const fields = std.meta.fields(Options);
     inline for (fields) |field| {
         if (comptime std.mem.eql(u8, field.name, command_field_name_default)) {
             continue;
@@ -877,7 +896,7 @@ test "parse/valid option values" {
     };
 
     var parser = OptionParser(TestArguments).init(gpa);
-    const result = try parser.parse("...", null, &input_arguments);
+    const result = try parser.parse(&input_arguments, .{ .argument_prompt = "..." });
     defer result.deinit();
 
     try std.testing.expectEqualDeep(TestArguments{
@@ -918,7 +937,7 @@ test "parse/bool value" {
             gpa.free(argument);
         };
         var parser = OptionParser(struct { help: bool }).init(gpa);
-        const result = try parser.parse(null, null, &input_arguments);
+        const result = try parser.parse(&input_arguments, .{});
         defer result.deinit();
 
         try std.testing.expect(result.options.help);
@@ -934,7 +953,7 @@ test "parse/bool value" {
             gpa.free(argument);
         };
         var parser = OptionParser(struct { help: bool }).init(gpa);
-        const result = try parser.parse(null, null, &input_arguments);
+        const result = try parser.parse(&input_arguments, .{});
         defer result.deinit();
 
         try std.testing.expect(result.options.help);
@@ -957,7 +976,7 @@ test "parse/missing required arguments" {
     };
     var parser = OptionParser(TestArguments).init(gpa);
 
-    try std.testing.expectError(error.MissingRequiredOption, parser.parse(null, null, &input_arguments));
+    try std.testing.expectError(error.MissingRequiredOption, parser.parse(&input_arguments, .{}));
 }
 
 test "parse/invalid u16 values" {
@@ -973,7 +992,7 @@ test "parse/invalid u16 values" {
     };
     var parser = OptionParser(TestArguments).init(gpa);
 
-    try std.testing.expectError(error.InvalidCharacter, parser.parse(null, null, &input_arguments));
+    try std.testing.expectError(error.InvalidCharacter, parser.parse(&input_arguments, .{}));
 }
 
 test "parse/invalid f32 values" {
@@ -989,7 +1008,7 @@ test "parse/invalid f32 values" {
     };
     var parser = OptionParser(TestArguments).init(gpa);
 
-    try std.testing.expectError(error.InvalidCharacter, parser.parse(null, null, &input_arguments));
+    try std.testing.expectError(error.InvalidCharacter, parser.parse(&input_arguments, .{}));
 }
 
 test "parse/unknown option" {
@@ -1006,7 +1025,7 @@ test "parse/unknown option" {
     };
     var parser = OptionParser(TestArguments).init(gpa);
 
-    try std.testing.expectError(error.NoOption, parser.parse(null, null, &input_arguments));
+    try std.testing.expectError(error.NoOption, parser.parse(&input_arguments, .{}));
 }
 
 test "parse/missing option value" {
@@ -1021,7 +1040,7 @@ test "parse/missing option value" {
     };
     var parser = OptionParser(TestArguments).init(gpa);
 
-    try std.testing.expectError(error.MissingOptionValue, parser.parse(null, null, &input_arguments));
+    try std.testing.expectError(error.MissingOptionValue, parser.parse(&input_arguments, .{}));
 }
 
 test "parse/default value" {
@@ -1044,7 +1063,7 @@ test "parse/default value" {
 
         const __messages__ = .{ .d2 = "padding message" };
     }).init(gpa);
-    const result = try parser.parse("...", null, &input_arguments);
+    const result = try parser.parse(&input_arguments, .{ .argument_prompt = "..." });
     try std.testing.expectEqualStrings("A1", result.options.a1);
     try std.testing.expectEqual(result.positional_arguments.len, 0);
 
@@ -1084,7 +1103,7 @@ test "parse/enum option" {
         a2: enum { C, D } = .D,
         a3: enum { X, Y },
     }).init(gpa);
-    const result = try parser.parse("...", null, &input_arguments);
+    const result = try parser.parse(&input_arguments, .{ .argument_prompt = "..." });
     defer result.deinit();
 
     try std.testing.expectEqual(result.options.a1, .A);
@@ -1119,7 +1138,7 @@ test "parse/positional arguments" {
     var parser = OptionParser(struct {
         a: u8 = 1,
     }).init(gpa);
-    const result = try parser.parse("...", null, &input_arguments);
+    const result = try parser.parse(&input_arguments, .{ .argument_prompt = "..." });
     defer result.deinit();
 
     try std.testing.expectEqualDeep(result.options.a, 1);
@@ -1169,7 +1188,7 @@ test "parse/sub commands" {
             };
         },
     }).init(gpa);
-    const result = try parser.parse("...", null, &input_arguments);
+    const result = try parser.parse(&input_arguments, .{});
     defer result.deinit();
 
     try std.testing.expectEqualDeep(result.options.a, 2);

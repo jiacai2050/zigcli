@@ -86,8 +86,10 @@ pub fn main() anyerror!void {
     const opt = try simargs.parse(
         allocator,
         WalkOptions,
-        "[directory]",
-        util.get_build_info(),
+        .{
+            .argument_prompt = "[directory]",
+            .version_string = util.get_build_info(),
+        },
     );
     defer opt.deinit();
 

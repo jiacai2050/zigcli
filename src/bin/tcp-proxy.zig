@@ -43,7 +43,7 @@ pub fn main() !void {
             .buf_size = "Buffer size for tcp read/write",
             .server_threads = "Server worker threads num",
         };
-    }, null, util.get_build_info());
+    }, .{ .version_string = util.get_build_info() });
 
     if (opt.options.verbose) {
         util.enableVerbose.call();

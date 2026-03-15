@@ -59,8 +59,10 @@ pub fn main() !void {
     const opt = try simargs.parse(
         allocator,
         Args,
-        "[package-dir or url]",
-        util.get_build_info(),
+        .{
+            .argument_prompt = "[package-dir or url]",
+            .version_string = util.get_build_info(),
+        },
     );
     defer opt.deinit();
 

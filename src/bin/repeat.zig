@@ -32,7 +32,10 @@ pub fn main() !void {
             .version = "Print version",
             .help = "Print help information",
         };
-    }, "command", util.get_build_info());
+    }, .{
+        .argument_prompt = "command",
+        .version_string = util.get_build_info(),
+    });
     defer opt.deinit();
 
     const argv = if (opt.positional_arguments.len == 0) {

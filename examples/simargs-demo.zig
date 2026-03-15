@@ -50,7 +50,10 @@ pub fn main() !void {
             .output = "Write to file instead of stdout",
             .timeout = "Max time this request can cost",
         };
-    }, "[file]", "0.1.0");
+    }, .{
+        .argument_prompt = "[file]",
+        .version_string = "0.1.0",
+    });
     defer opt.deinit();
 
     const sep = "-" ** 30;

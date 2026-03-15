@@ -39,7 +39,7 @@ pub fn main() !void {
             .help = "Print help information",
             .version = "Print version",
         };
-    }, null, util.get_build_info());
+    }, .{ .version_string = util.get_build_info() });
     defer opt.deinit();
 
     switch (opt.options.__commands__) {
