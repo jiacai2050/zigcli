@@ -1,5 +1,6 @@
 const std = @import("std");
 const Table = @import("pretty-table").Table;
+const Cell = @import("pretty-table").Cell;
 const Separator = @import("pretty-table").Separator;
 const simargs = @import("simargs");
 const util = @import("util.zig");
@@ -125,14 +126,14 @@ const LinesOfCode = struct {
 
     const header = b: {
         const fieldInfos = std.meta.fields(Column);
-        var names: [fieldInfos.len][]const u8 = undefined;
+        var names: [fieldInfos.len]Cell = undefined;
         for (fieldInfos, 0..) |field, i| {
-            names[i] = [_]u8{std.ascii.toUpper(field.name[0])} ++ field.name[1..];
+            names[i] = Cell.init([_]u8{std.ascii.toUpper(field.name[0])} ++ field.name[1..]);
         }
         break :b names;
     };
     const LOCTable = Table(Self.header.len);
-    const LOCTableData = [Self.header.len][]const u8;
+    const LOCTableData = [Self.header.len]Cell;
 
     fn merge(self: *Self, other: Self) void {
         self.files += other.files;
@@ -163,14 +164,14 @@ const LinesOfCode = struct {
     }
 
     fn toTableData(self: Self, allocator: std.mem.Allocator) Self.LOCTableData {
-        return [_][]const u8{
-            self.lang.toString(),
-            Self.numToString(self.files, allocator),
-            Self.numToString(self.codes + self.blanks + self.comments, allocator),
-            Self.numToString(self.codes, allocator),
-            Self.numToString(self.comments, allocator),
-            Self.numToString(self.blanks, allocator),
-            StringUtil.humanSize(allocator, self.size) catch unreachable,
+        return [_]Cell{
+            Cell.init(self.lang.toString()),
+            Cell.init(Self.numToString(self.files, allocator)),
+            Cell.init(Self.numToString(self.codes + self.blanks + self.comments, allocator)),
+            Cell.init(Self.numToString(self.codes, allocator)),
+            Cell.init(Self.numToString(self.comments, allocator)),
+            Cell.init(Self.numToString(self.blanks, allocator)),
+            Cell.init(StringUtil.humanSize(allocator, self.size) catch unreachable),
         };
     }
 };

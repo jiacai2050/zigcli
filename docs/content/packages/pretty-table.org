@@ -7,23 +7,28 @@
 
 * Features
 - Many box-drawing character to choose(=ascii=, =box=, =dos=).
+- Per-cell styling: foreground/background color, bold, italic.
+- Column spanning (=hspan=): a cell can span multiple columns.
 
 * Usage
 See [[https://github.com/jiacai2050/zigcli/blob/main/examples/pretty-table-demo.zig][pretty-table-demo.zig]]
 
 #+begin_src zig
     const t = Table(2){
-        .header = [_]String{ "Language", "Files" },
-        .rows = &[_][2]String{
-            .{ "Zig", "3" },
-            .{ "Python", "2" },
+        .header = [_]Cell{ Cell.init("Language"), Cell.init("Files") },
+        .rows = &[_][2]Cell{
+            .{ Cell.init("Zig"), Cell.init("3") },
+            .{ Cell.init("Python"), Cell.init("2") },
         },
-        .footer = [2]String{ "Total", "5" },
+        .footer = [2]Cell{ Cell.init("Total"), Cell.init("5") },
         .mode = .box, // or .ascii, .dos
     };
 
-    const out = std.io.getStdOut();
-    try out.writer().print("{}", .{t});
+    const out = std.fs.File.stdout();
+    var buf: [1024]u8 = undefined;
+    var writer = out.writer(&buf);
+    try writer.interface.print("{f}", .{t});
+    try writer.interface.flush();
 #+end_src
 
 #+begin_src plaintext
@@ -32,9 +37,7 @@ See [[https://github.com/jiacai2050/zigcli/blob/main/examples/pretty-table-demo.
 ├────────┼─────┤
 │Zig     │3    │
 │Python  │2    │
-│C       │12   │
-│Ruby    │5    │
 ├────────┼─────┤
-│Total   │22   │
+│Total   │5    │
 └────────┴─────┘
 #+end_src
