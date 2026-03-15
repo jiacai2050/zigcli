@@ -93,16 +93,19 @@ pub fn main() !void {
     defer gpa.deinit();
     const allocator = gpa.allocator();
 
-    const opt = try simargs.parse(allocator, Options, "[program]", util.get_build_info());
+    const opt = try simargs.parse(allocator, Options, .{
+        .argument_prompt = "[program]",
+        .version_string = util.get_build_info(),
+    });
     defer opt.deinit();
 
-    if (opt.positional_args.len == 0) {
+    if (opt.positional_arguments.len == 0) {
         std.log.err("program is not given", .{});
         std.posix.exit(1);
     }
 
-    const program = opt.positional_args[0];
-    const pids = try searchPids(allocator, opt.args, program);
+    const program = opt.positional_arguments[0];
+    const pids = try searchPids(allocator, opt.options, program);
     if (pids.items.len == 0) {
         std.posix.exit(1);
     }
@@ -112,7 +115,7 @@ pub fn main() !void {
     var writer = stdout.writer(&buf);
     for (pids.items, 0..) |pid, i| {
         if (i > 0) {
-            try writer.interface.writeAll(opt.args.delimiter);
+            try writer.interface.writeAll(opt.options.delimiter);
         }
         try writer.interface.print("{d}", .{pid});
     }
