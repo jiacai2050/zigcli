@@ -2,8 +2,69 @@ const std = @import("std");
 const Writer = std.io.Writer;
 
 pub const String = []const u8;
+
+/// A table cell with optional per-cell ANSI styling and column spanning.
+pub const Cell = struct {
+    text: String,
+    bold: bool = false,
+    italic: bool = false,
+    /// Foreground (text) color.
+    fg: ?Color = null,
+    /// Background color.
+    bg: ?Color = null,
+    /// Number of columns this cell spans (must be ≥ 1).
+    hspan: usize = 1,
+
+    /// Creates a plain cell containing `text`.
+    pub fn init(text: String) Cell {
+        return .{ .text = text };
+    }
+
+    /// Creates an empty placeholder cell for positions consumed by a spanning cell.
+    pub fn span() Cell {
+        return .{ .text = "" };
+    }
+
+    /// Returns a copy of this cell with bold text enabled.
+    pub fn withBold(self: Cell) Cell {
+        var c = self;
+        c.bold = true;
+        return c;
+    }
+
+    /// Returns a copy of this cell with italic text enabled.
+    pub fn withItalic(self: Cell) Cell {
+        var c = self;
+        c.italic = true;
+        return c;
+    }
+
+    /// Returns a copy of this cell with the given foreground color.
+    pub fn withFg(self: Cell, color: Color) Cell {
+        var c = self;
+        c.fg = color;
+        return c;
+    }
+
+    /// Returns a copy of this cell with the given background color.
+    pub fn withBg(self: Cell, color: Color) Cell {
+        var c = self;
+        c.bg = color;
+        return c;
+    }
+
+    /// Returns a copy of this cell that spans `n` columns (n must be ≥ 1).
+    /// Fill the following `n-1` positions in the row with `Cell.span()`.
+    pub fn withHspan(self: Cell, n: usize) Cell {
+        std.debug.assert(n >= 1);
+        var c = self;
+        c.hspan = n;
+        return c;
+    }
+};
+
 pub fn Row(comptime num: usize) type {
-    return [num]String;
+    return [num]Cell;
 }
 
 /// Text alignment within a table column.
@@ -55,6 +116,28 @@ pub const Color = enum {
             .bright_magenta => "\x1b[95m",
             .bright_cyan => "\x1b[96m",
             .bright_white => "\x1b[97m",
+        };
+    }
+
+    /// Returns the ANSI escape sequence that activates this background color.
+    pub fn toBgEscapeCode(self: Color) []const u8 {
+        return switch (self) {
+            .black => "\x1b[40m",
+            .red => "\x1b[41m",
+            .green => "\x1b[42m",
+            .yellow => "\x1b[43m",
+            .blue => "\x1b[44m",
+            .magenta => "\x1b[45m",
+            .cyan => "\x1b[46m",
+            .white => "\x1b[47m",
+            .bright_black => "\x1b[100m",
+            .bright_red => "\x1b[101m",
+            .bright_green => "\x1b[102m",
+            .bright_yellow => "\x1b[103m",
+            .bright_blue => "\x1b[104m",
+            .bright_magenta => "\x1b[105m",
+            .bright_cyan => "\x1b[106m",
+            .bright_white => "\x1b[107m",
         };
     }
 };
@@ -112,14 +195,6 @@ pub fn Table(comptime len: usize) type {
         column_align: [len]Align = [_]Align{.left} ** len,
         /// When true, a separator line is printed between every pair of adjacent data rows.
         row_separator: bool = false,
-        /// Per-cell foreground colors for data rows.
-        /// When non-null, length must equal `rows.len`.
-        /// A null entry means no color is applied to that cell.
-        cell_colors: ?[]const [len]?Color = null,
-        /// Foreground colors for the header row (one per column, null = no color).
-        header_color: ?[len]?Color = null,
-        /// Foreground colors for the footer row (one per column, null = no color).
-        footer_color: ?[len]?Color = null,
 
         const Self = @This();
 
@@ -144,12 +219,22 @@ pub fn Table(comptime len: usize) type {
         fn writeRow(
             self: Self,
             writer: *Writer,
-            row: []const String,
+            row: []const Cell,
             col_lens: [len]usize,
-            colors: ?[len]?Color,
         ) !void {
             const m = self.mode;
-            for (row, col_lens, 0..) |column, col_len, col_idx| {
+            // Track which column positions are absorbed by a spanning cell.
+            var covered = [_]bool{false} ** len;
+
+            for (row, 0..) |cell, col_idx| {
+                if (covered[col_idx]) continue;
+
+                // Clamp the span to the remaining columns in the row.
+                const effective_span = @min(cell.hspan, len - col_idx);
+
+                // Mark the columns consumed by this span (beyond the first).
+                for (1..effective_span) |offset| covered[col_idx + offset] = true;
+
                 const first_col = col_idx == 0;
                 if (first_col) {
                     try writer.writeAll(Separator.get(m, .Text, .First));
@@ -157,33 +242,36 @@ pub fn Table(comptime len: usize) type {
                     try writer.writeAll(Separator.get(m, .Text, .Sep));
                 }
 
-                // col_len = max_content_len + 2 * padding
-                const content_space = col_len - 2 * self.padding;
-                const remaining = content_space - column.len;
+                // Combined visual width: sum of spanned column widths plus the
+                // absorbed separator characters between them.
+                var cell_width = col_lens[col_idx];
+                for (1..effective_span) |offset| cell_width += 1 + col_lens[col_idx + offset];
+
+                const text = cell.text;
+                const content_space = if (cell_width >= 2 * self.padding) cell_width - 2 * self.padding else 0;
+                const remaining = if (content_space >= text.len) content_space - text.len else 0;
 
                 const left_spaces: usize = switch (self.column_align[col_idx]) {
                     .left => self.padding,
                     .right => self.padding + remaining,
                     .center => self.padding + remaining / 2,
                 };
-                const right_spaces: usize = col_len - left_spaces - column.len;
+                const right_spaces: usize =
+                    if (cell_width >= left_spaces + text.len) cell_width - left_spaces - text.len else 0;
 
-                for (0..left_spaces) |_| {
-                    try writer.writeAll(" ");
-                }
-                // Apply foreground color around the text content only (not padding),
-                // so that column-width arithmetic is unaffected.
-                const cell_color: ?Color = if (colors) |cs| cs[col_idx] else null;
-                if (cell_color) |c| {
-                    try writer.writeAll(c.toEscapeCode());
-                }
-                try writer.writeAll(column);
-                if (cell_color != null) {
+                for (0..left_spaces) |_| try writer.writeAll(" ");
+
+                // Emit ANSI styling codes before the text content.
+                if (cell.bold) try writer.writeAll("\x1b[1m");
+                if (cell.italic) try writer.writeAll("\x1b[3m");
+                if (cell.fg) |c| try writer.writeAll(c.toEscapeCode());
+                if (cell.bg) |c| try writer.writeAll(c.toBgEscapeCode());
+                try writer.writeAll(text);
+                if (cell.bold or cell.italic or cell.fg != null or cell.bg != null) {
                     try writer.writeAll(Color.reset);
                 }
-                for (0..right_spaces) |_| {
-                    try writer.writeAll(" ");
-                }
+
+                for (0..right_spaces) |_| try writer.writeAll(" ");
             }
             try writer.writeAll(Separator.get(m, .Text, .Last));
             try writer.writeAll("\n");
@@ -191,28 +279,43 @@ pub fn Table(comptime len: usize) type {
 
         fn calculateColumnLens(self: Self) [len]usize {
             var lens = std.mem.zeroes([len]usize);
-            if (self.header) |header| {
-                for (header, &lens) |column, *n| {
-                    n.* = column.len;
-                }
-            }
 
-            for (self.rows) |row| {
-                for (row, &lens) |col, *n| {
-                    n.* = @max(col.len, n.*);
+            const RowOps = struct {
+                // Pass 1: contribute text widths for non-spanning cells.
+                fn addPass1(row: []const Cell, ls: []usize, padding: usize) void {
+                    for (row, 0..) |cell, i| {
+                        if (cell.hspan == 1) {
+                            ls[i] = @max(cell.text.len + 2 * padding, ls[i]);
+                        }
+                    }
                 }
-            }
-
-            if (self.footer) |footer| {
-                for (footer, &lens) |col, *n| {
-                    n.* = @max(col.len, n.*);
+                // Pass 2: expand the last spanned column if the spanning cell
+                // content (+ padding) exceeds the combined column widths.
+                fn expandSpan(row: []const Cell, ls: []usize, end: usize, padding: usize) void {
+                    for (row, 0..) |cell, i| {
+                        if (cell.hspan <= 1 or i >= end) continue;
+                        const effective_span = @min(cell.hspan, end - i);
+                        // Available space = combined widths of spanned columns
+                        // plus the separator characters between them.
+                        var available: usize = 0;
+                        for (i..i + effective_span) |col| available += ls[col];
+                        available += effective_span - 1;
+                        const needed = cell.text.len + 2 * padding;
+                        if (needed > available) {
+                            ls[i + effective_span - 1] += needed - available;
+                        }
+                    }
                 }
-            }
+            };
 
-            for (&lens) |*n| {
-                // Each column is widened by padding on both left and right sides.
-                n.* += self.padding * 2;
-            }
+            if (self.header) |h| RowOps.addPass1(&h, &lens, self.padding);
+            for (self.rows) |row| RowOps.addPass1(&row, &lens, self.padding);
+            if (self.footer) |ft| RowOps.addPass1(&ft, &lens, self.padding);
+
+            if (self.header) |h| RowOps.expandSpan(&h, &lens, len, self.padding);
+            for (self.rows) |row| RowOps.expandSpan(&row, &lens, len, self.padding);
+            if (self.footer) |ft| RowOps.expandSpan(&ft, &lens, len, self.padding);
+
             return lens;
         }
 
@@ -220,25 +323,16 @@ pub fn Table(comptime len: usize) type {
             self: Self,
             writer: *std.Io.Writer,
         ) !void {
-            if (self.cell_colors) |cc| {
-                std.debug.assert(cc.len == self.rows.len);
-            }
             const column_lens = self.calculateColumnLens();
 
             try self.writeRowDelimiter(writer, .First, column_lens);
             if (self.header) |header| {
-                try self.writeRow(
-                    writer,
-                    &header,
-                    column_lens,
-                    self.header_color,
-                );
+                try self.writeRow(writer, &header, column_lens);
             }
 
             try self.writeRowDelimiter(writer, .Sep, column_lens);
             for (self.rows, 0..) |row, i| {
-                const colors: ?[len]?Color = if (self.cell_colors) |cc| cc[i] else null;
-                try self.writeRow(writer, &row, column_lens, colors);
+                try self.writeRow(writer, &row, column_lens);
                 if (self.row_separator and i + 1 < self.rows.len) {
                     try self.writeRowDelimiter(writer, .Sep, column_lens);
                 }
@@ -246,7 +340,7 @@ pub fn Table(comptime len: usize) type {
 
             if (self.footer) |footer| {
                 try self.writeRowDelimiter(writer, .Sep, column_lens);
-                try self.writeRow(writer, &footer, column_lens, self.footer_color);
+                try self.writeRow(writer, &footer, column_lens);
             }
 
             try self.writeRowDelimiter(writer, .Last, column_lens);
@@ -256,12 +350,12 @@ pub fn Table(comptime len: usize) type {
 
 test "normal usage" {
     const t = Table(2){
-        .header = [_]String{ "Version", "Date" },
-        .rows = &[_][2]String{
-            .{ "0.7.1", "2020-12-13" },
-            .{ "0.7.0", "2020-11-08" },
-            .{ "0.6.0", "2020-04-13" },
-            .{ "0.5.0", "2019-09-30" },
+        .header = [_]Cell{ Cell.init("Version"), Cell.init("Date") },
+        .rows = &[_][2]Cell{
+            .{ Cell.init("0.7.1"), Cell.init("2020-12-13") },
+            .{ Cell.init("0.7.0"), Cell.init("2020-11-08") },
+            .{ Cell.init("0.6.0"), Cell.init("2020-04-13") },
+            .{ Cell.init("0.5.0"), Cell.init("2019-09-30") },
         },
         .footer = null,
     };
@@ -285,12 +379,12 @@ test "normal usage" {
 
 test "footer usage" {
     const t = Table(2){
-        .header = [_]String{ "Language", "Files" },
-        .rows = &[_][2]String{
-            .{ "Zig", "3" },
-            .{ "Python", "2" },
+        .header = [_]Cell{ Cell.init("Language"), Cell.init("Files") },
+        .rows = &[_][2]Cell{
+            .{ Cell.init("Zig"), Cell.init("3") },
+            .{ Cell.init("Python"), Cell.init("2") },
         },
-        .footer = [2]String{ "Total", "5" },
+        .footer = [2]Cell{ Cell.init("Total"), Cell.init("5") },
     };
 
     var out: std.ArrayList(u8) = .empty;
@@ -312,10 +406,10 @@ test "footer usage" {
 
 test "right alignment with padding" {
     const t = Table(2){
-        .header = [_]String{ "Name", "Score" },
-        .rows = &[_][2]String{
-            .{ "Alice", "10" },
-            .{ "Bob", "200" },
+        .header = [_]Cell{ Cell.init("Name"), Cell.init("Score") },
+        .rows = &[_][2]Cell{
+            .{ Cell.init("Alice"), Cell.init("10") },
+            .{ Cell.init("Bob"), Cell.init("200") },
         },
         .column_align = .{ .left, .right },
         .padding = 1,
@@ -338,9 +432,9 @@ test "right alignment with padding" {
 
 test "center alignment" {
     const t = Table(3){
-        .header = [_]String{ "A", "B", "C" },
-        .rows = &[_][3]String{
-            .{ "x", "yy", "zzz" },
+        .header = [_]Cell{ Cell.init("A"), Cell.init("B"), Cell.init("C") },
+        .rows = &[_][3]Cell{
+            .{ Cell.init("x"), Cell.init("yy"), Cell.init("zzz") },
         },
         .column_align = .{ .center, .center, .center },
         .padding = 1,
@@ -362,11 +456,11 @@ test "center alignment" {
 
 test "row separator" {
     const t = Table(2){
-        .header = [_]String{ "K", "V" },
-        .rows = &[_][2]String{
-            .{ "a", "1" },
-            .{ "b", "2" },
-            .{ "c", "3" },
+        .header = [_]Cell{ Cell.init("K"), Cell.init("V") },
+        .rows = &[_][2]Cell{
+            .{ Cell.init("a"), Cell.init("1") },
+            .{ Cell.init("b"), Cell.init("2") },
+            .{ Cell.init("c"), Cell.init("3") },
         },
         .row_separator = true,
     };
@@ -389,16 +483,12 @@ test "row separator" {
     , out.items);
 }
 
-test "cell colors produce ANSI escape codes" {
+test "per-cell foreground color" {
     const t = Table(2){
-        .header = [_]String{ "Status", "Value" },
-        .rows = &[_][2]String{
-            .{ "OK", "100" },
-            .{ "FAIL", "0" },
-        },
-        .cell_colors = &[_][2]?Color{
-            .{ .green, null },
-            .{ .red, null },
+        .header = [_]Cell{ Cell.init("Status"), Cell.init("Value") },
+        .rows = &[_][2]Cell{
+            .{ Cell.init("OK").withFg(.green), Cell.init("100") },
+            .{ Cell.init("FAIL").withFg(.red), Cell.init("0") },
         },
     };
 
@@ -415,15 +505,19 @@ test "cell colors produce ANSI escape codes" {
     try std.testing.expect(std.mem.indexOf(u8, out.items, "\x1b[32m100") == null);
 }
 
-test "header and footer colors" {
+test "header and footer colors via cell styling" {
     const t = Table(2){
-        .header = [_]String{ "Name", "Score" },
-        .rows = &[_][2]String{
-            .{ "Alice", "95" },
+        .header = [_]Cell{
+            Cell.init("Name").withFg(.bright_cyan),
+            Cell.init("Score").withFg(.bright_cyan),
         },
-        .footer = [2]String{ "Total", "95" },
-        .header_color = [2]?Color{ .bright_cyan, .bright_cyan },
-        .footer_color = [2]?Color{ .yellow, .yellow },
+        .rows = &[_][2]Cell{
+            .{ Cell.init("Alice"), Cell.init("95") },
+        },
+        .footer = [2]Cell{
+            Cell.init("Total").withFg(.yellow),
+            Cell.init("95").withFg(.yellow),
+        },
     };
 
     var out: std.ArrayList(u8) = .empty;
@@ -437,4 +531,95 @@ test "header and footer colors" {
     try std.testing.expect(std.mem.indexOf(u8, out.items, "\x1b[33mTotal\x1b[0m") != null);
     // Data row has no color escape codes.
     try std.testing.expect(std.mem.indexOf(u8, out.items, "\x1b[" ++ "mAlice") == null);
+}
+
+test "bold and italic cell styling" {
+    const t = Table(2){
+        .header = [_]Cell{ Cell.init("A"), Cell.init("B") },
+        .rows = &[_][2]Cell{
+            .{ Cell.init("bold").withBold(), Cell.init("italic").withItalic() },
+            .{ Cell.init("both").withBold().withItalic(), Cell.init("plain") },
+        },
+    };
+
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(std.testing.allocator);
+    try out.writer(std.testing.allocator).print("{f}", .{t});
+
+    try std.testing.expect(std.mem.indexOf(u8, out.items, "\x1b[1mbold\x1b[0m") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.items, "\x1b[3mitalic\x1b[0m") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.items, "\x1b[1m\x1b[3mboth\x1b[0m") != null);
+    // Plain cells produce no escape sequences.
+    try std.testing.expect(std.mem.indexOf(u8, out.items, "\x1b[" ++ "mplain") == null);
+}
+
+test "background color" {
+    const t = Table(2){
+        .header = [_]Cell{ Cell.init("X"), Cell.init("Y") },
+        .rows = &[_][2]Cell{
+            .{ Cell.init("hi").withBg(.red), Cell.init("ok") },
+        },
+    };
+
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(std.testing.allocator);
+    try out.writer(std.testing.allocator).print("{f}", .{t});
+
+    try std.testing.expect(std.mem.indexOf(u8, out.items, "\x1b[41mhi\x1b[0m") != null);
+}
+
+test "hspan basic" {
+    // 3-column table; middle row has a cell spanning 2 columns.
+    const t = Table(3){
+        .header = [_]Cell{ Cell.init("A"), Cell.init("B"), Cell.init("C") },
+        .rows = &[_][3]Cell{
+            .{ Cell.init("x"), Cell.init("y"), Cell.init("z") },
+            // "wide" spans columns 1-2; position 2 is a placeholder.
+            .{ Cell.init("a"), Cell.init("wide").withHspan(2), Cell.span() },
+        },
+    };
+
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(std.testing.allocator);
+    try out.writer(std.testing.allocator).print("{f}", .{t});
+
+    // The spanning cell "wide" should appear in the output.
+    try std.testing.expect(std.mem.indexOf(u8, out.items, "wide") != null);
+    // The placeholder text (empty) is not rendered as a separate column in the span row.
+    // Row with span: |a|wide |   (no extra | between "wide" and the right border)
+    // Specifically the span row must NOT contain "|" between the two spanned columns.
+    const span_row_start = std.mem.indexOf(u8, out.items, "|a|") orelse unreachable;
+    const span_row_end = std.mem.indexOfPos(u8, out.items, span_row_start, "\n") orelse unreachable;
+    const span_row = out.items[span_row_start..span_row_end];
+    // The span row should have exactly 3 `|` characters (left, after col 0, right border).
+    var pipe_count: usize = 0;
+    for (span_row) |ch| if (ch == '|') pipe_count += 1;
+    try std.testing.expectEqual(@as(usize, 3), pipe_count);
+}
+
+test "hspan of 3 columns" {
+    // 4-column table; one row has a cell spanning all 3 right-hand columns.
+    const t = Table(4){
+        .header = [_]Cell{ Cell.init("Name"), Cell.init("Q1"), Cell.init("Q2"), Cell.init("Q3") },
+        .rows = &[_][4]Cell{
+            .{ Cell.init("Alice"), Cell.init("90"), Cell.init("85"), Cell.init("92") },
+            // "On leave" spans columns 1-3 (Q1, Q2, Q3).
+            .{ Cell.init("Bob"), Cell.init("On leave").withHspan(3), Cell.span(), Cell.span() },
+        },
+    };
+
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(std.testing.allocator);
+    try out.writer(std.testing.allocator).print("{f}", .{t});
+
+    // The spanning cell text must appear in the output.
+    try std.testing.expect(std.mem.indexOf(u8, out.items, "On leave") != null);
+    // The span row for Bob should have exactly 3 `|` characters:
+    // opening `|`, separator after col 0, and the closing `|`.
+    const span_row_start = std.mem.indexOf(u8, out.items, "|Bob|") orelse unreachable;
+    const span_row_end = std.mem.indexOfPos(u8, out.items, span_row_start, "\n") orelse unreachable;
+    const span_row = out.items[span_row_start..span_row_end];
+    var pipe_count: usize = 0;
+    for (span_row) |ch| if (ch == '|') pipe_count += 1;
+    try std.testing.expectEqual(@as(usize, 3), pipe_count);
 }
