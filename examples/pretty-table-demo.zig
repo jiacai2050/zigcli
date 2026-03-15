@@ -11,7 +11,7 @@ pub fn main() !void {
     var buf: [4096]u8 = undefined;
     var writer = out.writer(&buf);
 
-    // Basic table with box-drawing borders
+    // Basic table with box-drawing borders.
     const basic = Table(2){
         .header = [_]Cell{ Cell.init("Language"), Cell.init("Files") },
         .rows = &[_][2]Cell{
@@ -26,7 +26,7 @@ pub fn main() !void {
     };
     try writer.interface.print("=== Box mode with padding ===\n{f}\n", .{basic});
 
-    // Right-align numeric columns
+    // Right-align numeric columns.
     const scores = Table(3){
         .header = [_]Cell{ Cell.init("Name"), Cell.init("Score"), Cell.init("Rank") },
         .rows = &[_][3]Cell{
@@ -40,7 +40,7 @@ pub fn main() !void {
     };
     try writer.interface.print("=== Right-aligned numeric columns ===\n{f}\n", .{scores});
 
-    // Center-aligned headers
+    // Center-aligned headers.
     const centered = Table(3){
         .header = [_]Cell{ Cell.init("CPU"), Cell.init("Memory"), Cell.init("Disk") },
         .rows = &[_][3]Cell{
@@ -53,7 +53,7 @@ pub fn main() !void {
     };
     try writer.interface.print("=== Center-aligned (DOS mode) ===\n{f}\n", .{centered});
 
-    // Row separators between every data row
+    // Row separators between every data row.
     const with_seps = Table(2){
         .header = [_]Cell{ Cell.init("Step"), Cell.init("Status") },
         .rows = &[_][2]Cell{
@@ -66,7 +66,7 @@ pub fn main() !void {
     };
     try writer.interface.print("=== Row separators ===\n{f}\n", .{with_seps});
 
-    // Per-cell styling: foreground colors, bold, italic, background color
+    // Per-cell styling: foreground colors, bold, italic, background color.
     const styled = Table(3){
         .header = [_]Cell{
             Cell.init("Service").withFg(.bright_white).withBold(),
@@ -96,7 +96,7 @@ pub fn main() !void {
     };
     try writer.interface.print("=== Per-cell styling ===\n{f}\n", .{styled});
 
-    // Column spanning (hspan): one cell spans multiple columns
+    // Column spanning (hspan): one cell spans multiple columns.
     const spanned = Table(4){
         .header = [_]Cell{
             Cell.init("Name"),
