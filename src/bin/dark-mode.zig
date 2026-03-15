@@ -42,7 +42,7 @@ pub fn main() !void {
     }, null, util.get_build_info());
     defer opt.deinit();
 
-    switch (opt.args.__commands__) {
+    switch (opt.options.__commands__) {
         .status => {
             const is_dark = SLSGetAppearanceThemeLegacy();
             if (is_dark) {

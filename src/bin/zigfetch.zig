@@ -64,7 +64,7 @@ pub fn main() !void {
     );
     defer opt.deinit();
 
-    if (opt.positional_args.len == 0) {
+    if (opt.positional_arguments.len == 0) {
         const stdout = std.fs.File.stdout();
         var buf: [1024]u8 = undefined;
         var writer = stdout.writer(&buf);
@@ -73,7 +73,7 @@ pub fn main() !void {
         return;
     }
     // Init global vars
-    args = opt.args;
+    args = opt.options;
     const ca_bundle = try curl.allocCABundle(allocator);
     defer ca_bundle.deinit();
     easy = try curl.Easy.init(.{
@@ -96,7 +96,7 @@ pub fn main() !void {
     try thread_pool.init(.{ .allocator = allocator });
     defer thread_pool.deinit();
 
-    const url_or_path = opt.positional_args[0];
+    const url_or_path = opt.positional_arguments[0];
     defer allocator.free(cache_dirname);
     if (std.mem.startsWith(u8, url_or_path, "http")) {
         try handleHTTP(allocator, url_or_path);

@@ -236,7 +236,7 @@ pub fn main() !void {
     , util.get_build_info());
     defer opt.deinit();
 
-    var args_iter = util.SliceIter([]const u8).init(opt.positional_args);
+    var args_iter = util.SliceIter([]const u8).init(opt.positional_arguments);
     const cmd: Command = if (args_iter.next()) |v|
         Command.FromString.get(v) orelse return error.UnknownCommand
     else

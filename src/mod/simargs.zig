@@ -2,10 +2,11 @@
 
 const std = @import("std");
 const assert = std.debug.assert;
+const Writer = std.io.Writer;
 const testing = std.testing;
 const is_test = @import("builtin").is_test;
 
-const OptionParseError = error{
+const ParseError = error{
     NoProgram,
     NoOption,
     MissingRequiredOption,
@@ -16,7 +17,7 @@ const OptionParseError = error{
 
 const command_field_name_default = "__commands__";
 
-const OptionParseErrorAll = OptionParseError ||
+const OptionError = ParseError ||
     std.mem.Allocator.Error ||
     std.fmt.ParseIntError ||
     std.fmt.ParseFloatError ||
@@ -24,27 +25,27 @@ const OptionParseErrorAll = OptionParseError ||
 
 /// Parses arguments according to the given structure.
 /// - `T` is the configuration of the arguments.
-pub fn argumentsParse(
+pub fn parse(
     allocator: std.mem.Allocator,
     comptime T: type,
     comptime argument_prompt: ?[]const u8,
     comptime version_string: ?[]const u8,
-) OptionParseErrorAll!ArgumentsResult(T, version_string, argument_prompt) {
-    const arguments = try std.process.argsAlloc(allocator);
+) OptionError!StructArguments(T, version_string, argument_prompt) {
+    const raw_arguments = try std.process.argsAlloc(allocator);
     var parser = OptionParser(T).init(allocator);
-    return parser.parse(argument_prompt, version_string, arguments);
+    return parser.parse(argument_prompt, version_string, raw_arguments);
 }
 
 const OptionField = struct {
     long_name: []const u8,
-    option_kind: OptionKind,
+    option_type: OptionType,
     short_name: ?u8 = null,
     message: ?[]const u8 = null,
     // Whether this option is set by the user or has a default value.
     is_set: bool = false,
 };
 
-fn optionCountGet(comptime T: type) usize {
+fn getOptionLength(comptime T: type) usize {
     const type_info = @typeInfo(T);
     if (type_info != .@"struct") {
         @compileError("Option configuration should be defined using struct, found " ++ @typeName(T));
@@ -60,13 +61,13 @@ fn optionCountGet(comptime T: type) usize {
     return fields.len;
 }
 
-fn optionFieldArrayBuild(comptime T: type) [optionCountGet(T)]OptionField {
+fn buildOptionFields(comptime T: type) [getOptionLength(T)]OptionField {
     const type_info = @typeInfo(T);
     if (type_info != .@"struct") {
         @compileError("Option configuration should be defined using struct, found " ++ @typeName(T));
     }
 
-    var option_fields: [optionCountGet(T)]OptionField = undefined;
+    var option_fields: [getOptionLength(T)]OptionField = undefined;
     const fields = std.meta.fields(T);
     var current_index: usize = 0;
     inline for (fields) |field| {
@@ -75,10 +76,10 @@ fn optionFieldArrayBuild(comptime T: type) [optionCountGet(T)]OptionField {
         }
 
         const long_name = field.name;
-        const option_kind = OptionKind.fromZigType(field.type);
+        const option_type = OptionType.from_zig_type(field.type);
         option_fields[current_index] = .{
             .long_name = long_name,
-            .option_kind = option_kind,
+            .option_type = option_type,
             // Option with default value is set automatically.
             .is_set = field.default_value_ptr != null,
         };
@@ -135,8 +136,8 @@ fn optionFieldArrayBuild(comptime T: type) [optionCountGet(T)]OptionField {
     return option_fields;
 }
 
-test "option field array build" {
-    const fields = comptime optionFieldArrayBuild(struct {
+test "build option fields" {
+    const fields = comptime buildOptionFields(struct {
         verbose: bool,
         help: ?bool,
         timeout: u16,
@@ -152,17 +153,17 @@ test "option field array build" {
     });
 
     try std.testing.expectEqualDeep([4]OptionField{
-        .{ .long_name = "verbose", .short_name = 'v', .message = "show verbose log", .option_kind = .RequiredBool },
-        .{ .long_name = "help", .option_kind = .Bool },
-        .{ .long_name = "timeout", .option_kind = .RequiredInt },
-        .{ .long_name = "user-agent", .option_kind = .String },
+        .{ .long_name = "verbose", .short_name = 'v', .message = "show verbose log", .option_type = .RequiredBool },
+        .{ .long_name = "help", .option_type = .Bool },
+        .{ .long_name = "timeout", .option_type = .RequiredInt },
+        .{ .long_name = "user-agent", .option_type = .String },
     }, fields);
 }
 
-fn typeNonOptionalGet(comptime option_type: type) type {
-    return switch (@typeInfo(option_type)) {
-        .optional => |optional_info| typeNonOptionalGet(optional_info.child),
-        else => option_type,
+fn NonOptionType(comptime opt_type: type) type {
+    return switch (@typeInfo(opt_type)) {
+        .optional => |optional_info| NonOptionType(optional_info.child),
+        else => opt_type,
     };
 }
 
@@ -206,7 +207,7 @@ const MessageHelper = struct {
         const format_string = "(default: " ++ switch (field.type) {
             []const u8 => "{s}",
             ?[]const u8 => "{?s}",
-            else => if (@typeInfo(typeNonOptionalGet(field.type)) == .@"enum")
+            else => if (@typeInfo(NonOptionType(field.type)) == .@"enum")
                 "{s}"
             else
                 "{any}",
@@ -222,29 +223,18 @@ const MessageHelper = struct {
         }});
     }
 
-    pub fn versionPrint(
-        self: MessageHelper,
-    ) !void {
-        const stdout = std.fs.File.stdout();
-        var buffer: [1024]u8 = undefined;
-        var writer = stdout.writer(&buffer);
-        const version_string = self.version_string orelse "Unknown";
-        try writer.interface.print("{s}\n", .{version_string});
-        try writer.interface.flush();
-    }
-
-    pub fn helpPrint(
+    pub fn printHelp(
         self: MessageHelper,
         comptime T: type,
         sub_command_name: ?[]const u8,
         writer: anytype,
     ) !void {
-        const option_fields = comptime optionFieldArrayBuild(T);
+        const option_fields = comptime buildOptionFields(T);
         const sub_command_messages = if (@hasField(T, command_field_name_default)) blk: {
             const fields = std.meta.fields(T);
             inline for (fields) |field| {
                 if (comptime std.mem.eql(u8, field.name, command_field_name_default)) {
-                    break :blk subCommandMessageArrayBuild(
+                    break :blk subCommandsHelpMsg(
                         field.type,
                         std.meta.fields(field.type).len,
                     );
@@ -312,7 +302,7 @@ const MessageHelper = struct {
             }
             try current_option_list.append(arena, "--");
             try current_option_list.append(arena, option_field.long_name);
-            try current_option_list.append(arena, option_field.option_kind.asString());
+            try current_option_list.append(arena, option_field.option_type.as_string());
 
             var blank_count: usize = message_offset;
             for (current_option_list.items) |segment| {
@@ -336,7 +326,7 @@ const MessageHelper = struct {
             const struct_fields = std.meta.fields(T);
             inline for (struct_fields) |field| {
                 if (std.mem.eql(u8, field.name, option_field.long_name)) {
-                    const real_type = typeNonOptionalGet(field.type);
+                    const real_type = NonOptionType(field.type);
                     if (@typeInfo(real_type) == .@"enum") {
                         const enum_options_string = try std.mem.join(arena, "|", std.meta.fieldNames(real_type));
                         try writer.writeAll(" (valid: ");
@@ -354,43 +344,52 @@ const MessageHelper = struct {
             try writer.writeAll("\n");
         }
     }
+
+    pub fn printVersion(self: MessageHelper) !void {
+        const stdout = std.fs.File.stdout();
+        var buffer: [1024]u8 = undefined;
+        var writer = stdout.writer(&buffer);
+        const version_string = self.version_string orelse "Unknown";
+        try writer.interface.print("{s}\n", .{version_string});
+        try writer.interface.flush();
+    }
 };
 
-fn ArgumentsResult(
+fn StructArguments(
     comptime T: type,
     comptime version_string: ?[]const u8,
     comptime argument_prompt: ?[]const u8,
 ) type {
     return struct {
         program_name: []const u8,
-        // Parsed arguments
-        arguments: T,
+        // Parsed options (the user-defined struct)
+        options: T,
         positional_arguments: [][:0]u8,
 
-        // Unparsed arguments
-        arguments_raw: [][:0]u8,
+        // Unparsed original input arguments
+        raw_arguments: [][:0]u8,
         allocator: std.mem.Allocator,
 
         const Self = @This();
 
         pub fn deinit(self: Self) void {
             if (!is_test) {
-                std.process.argsFree(self.allocator, self.arguments_raw);
+                std.process.argsFree(self.allocator, self.raw_arguments);
             }
         }
 
-        pub fn helpPrint(self: Self, writer: anytype) !void {
+        pub fn printHelp(self: Self, writer: anytype) !void {
             try MessageHelper.init(
                 self.allocator,
                 self.program_name,
                 version_string,
                 argument_prompt,
-            ).helpPrint(T, null, writer);
+            ).printHelp(T, null, writer);
         }
     };
 }
 
-const OptionKind = enum(u32) {
+const OptionType = enum(u32) {
     const REQUIRED_VERSION_SHIFT = 16;
     const Self = @This();
 
@@ -406,13 +405,13 @@ const OptionKind = enum(u32) {
     String,
     Enum,
 
-    fn fromZigType(
+    fn from_zig_type(
         comptime T: type,
-    ) OptionKind {
+    ) OptionType {
         return Self.convert(T, false);
     }
 
-    fn convert(comptime T: type, comptime is_optional: bool) OptionKind {
+    fn convert(comptime T: type, comptime is_optional: bool) OptionType {
         const base_kind: Self = switch (@typeInfo(T)) {
             .int => .RequiredInt,
             .bool => .RequiredBool,
@@ -434,11 +433,11 @@ const OptionKind = enum(u32) {
         return @enumFromInt(kind_value);
     }
 
-    fn isRequired(self: Self) bool {
+    fn is_required(self: Self) bool {
         return @intFromEnum(self) < REQUIRED_VERSION_SHIFT;
     }
 
-    fn asString(self: Self) []const u8 {
+    fn as_string(self: Self) []const u8 {
         return switch (self) {
             .Int, .RequiredInt => " INTEGER",
             .Bool, .RequiredBool => "",
@@ -449,20 +448,20 @@ const OptionKind = enum(u32) {
     }
 };
 
-test "parse OptionKind" {
-    const testcases = [_]std.meta.Tuple(&.{ type, OptionKind }){
-        .{ i32, OptionKind.RequiredInt },
-        .{ ?u8, OptionKind.Int },
-        .{ f32, OptionKind.RequiredFloat },
-        .{ ?f64, OptionKind.Float },
-        .{ []const u8, OptionKind.RequiredString },
-        .{ ?[]const u8, OptionKind.String },
-        .{ enum { A, B }, OptionKind.RequiredEnum },
-        .{ ?enum { A, B }, OptionKind.Enum },
+test "parse OptionType" {
+    const testcases = [_]std.meta.Tuple(&.{ type, OptionType }){
+        .{ i32, OptionType.RequiredInt },
+        .{ ?u8, OptionType.Int },
+        .{ f32, OptionType.RequiredFloat },
+        .{ ?f64, OptionType.Float },
+        .{ []const u8, OptionType.RequiredString },
+        .{ ?[]const u8, OptionType.String },
+        .{ enum { A, B }, OptionType.RequiredEnum },
+        .{ ?enum { A, B }, OptionType.Enum },
     };
 
     inline for (testcases) |testcase| {
-        try std.testing.expectEqual(testcase.@"1", comptime OptionKind.fromZigType(testcase.@"0"));
+        try std.testing.expectEqual(testcase.@"1", comptime OptionType.from_zig_type(testcase.@"0"));
     }
 }
 
@@ -471,7 +470,7 @@ const MessageSubCommand = struct {
     message: []const u8,
 };
 
-fn subCommandMessageArrayBuild(comptime T: type, comptime length: usize) ?[length]MessageSubCommand {
+fn subCommandsHelpMsg(comptime T: type, comptime length: usize) ?[length]MessageSubCommand {
     const union_type_info = @typeInfo(T);
     if (union_type_info != .@"union") {
         @compileError("Sub commands should be defined using Union(enum), found " ++ @typeName(T));
@@ -507,7 +506,7 @@ fn subCommandMessageArrayBuild(comptime T: type, comptime length: usize) ?[lengt
     return null;
 }
 
-fn subCommandTypeBuild(comptime T: type) type {
+fn SubCommandsType(comptime T: type) type {
     const union_type_info = @typeInfo(T);
     if (union_type_info != .@"union") {
         @compileError("Sub commands should be defined using Union(enum), found " ++ @typeName(T));
@@ -540,12 +539,12 @@ fn subCommandTypeBuild(comptime T: type) type {
 
 fn CommandParser(comptime T: type) type {
     return struct {
-        option_fields: [optionCountGet(T)]OptionField = optionFieldArrayBuild(T),
-        sub_commands_parser: if (@hasField(T, command_field_name_default)) blk: {
+        option_fields: [getOptionLength(T)]OptionField = buildOptionFields(T),
+        option_commands: if (@hasField(T, command_field_name_default)) blk: {
             const fields = std.meta.fields(T);
             for (fields) |field| {
                 if (std.mem.eql(u8, field.name, command_field_name_default)) {
-                    break :blk subCommandTypeBuild(field.type);
+                    break :blk SubCommandsType(field.type);
                 }
             } else {
                 unreachable;
@@ -577,12 +576,12 @@ fn OptionParser(
 
         fn parseCommand(
             comptime Args: type,
-            arguments_input: [][:0]u8,
+            input_arguments: [][:0]u8,
             argument_index: *usize,
             message_helper: MessageHelper,
             sub_command_name: ?[]const u8,
         ) !Args {
-            var arguments: Args = undefined;
+            var options: Args = undefined;
             var command_parser = CommandParser(Args){};
             var sub_command_is_set = false;
 
@@ -591,18 +590,18 @@ fn OptionParser(
                 if (comptime std.mem.eql(u8, field.name, command_field_name_default)) {
                     if (field.default_value_ptr) |value_ptr| {
                         sub_command_is_set = true;
-                        @field(arguments, field.name) = @as(*align(1) const field.type, @ptrCast(value_ptr)).*;
+                        @field(options, field.name) = @as(*align(1) const field.type, @ptrCast(value_ptr)).*;
                     }
                     continue;
                 }
 
                 if (field.default_value_ptr) |value_ptr| {
-                    @field(arguments, field.name) = @as(*align(1) const field.type, @ptrCast(value_ptr)).*;
+                    @field(options, field.name) = @as(*align(1) const field.type, @ptrCast(value_ptr)).*;
                 } else {
-                    const option_kind = OptionKind.fromZigType(field.type);
-                    if (!option_kind.isRequired()) {
+                    const option_type = OptionType.from_zig_type(field.type);
+                    if (!option_type.is_required()) {
                         if (@typeInfo(field.type) == .optional) {
-                            @field(arguments, field.name) = null;
+                            @field(options, field.name) = null;
                         }
                     }
                 }
@@ -611,8 +610,8 @@ fn OptionParser(
             var state = ParseState.start;
             var current_option: ?*OptionField = null;
 
-            outer: while (argument_index.* < arguments_input.len) {
-                const argument = arguments_input[argument_index.*];
+            outer: while (argument_index.* < input_arguments.len) {
+                const argument = input_arguments[argument_index.*];
                 argument_index.* += 1;
 
                 switch (state) {
@@ -661,8 +660,8 @@ fn OptionParser(
                             return error.NoOption;
                         };
 
-                        if (option.option_kind == .Bool or option.option_kind == .RequiredBool) {
-                            _ = try optionValueSet(Args, &arguments, option.long_name, "true");
+                        if (option.option_type == .Bool or option.option_type == .RequiredBool) {
+                            _ = try setOptionValue(Args, &options, option.long_name, "true");
                             option.is_set = true;
                             state = .start;
                             current_option = null;
@@ -672,10 +671,10 @@ fn OptionParser(
                                     var stdout_buffer: [1024]u8 = undefined;
                                     var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
                                     const stdout = &stdout_writer.interface;
-                                    message_helper.helpPrint(Args, sub_command_name, stdout) catch @panic("OOM");
+                                    message_helper.printHelp(Args, sub_command_name, stdout) catch @panic("OOM");
                                     std.process.exit(0);
                                 } else if (std.mem.eql(u8, option.long_name, "version")) {
-                                    message_helper.versionPrint() catch @panic("OOM");
+                                    message_helper.printVersion() catch @panic("OOM");
                                     std.process.exit(0);
                                 }
                             }
@@ -684,23 +683,23 @@ fn OptionParser(
                         }
                     },
                     .arguments => {
-                        if (@TypeOf(command_parser.sub_commands_parser) != void) {
-                            const sub_parser_type = @TypeOf(command_parser.sub_commands_parser);
+                        if (@TypeOf(command_parser.option_commands) != void) {
+                            const sub_parser_type = @TypeOf(command_parser.option_commands);
                             const sub_parser_fields = std.meta.fields(sub_parser_type);
                             inline for (sub_parser_fields) |field| {
                                 if (std.mem.eql(u8, field.name, argument)) {
-                                    const UnionType = @TypeOf(@field(arguments, command_field_name_default));
+                                    const UnionType = @TypeOf(@field(options, command_field_name_default));
                                     const union_fields = std.meta.fields(UnionType);
                                     inline for (union_fields) |union_field| {
                                         if (comptime std.mem.eql(u8, union_field.name, field.name)) {
                                             const value = try Self.parseCommand(
                                                 union_field.type,
-                                                arguments_input,
+                                                input_arguments,
                                                 argument_index,
                                                 message_helper,
                                                 field.name,
                                             );
-                                            @field(arguments, command_field_name_default) = @unionInit(UnionType, field.name, value);
+                                            @field(options, command_field_name_default) = @unionInit(UnionType, field.name, value);
                                             sub_command_is_set = true;
                                             break :outer;
                                         }
@@ -713,7 +712,7 @@ fn OptionParser(
                     },
                     .waitValue => {
                         const option = current_option.?;
-                        _ = try optionValueSet(Args, &arguments, option.long_name, argument);
+                        _ = try setOptionValue(Args, &options, option.long_name, argument);
                         option.is_set = true;
                         state = .start;
                         current_option = null;
@@ -726,12 +725,12 @@ fn OptionParser(
                 .waitValue => return error.MissingOptionValue,
             }
 
-            if (@TypeOf(command_parser.sub_commands_parser) != void and !sub_command_is_set) {
+            if (@TypeOf(command_parser.option_commands) != void and !sub_command_is_set) {
                 return error.MissingSubCommand;
             }
 
             for (command_parser.option_fields) |option_field| {
-                if (option_field.option_kind.isRequired()) {
+                if (option_field.option_type.is_required()) {
                     if (!option_field.is_set) {
                         if (!is_test) {
                             std.log.err("Missing required option '{s}'", .{option_field.long_name});
@@ -741,40 +740,40 @@ fn OptionParser(
                 }
             }
 
-            return arguments;
+            return options;
         }
 
         fn parse(
             self: *Self,
             comptime argument_prompt: ?[]const u8,
             comptime version_string: ?[]const u8,
-            arguments_input: [][:0]u8,
-        ) OptionParseErrorAll!ArgumentsResult(T, version_string, argument_prompt) {
-            if (arguments_input.len == 0) {
+            input_arguments: [][:0]u8,
+        ) OptionError!StructArguments(T, version_string, argument_prompt) {
+            if (input_arguments.len == 0) {
                 return error.NoProgram;
             }
 
-            const arguments_to_parse = arguments_input[1..];
+            const arguments_to_parse = input_arguments[1..];
             var argument_index: usize = 0;
             const message_helper = MessageHelper.init(
                 self.allocator,
-                arguments_input[0],
+                input_arguments[0],
                 version_string,
                 argument_prompt,
             );
-            const parsed_arguments = try Self.parseCommand(
+            const parsed_options = try Self.parseCommand(
                 T,
                 arguments_to_parse,
                 &argument_index,
                 message_helper,
                 null,
             );
-            var result = ArgumentsResult(T, version_string, argument_prompt){
-                .program_name = arguments_input[0],
+            var result = StructArguments(T, version_string, argument_prompt){
+                .program_name = input_arguments[0],
                 .allocator = self.allocator,
-                .arguments = parsed_arguments,
+                .options = parsed_options,
                 .positional_arguments = arguments_to_parse[argument_index..],
-                .arguments_raw = arguments_input,
+                .raw_arguments = input_arguments,
             };
             errdefer result.deinit();
 
@@ -783,16 +782,16 @@ fn OptionParser(
     };
 }
 
-fn typeSignednessGet(comptime option_type: type) std.builtin.Signedness {
+fn getSignedness(comptime option_type: type) std.builtin.Signedness {
     return switch (@typeInfo(option_type)) {
         .int => |int_info| int_info.signedness,
-        .optional => |optional_info| typeSignednessGet(optional_info.child),
+        .optional => |optional_info| getSignedness(optional_info.child),
         else => .unsigned,
     };
 }
 
 // return true when set successfully
-fn optionValueSet(comptime Args: type, arguments: *Args, long_name: []const u8, raw_value: []const u8) !bool {
+fn setOptionValue(comptime Args: type, options: *Args, long_name: []const u8, raw_value: []const u8) !bool {
     const fields = std.meta.fields(Args);
     inline for (fields) |field| {
         if (comptime std.mem.eql(u8, field.name, command_field_name_default)) {
@@ -800,12 +799,12 @@ fn optionValueSet(comptime Args: type, arguments: *Args, long_name: []const u8, 
         }
 
         if (std.mem.eql(u8, field.name, long_name)) {
-            const kind = OptionKind.fromZigType(field.type);
-            const BaseType = typeNonOptionalGet(field.type);
+            const kind = OptionType.from_zig_type(field.type);
+            const BaseType = NonOptionType(field.type);
             switch (kind) {
                 .Int, .RequiredInt => {
                     if (comptime @typeInfo(BaseType) == .int) {
-                        @field(arguments, field.name) = switch (typeSignednessGet(field.type)) {
+                        @field(options, field.name) = switch (getSignedness(field.type)) {
                             .signed => try std.fmt.parseInt(BaseType, raw_value, 0),
                             .unsigned => try std.fmt.parseUnsigned(BaseType, raw_value, 0),
                         };
@@ -813,23 +812,23 @@ fn optionValueSet(comptime Args: type, arguments: *Args, long_name: []const u8, 
                 },
                 .Float, .RequiredFloat => {
                     if (comptime @typeInfo(BaseType) == .float) {
-                        @field(arguments, field.name) = try std.fmt.parseFloat(BaseType, raw_value);
+                        @field(options, field.name) = try std.fmt.parseFloat(BaseType, raw_value);
                     }
                 },
                 .String, .RequiredString => {
                     if (comptime BaseType == []const u8) {
-                        @field(arguments, field.name) = raw_value;
+                        @field(options, field.name) = raw_value;
                     }
                 },
                 .Bool, .RequiredBool => {
                     if (comptime BaseType == bool) {
-                        @field(arguments, field.name) = std.mem.eql(u8, raw_value, "true") or std.mem.eql(u8, raw_value, "1");
+                        @field(options, field.name) = std.mem.eql(u8, raw_value, "true") or std.mem.eql(u8, raw_value, "1");
                     }
                 },
                 .Enum, .RequiredEnum => {
                     if (comptime @typeInfo(BaseType) == .@"enum") {
                         if (std.meta.stringToEnum(BaseType, raw_value)) |value| {
-                            @field(arguments, field.name) = value;
+                            @field(options, field.name) = value;
                         } else {
                             return error.InvalidEnumValue;
                         }
@@ -860,7 +859,7 @@ const TestArguments = struct {
 
 test "parse/valid option values" {
     const gpa = std.testing.allocator;
-    var arguments_input = [_][:0]u8{
+    var input_arguments = [_][:0]u8{
         try gpa.dupeZ(u8, "awesome-cli"),
         try gpa.dupeZ(u8, "--help"),
         try gpa.dupeZ(u8, "--rate"),
@@ -873,12 +872,12 @@ test "parse/valid option values" {
         try gpa.dupeZ(u8, "hello"),
         try gpa.dupeZ(u8, "world"),
     };
-    defer for (arguments_input) |argument| {
+    defer for (input_arguments) |argument| {
         gpa.free(argument);
     };
 
     var parser = OptionParser(TestArguments).init(gpa);
-    const result = try parser.parse("...", null, &arguments_input);
+    const result = try parser.parse("...", null, &input_arguments);
     defer result.deinit();
 
     try std.testing.expectEqualDeep(TestArguments{
@@ -886,15 +885,15 @@ test "parse/valid option values" {
         .rate = 1.2,
         .timeout = 30,
         .@"user-agent" = "firefox",
-    }, result.arguments);
+    }, result.options);
 
-    const expected_positional = arguments_input[arguments_input.len - 2 ..];
+    const expected_positional = input_arguments[input_arguments.len - 2 ..];
     try std.testing.expectEqualDeep(result.positional_arguments, expected_positional);
 
     var writer_list: std.ArrayList(u8) = .empty;
     defer writer_list.deinit(gpa);
 
-    try result.helpPrint(writer_list.writer(gpa));
+    try result.printHelp(writer_list.writer(gpa));
     try std.testing.expectEqualStrings(
         \\ USAGE:
         \\     awesome-cli [OPTIONS] [--] ...
@@ -911,35 +910,35 @@ test "parse/valid option values" {
 test "parse/bool value" {
     const gpa = std.testing.allocator;
     {
-        var arguments_input = [_][:0]u8{
+        var input_arguments = [_][:0]u8{
             try gpa.dupeZ(u8, "awesome-cli"),
             try gpa.dupeZ(u8, "--help"),
         };
-        defer for (arguments_input) |argument| {
+        defer for (input_arguments) |argument| {
             gpa.free(argument);
         };
         var parser = OptionParser(struct { help: bool }).init(gpa);
-        const result = try parser.parse(null, null, &arguments_input);
+        const result = try parser.parse(null, null, &input_arguments);
         defer result.deinit();
 
-        try std.testing.expect(result.arguments.help);
+        try std.testing.expect(result.options.help);
         try std.testing.expectEqual(result.positional_arguments.len, 0);
     }
     {
-        var arguments_input = [_][:0]u8{
+        var input_arguments = [_][:0]u8{
             try gpa.dupeZ(u8, "awesome-cli"),
             try gpa.dupeZ(u8, "--help"),
             try gpa.dupeZ(u8, "true"),
         };
-        defer for (arguments_input) |argument| {
+        defer for (input_arguments) |argument| {
             gpa.free(argument);
         };
         var parser = OptionParser(struct { help: bool }).init(gpa);
-        const result = try parser.parse(null, null, &arguments_input);
+        const result = try parser.parse(null, null, &input_arguments);
         defer result.deinit();
 
-        try std.testing.expect(result.arguments.help);
-        const expected_positional = arguments_input[arguments_input.len - 1 ..];
+        try std.testing.expect(result.options.help);
+        const expected_positional = input_arguments[input_arguments.len - 1 ..];
         try std.testing.expectEqualDeep(
             result.positional_arguments,
             expected_positional,
@@ -949,88 +948,88 @@ test "parse/bool value" {
 
 test "parse/missing required arguments" {
     const gpa = std.testing.allocator;
-    var arguments_input = [_][:0]u8{
+    var input_arguments = [_][:0]u8{
         try gpa.dupeZ(u8, "abc"),
         try gpa.dupeZ(u8, "def"),
     };
-    defer for (arguments_input) |argument| {
+    defer for (input_arguments) |argument| {
         gpa.free(argument);
     };
     var parser = OptionParser(TestArguments).init(gpa);
 
-    try std.testing.expectError(error.MissingRequiredOption, parser.parse(null, null, &arguments_input));
+    try std.testing.expectError(error.MissingRequiredOption, parser.parse(null, null, &input_arguments));
 }
 
 test "parse/invalid u16 values" {
     const gpa = std.testing.allocator;
-    var arguments_input = [_][:0]u8{
+    var input_arguments = [_][:0]u8{
         try gpa.dupeZ(u8, "awesome-cli"),
         try gpa.dupeZ(u8, "--timeout"),
         try gpa.dupeZ(u8, "not-a-number"),
         try gpa.dupeZ(u8, "--help"),
     };
-    defer for (arguments_input) |argument| {
+    defer for (input_arguments) |argument| {
         gpa.free(argument);
     };
     var parser = OptionParser(TestArguments).init(gpa);
 
-    try std.testing.expectError(error.InvalidCharacter, parser.parse(null, null, &arguments_input));
+    try std.testing.expectError(error.InvalidCharacter, parser.parse(null, null, &input_arguments));
 }
 
 test "parse/invalid f32 values" {
     const gpa = std.testing.allocator;
-    var arguments_input = [_][:0]u8{
+    var input_arguments = [_][:0]u8{
         try gpa.dupeZ(u8, "awesome-cli"),
         try gpa.dupeZ(u8, "--rate"),
         try gpa.dupeZ(u8, "not-a-number"),
         try gpa.dupeZ(u8, "--help"),
     };
-    defer for (arguments_input) |argument| {
+    defer for (input_arguments) |argument| {
         gpa.free(argument);
     };
     var parser = OptionParser(TestArguments).init(gpa);
 
-    try std.testing.expectError(error.InvalidCharacter, parser.parse(null, null, &arguments_input));
+    try std.testing.expectError(error.InvalidCharacter, parser.parse(null, null, &input_arguments));
 }
 
 test "parse/unknown option" {
     const gpa = std.testing.allocator;
-    var arguments_input = [_][:0]u8{
+    var input_arguments = [_][:0]u8{
         try gpa.dupeZ(u8, "awesome-cli"),
         try gpa.dupeZ(u8, "-h"),
         try gpa.dupeZ(u8, "--timeout"),
         try gpa.dupeZ(u8, "1"),
         try gpa.dupeZ(u8, "--notexists"),
     };
-    defer for (arguments_input) |argument| {
+    defer for (input_arguments) |argument| {
         gpa.free(argument);
     };
     var parser = OptionParser(TestArguments).init(gpa);
 
-    try std.testing.expectError(error.NoOption, parser.parse(null, null, &arguments_input));
+    try std.testing.expectError(error.NoOption, parser.parse(null, null, &input_arguments));
 }
 
 test "parse/missing option value" {
     const gpa = std.testing.allocator;
-    var arguments_input = [_][:0]u8{
+    var input_arguments = [_][:0]u8{
         try gpa.dupeZ(u8, "awesome-cli"),
         try gpa.dupeZ(u8, "-h"),
         try gpa.dupeZ(u8, "--timeout"),
     };
-    defer for (arguments_input) |argument| {
+    defer for (input_arguments) |argument| {
         gpa.free(argument);
     };
     var parser = OptionParser(TestArguments).init(gpa);
 
-    try std.testing.expectError(error.MissingOptionValue, parser.parse(null, null, &arguments_input));
+    try std.testing.expectError(error.MissingOptionValue, parser.parse(null, null, &input_arguments));
 }
 
 test "parse/default value" {
     const gpa = std.testing.allocator;
-    var arguments_input = [_][:0]u8{
+    var input_arguments = [_][:0]u8{
         try gpa.dupeZ(u8, "awesome-cli"),
     };
-    defer for (arguments_input) |argument| {
+    defer for (input_arguments) |argument| {
         gpa.free(argument);
     };
     var parser = OptionParser(struct {
@@ -1045,14 +1044,14 @@ test "parse/default value" {
 
         const __messages__ = .{ .d2 = "padding message" };
     }).init(gpa);
-    const result = try parser.parse("...", null, &arguments_input);
-    try std.testing.expectEqualStrings("A1", result.arguments.a1);
+    const result = try parser.parse("...", null, &input_arguments);
+    try std.testing.expectEqualStrings("A1", result.options.a1);
     try std.testing.expectEqual(result.positional_arguments.len, 0);
 
     var writer_list: std.ArrayList(u8) = .empty;
     defer writer_list.deinit(gpa);
 
-    try result.helpPrint(writer_list.writer(gpa));
+    try result.printHelp(writer_list.writer(gpa));
     try std.testing.expectEqualStrings(
         \\ USAGE:
         \\     awesome-cli [OPTIONS] [--] ...
@@ -1072,12 +1071,12 @@ test "parse/default value" {
 
 test "parse/enum option" {
     const gpa = std.testing.allocator;
-    var arguments_input = [_][:0]u8{
+    var input_arguments = [_][:0]u8{
         try gpa.dupeZ(u8, "awesome-cli"),
         try gpa.dupeZ(u8, "--a3"),
         try gpa.dupeZ(u8, "Y"),
     };
-    defer for (arguments_input) |argument| {
+    defer for (input_arguments) |argument| {
         gpa.free(argument);
     };
     var parser = OptionParser(struct {
@@ -1085,15 +1084,15 @@ test "parse/enum option" {
         a2: enum { C, D } = .D,
         a3: enum { X, Y },
     }).init(gpa);
-    const result = try parser.parse("...", null, &arguments_input);
+    const result = try parser.parse("...", null, &input_arguments);
     defer result.deinit();
 
-    try std.testing.expectEqual(result.arguments.a1, .A);
+    try std.testing.expectEqual(result.options.a1, .A);
 
     var writer_list: std.ArrayList(u8) = .empty;
     defer writer_list.deinit(gpa);
 
-    try result.helpPrint(writer_list.writer(gpa));
+    try result.printHelp(writer_list.writer(gpa));
     try std.testing.expectEqualStrings(
         \\ USAGE:
         \\     awesome-cli [OPTIONS] [--] ...
@@ -1108,29 +1107,29 @@ test "parse/enum option" {
 
 test "parse/positional arguments" {
     const gpa = std.testing.allocator;
-    var arguments_input = [_][:0]u8{
+    var input_arguments = [_][:0]u8{
         try gpa.dupeZ(u8, "awesome-cli"),
         try gpa.dupeZ(u8, "--"),
         try gpa.dupeZ(u8, "-a"),
         try gpa.dupeZ(u8, "2"),
     };
-    defer for (arguments_input) |argument| {
+    defer for (input_arguments) |argument| {
         gpa.free(argument);
     };
     var parser = OptionParser(struct {
         a: u8 = 1,
     }).init(gpa);
-    const result = try parser.parse("...", null, &arguments_input);
+    const result = try parser.parse("...", null, &input_arguments);
     defer result.deinit();
 
-    try std.testing.expectEqualDeep(result.arguments.a, 1);
-    const expected_positional = arguments_input[arguments_input.len - 2 ..];
+    try std.testing.expectEqualDeep(result.options.a, 1);
+    const expected_positional = input_arguments[input_arguments.len - 2 ..];
     try std.testing.expectEqualDeep(result.positional_arguments, expected_positional);
 
     var writer_list: std.ArrayList(u8) = .empty;
     defer writer_list.deinit(gpa);
 
-    try result.helpPrint(writer_list.writer(gpa));
+    try result.printHelp(writer_list.writer(gpa));
     try std.testing.expectEqualStrings(
         \\ USAGE:
         \\     awesome-cli [OPTIONS] [--] ...
@@ -1143,7 +1142,7 @@ test "parse/positional arguments" {
 
 test "parse/sub commands" {
     const gpa = std.testing.allocator;
-    var arguments_input = [_][:0]u8{
+    var input_arguments = [_][:0]u8{
         try gpa.dupeZ(u8, "awesome-cli"),
         try gpa.dupeZ(u8, "--a"),
         try gpa.dupeZ(u8, "2"),
@@ -1151,7 +1150,7 @@ test "parse/sub commands" {
         try gpa.dupeZ(u8, "--aa"),
         try gpa.dupeZ(u8, "22"),
     };
-    defer for (arguments_input) |argument| {
+    defer for (input_arguments) |argument| {
         gpa.free(argument);
     };
     var parser = OptionParser(struct {
@@ -1170,16 +1169,16 @@ test "parse/sub commands" {
             };
         },
     }).init(gpa);
-    const result = try parser.parse("...", null, &arguments_input);
+    const result = try parser.parse("...", null, &input_arguments);
     defer result.deinit();
 
-    try std.testing.expectEqualDeep(result.arguments.a, 2);
+    try std.testing.expectEqualDeep(result.options.a, 2);
     try std.testing.expectEqual(result.positional_arguments.len, 0);
 
     var writer_list: std.ArrayList(u8) = .empty;
     defer writer_list.deinit(gpa);
 
-    try result.helpPrint(writer_list.writer(gpa));
+    try result.printHelp(writer_list.writer(gpa));
     try std.testing.expectEqualStrings(
         \\ USAGE:
         \\     awesome-cli [OPTIONS] [COMMANDS]
