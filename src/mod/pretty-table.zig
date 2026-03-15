@@ -27,39 +27,39 @@ pub const Cell = struct {
 
     /// Returns a copy of this cell with bold text enabled.
     pub fn withBold(self: Cell) Cell {
-        var c = self;
-        c.bold = true;
-        return c;
+        var cell = self;
+        cell.bold = true;
+        return cell;
     }
 
     /// Returns a copy of this cell with italic text enabled.
     pub fn withItalic(self: Cell) Cell {
-        var c = self;
-        c.italic = true;
-        return c;
+        var cell = self;
+        cell.italic = true;
+        return cell;
     }
 
     /// Returns a copy of this cell with the given foreground color.
-    pub fn withFg(self: Cell, color: Color) Cell {
-        var c = self;
-        c.fg = color;
-        return c;
+    pub fn withFg(self: Cell, fg_color: Color) Cell {
+        var cell = self;
+        cell.fg = fg_color;
+        return cell;
     }
 
     /// Returns a copy of this cell with the given background color.
-    pub fn withBg(self: Cell, color: Color) Cell {
-        var c = self;
-        c.bg = color;
-        return c;
+    pub fn withBg(self: Cell, bg_color: Color) Cell {
+        var cell = self;
+        cell.bg = bg_color;
+        return cell;
     }
 
-    /// Returns a copy of this cell that spans `n` columns (n must be ≥ 1).
-    /// Fill the following `n-1` positions in the row with `Cell.span()`.
-    pub fn withHspan(self: Cell, n: usize) Cell {
-        std.debug.assert(n >= 1);
-        var c = self;
-        c.hspan = n;
-        return c;
+    /// Returns a copy of this cell that spans `column_count` columns (must be ≥ 1).
+    /// Fill the following `column_count - 1` positions in the row with `Cell.span()`.
+    pub fn withHspan(self: Cell, column_count: usize) Cell {
+        std.debug.assert(column_count >= 1);
+        var cell = self;
+        cell.hspan = column_count;
+        return cell;
     }
 };
 
@@ -84,7 +84,7 @@ pub const Color = enum {
     magenta,
     cyan,
     white,
-    // Bright (high-intensity) variants
+    // Bright (high-intensity) variants.
     bright_black,
     bright_red,
     bright_green,
@@ -198,7 +198,12 @@ pub fn Table(comptime len: usize) type {
 
         const Self = @This();
 
-        fn writeRowDelimiter(self: Self, writer: *Writer, row_pos: Separator.Position, col_lens: [len]usize) !void {
+        fn writeRowDelimiter(
+            self: Self,
+            writer: *Writer,
+            row_pos: Separator.Position,
+            col_lens: [len]usize,
+        ) !void {
             inline for (0..len, col_lens) |col_idx, max_len| {
                 const first_col = col_idx == 0;
                 if (first_col) {
@@ -222,7 +227,6 @@ pub fn Table(comptime len: usize) type {
             row: []const Cell,
             col_lens: [len]usize,
         ) !void {
-            const m = self.mode;
             // Track which column positions are absorbed by a spanning cell.
             var covered = [_]bool{false} ** len;
 
@@ -237,9 +241,9 @@ pub fn Table(comptime len: usize) type {
 
                 const first_col = col_idx == 0;
                 if (first_col) {
-                    try writer.writeAll(Separator.get(m, .Text, .First));
+                    try writer.writeAll(Separator.get(self.mode, .Text, .First));
                 } else {
-                    try writer.writeAll(Separator.get(m, .Text, .Sep));
+                    try writer.writeAll(Separator.get(self.mode, .Text, .Sep));
                 }
 
                 // Combined visual width: sum of spanned column widths plus the
@@ -248,24 +252,29 @@ pub fn Table(comptime len: usize) type {
                 for (1..effective_span) |offset| cell_width += 1 + col_lens[col_idx + offset];
 
                 const text = cell.text;
-                const content_space = if (cell_width >= 2 * self.padding) cell_width - 2 * self.padding else 0;
+                const content_space = if (cell_width >= 2 * self.padding)
+                    cell_width - 2 * self.padding
+                else
+                    0;
                 const remaining = if (content_space >= text.len) content_space - text.len else 0;
 
                 const left_spaces: usize = switch (self.column_align[col_idx]) {
                     .left => self.padding,
                     .right => self.padding + remaining,
-                    .center => self.padding + remaining / 2,
+                    .center => self.padding + @divFloor(remaining, 2),
                 };
-                const right_spaces: usize =
-                    if (cell_width >= left_spaces + text.len) cell_width - left_spaces - text.len else 0;
+                const right_spaces: usize = if (cell_width >= left_spaces + text.len)
+                    cell_width - left_spaces - text.len
+                else
+                    0;
 
                 for (0..left_spaces) |_| try writer.writeAll(" ");
 
                 // Emit ANSI styling codes before the text content.
                 if (cell.bold) try writer.writeAll("\x1b[1m");
                 if (cell.italic) try writer.writeAll("\x1b[3m");
-                if (cell.fg) |c| try writer.writeAll(c.toEscapeCode());
-                if (cell.bg) |c| try writer.writeAll(c.toBgEscapeCode());
+                if (cell.fg) |fg_color| try writer.writeAll(fg_color.toEscapeCode());
+                if (cell.bg) |bg_color| try writer.writeAll(bg_color.toBgEscapeCode());
                 try writer.writeAll(text);
                 if (cell.bold or cell.italic or cell.fg != null or cell.bg != null) {
                     try writer.writeAll(Color.reset);
@@ -273,7 +282,7 @@ pub fn Table(comptime len: usize) type {
 
                 for (0..right_spaces) |_| try writer.writeAll(" ");
             }
-            try writer.writeAll(Separator.get(m, .Text, .Last));
+            try writer.writeAll(Separator.get(self.mode, .Text, .Last));
             try writer.writeAll("\n");
         }
 
@@ -281,40 +290,54 @@ pub fn Table(comptime len: usize) type {
             var lens = std.mem.zeroes([len]usize);
 
             const RowOps = struct {
-                // Pass 1: contribute text widths for non-spanning cells.
-                fn addPass1(row: []const Cell, ls: []usize, padding: usize) void {
-                    for (row, 0..) |cell, i| {
+                // First pass: contribute text widths for non-spanning cells.
+                fn accumulateNonSpanning(
+                    row: []const Cell,
+                    col_lens: []usize,
+                    padding: usize,
+                ) void {
+                    for (row, 0..) |cell, col_idx| {
                         if (cell.hspan == 1) {
-                            ls[i] = @max(cell.text.len + 2 * padding, ls[i]);
+                            col_lens[col_idx] = @max(
+                                cell.text.len + 2 * padding,
+                                col_lens[col_idx],
+                            );
                         }
                     }
                 }
-                // Pass 2: expand the last spanned column if the spanning cell
-                // content (+ padding) exceeds the combined column widths.
-                fn expandSpan(row: []const Cell, ls: []usize, end: usize, padding: usize) void {
-                    for (row, 0..) |cell, i| {
-                        if (cell.hspan <= 1 or i >= end) continue;
-                        const effective_span = @min(cell.hspan, end - i);
+                // Second pass: expand the last spanned column so that spanning
+                // cells fit within their allocated width.
+                fn expandSpanning(
+                    row: []const Cell,
+                    col_lens: []usize,
+                    end: usize,
+                    padding: usize,
+                ) void {
+                    for (row, 0..) |cell, start_col| {
+                        if (cell.hspan <= 1 or start_col >= end) continue;
+                        const effective_span = @min(cell.hspan, end - start_col);
                         // Available space = combined widths of spanned columns
                         // plus the separator characters between them.
                         var available: usize = 0;
-                        for (i..i + effective_span) |col| available += ls[col];
+                        for (start_col..start_col + effective_span) |col| {
+                            available += col_lens[col];
+                        }
                         available += effective_span - 1;
                         const needed = cell.text.len + 2 * padding;
                         if (needed > available) {
-                            ls[i + effective_span - 1] += needed - available;
+                            col_lens[start_col + effective_span - 1] += needed - available;
                         }
                     }
                 }
             };
 
-            if (self.header) |h| RowOps.addPass1(&h, &lens, self.padding);
-            for (self.rows) |row| RowOps.addPass1(&row, &lens, self.padding);
-            if (self.footer) |ft| RowOps.addPass1(&ft, &lens, self.padding);
+            if (self.header) |header| RowOps.accumulateNonSpanning(&header, &lens, self.padding);
+            for (self.rows) |row| RowOps.accumulateNonSpanning(&row, &lens, self.padding);
+            if (self.footer) |footer| RowOps.accumulateNonSpanning(&footer, &lens, self.padding);
 
-            if (self.header) |h| RowOps.expandSpan(&h, &lens, len, self.padding);
-            for (self.rows) |row| RowOps.expandSpan(&row, &lens, len, self.padding);
-            if (self.footer) |ft| RowOps.expandSpan(&ft, &lens, len, self.padding);
+            if (self.header) |header| RowOps.expandSpanning(&header, &lens, len, self.padding);
+            for (self.rows) |row| RowOps.expandSpanning(&row, &lens, len, self.padding);
+            if (self.footer) |footer| RowOps.expandSpanning(&footer, &lens, len, self.padding);
 
             return lens;
         }
@@ -586,8 +609,8 @@ test "hspan basic" {
     // The spanning cell "wide" should appear in the output.
     try std.testing.expect(std.mem.indexOf(u8, out.items, "wide") != null);
     // The placeholder text (empty) is not rendered as a separate column in the span row.
-    // Row with span: |a|wide |   (no extra | between "wide" and the right border)
-    // Specifically the span row must NOT contain "|" between the two spanned columns.
+    // Row with span: |a|wide |   (no extra | between "wide" and the right border).
+    // The span row must NOT contain "|" between the two spanned columns.
     const span_row_start = std.mem.indexOf(u8, out.items, "|a|") orelse unreachable;
     const span_row_end = std.mem.indexOfPos(u8, out.items, span_row_start, "\n") orelse unreachable;
     const span_row = out.items[span_row_start..span_row_end];

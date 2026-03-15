@@ -74,9 +74,17 @@ pub fn main() !void {
             Cell.init("Uptime").withFg(.bright_white).withBold(),
         },
         .rows = &[_][3]Cell{
-            .{ Cell.init("web"), Cell.init("UP").withFg(.green), Cell.init("99.9%").withFg(.green) },
+            .{
+                Cell.init("web"),
+                Cell.init("UP").withFg(.green),
+                Cell.init("99.9%").withFg(.green),
+            },
             .{ Cell.init("db"), Cell.init("UP").withFg(.green), Cell.init("99.5%").withFg(.green) },
-            .{ Cell.init("cache"), Cell.init("DOWN").withFg(.red).withBold(), Cell.init("0.0%").withFg(.red) },
+            .{
+                Cell.init("cache"),
+                Cell.init("DOWN").withFg(.red).withBold(),
+                Cell.init("0.0%").withFg(.red),
+            },
         },
         .footer = [3]Cell{
             Cell.init("Summary").withFg(.yellow),
@@ -98,8 +106,13 @@ pub fn main() !void {
         },
         .rows = &[_][4]Cell{
             .{ Cell.init("Alice"), Cell.init("90"), Cell.init("85"), Cell.init("92") },
-            // "N/A" spans columns 1-3 (Q1, Q2, Q3)
-            .{ Cell.init("Bob"), Cell.init("N/A (on leave)").withHspan(3), Cell.span(), Cell.span() },
+            // "N/A" spans columns 1-3 (Q1, Q2, Q3).
+            .{
+                Cell.init("Bob"),
+                Cell.init("N/A (on leave)").withHspan(3),
+                Cell.span(),
+                Cell.span(),
+            },
         },
         .padding = 1,
         .mode = .box,
