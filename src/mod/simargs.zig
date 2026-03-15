@@ -425,12 +425,12 @@ const OptionType = enum(u32) {
             .float => .RequiredFloat,
             .optional => |optional_info| return Self.convert(optional_info.child, true),
             .pointer => |pointer_info|
-                // Only support []const u8.
-                if (pointer_info.size == .slice and pointer_info.child == u8 and pointer_info.is_const)
-                    .RequiredString
-                else {
-                    @compileError("Not supported option type:" ++ @typeName(Options));
-                },
+            // Only support []const u8.
+            if (pointer_info.size == .slice and pointer_info.child == u8 and pointer_info.is_const)
+                .RequiredString
+            else {
+                @compileError("Not supported option type:" ++ @typeName(Options));
+            },
             .@"enum" => .RequiredEnum,
             else => {
                 @compileError("Not supported option type:" ++ @typeName(Options));

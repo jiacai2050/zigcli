@@ -216,24 +216,24 @@ pub fn main() !void {
         };
     }, .{
         .argument_prompt =
-            \\<command>
-            \\
-            \\ Available commands by category:
-            \\ Manual on/off control:
-            \\   status                   View current Night Shift status
-            \\   on                       Turn Night Shift on
-            \\   off                      Turn Night Shift off
-            \\   toggle                   Toggle Night Shift
-            \\
-            \\ Color temperature:
-            \\   temp                     View temperature preference
-            \\   temp  <0-100>            Set temperature preference
-            \\
-            \\ Schedule:
-            \\   schedule                 View current schedule
-            \\   schedule sun             Start schedule from sunset to sunrise
-            \\   schedule off             Stop the current schedule
-            \\   schedule <from> <to>     Start a custom schedule(HH:mm, 24-hour format)
+        \\<command>
+        \\
+        \\ Available commands by category:
+        \\ Manual on/off control:
+        \\   status                   View current Night Shift status
+        \\   on                       Turn Night Shift on
+        \\   off                      Turn Night Shift off
+        \\   toggle                   Toggle Night Shift
+        \\
+        \\ Color temperature:
+        \\   temp                     View temperature preference
+        \\   temp  <0-100>            Set temperature preference
+        \\
+        \\ Schedule:
+        \\   schedule                 View current schedule
+        \\   schedule sun             Start schedule from sunset to sunrise
+        \\   schedule off             Stop the current schedule
+        \\   schedule <from> <to>     Start a custom schedule(HH:mm, 24-hour format)
         ,
         .version_string = util.get_build_info(),
     });
