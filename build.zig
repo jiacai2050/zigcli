@@ -118,6 +118,7 @@ fn buildBinaries(
         "repeat",
         "tcp-proxy",
         "timeout",
+        "progress",
     }) |name| {
         try buildBinary(
             b,
@@ -240,6 +241,11 @@ fn makeCompileStep(
         if (is_darwin) {
             exe.linkLibC();
         } else {
+            return null;
+        }
+    } else if (std.mem.eql(u8, name, "progress")) {
+        // only build for Linux (uses /proc filesystem)
+        if (target.result.os.tag != .linux) {
             return null;
         }
     }
