@@ -214,8 +214,7 @@ pub fn main() !void {
             .help = "Print help information",
             .version = "Print version",
         };
-    }, .{
-        .argument_prompt =
+    },
         \\<command>
         \\
         \\ Available commands by category:
@@ -234,12 +233,10 @@ pub fn main() !void {
         \\   schedule sun             Start schedule from sunset to sunrise
         \\   schedule off             Stop the current schedule
         \\   schedule <from> <to>     Start a custom schedule(HH:mm, 24-hour format)
-        ,
-        .version_string = util.get_build_info(),
-    });
+    , util.get_build_info());
     defer opt.deinit();
 
-    var args_iter = util.SliceIter([]const u8).init(opt.positional_arguments);
+    var args_iter = util.SliceIter([]const u8).init(opt.positional_args);
     const cmd: Command = if (args_iter.next()) |v|
         Command.FromString.get(v) orelse return error.UnknownCommand
     else

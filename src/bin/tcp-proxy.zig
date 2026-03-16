@@ -43,14 +43,14 @@ pub fn main() !void {
             .buf_size = "Buffer size for tcp read/write",
             .server_threads = "Server worker threads num",
         };
-    }, .{ .version_string = util.get_build_info() });
+    }, null, util.get_build_info());
 
-    if (opt.options.verbose) {
+    if (opt.args.verbose) {
         util.enableVerbose.call();
     }
 
-    const bind_addr = try parseIp(opt.options.bind_host, opt.options.local_port);
-    const remote_addr = try parseIp(opt.options.remote_host, opt.options.remote_port);
+    const bind_addr = try parseIp(opt.args.bind_host, opt.args.local_port);
+    const remote_addr = try parseIp(opt.args.remote_host, opt.args.remote_port);
     var server = try bind_addr.listen(.{
         .kernel_backlog = 128,
         .reuse_address = true,
@@ -62,13 +62,13 @@ pub fn main() !void {
 
     try pool.init(.{
         .allocator = allocator,
-        .n_jobs = opt.options.server_threads,
+        .n_jobs = opt.args.server_threads,
     });
     while (true) {
         const client = try server.accept();
         debugPrint("Got new connection, addr:{any}", .{client.address});
 
-        const proxy = Proxy.init(allocator, client, remote_addr, opt.options.buf_size) catch |e| {
+        const proxy = Proxy.init(allocator, client, remote_addr, opt.args.buf_size) catch |e| {
             std.log.err("Init proxy failed, remote:{any}, err:{any}", .{ remote_addr, e });
             client.stream.close();
             continue;

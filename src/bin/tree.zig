@@ -86,17 +86,15 @@ pub fn main() anyerror!void {
     const opt = try simargs.parse(
         allocator,
         WalkOptions,
-        .{
-            .argument_prompt = "[directory]",
-            .version_string = util.get_build_info(),
-        },
+        "[directory]",
+        util.get_build_info(),
     );
     defer opt.deinit();
 
-    const root_dir = if (opt.positional_arguments.len == 0)
+    const root_dir = if (opt.positional_args.len == 0)
         "."
     else
-        opt.positional_arguments[0];
+        opt.positional_args[0];
 
     const stdout = std.fs.File.stdout();
     var buf: [1024]u8 = undefined;
@@ -110,12 +108,12 @@ pub fn main() anyerror!void {
 
     var gi_stack = gitignore.GitignoreStack.init();
     defer gi_stack.deinit(allocator);
-    if (!opt.options.@"no-gitignore") {
+    if (!opt.args.@"no-gitignore") {
         _ = try gi_stack.tryPushDir(dir, "", allocator);
     }
 
     var iter = dir.iterate();
-    const ret = try walk(allocator, opt.options, &gi_stack, &iter, &writer.interface, "", "", 1);
+    const ret = try walk(allocator, opt.args, &gi_stack, &iter, &writer.interface, "", "", 1);
 
     var summary_buf: [64]u8 = undefined;
     const summary = try std.fmt.bufPrint(&summary_buf, "\n{d} directories, {d} files\n", .{

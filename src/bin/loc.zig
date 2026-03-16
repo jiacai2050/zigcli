@@ -207,16 +207,13 @@ pub fn main() !void {
             .version = "Print version",
             .sort = "Column to sort by",
         };
-    }, .{
-        .argument_prompt = "[file or directory]",
-        .version_string = util.get_build_info(),
-    });
+    }, "[file or directory]", util.get_build_info());
     defer opt.deinit();
 
-    const file_or_dir = if (opt.positional_arguments.len == 0)
+    const file_or_dir = if (opt.positional_args.len == 0)
         "."
     else
-        opt.positional_arguments[0];
+        opt.positional_args[0];
 
     var loc_map = LocMap{};
     var dir = fs.cwd().openDir(file_or_dir, .{ .iterate = true }) catch |err| switch (err) {
@@ -225,9 +222,9 @@ pub fn main() !void {
             return printLocMap(
                 allocator,
                 &loc_map,
-                opt.options.sort,
-                opt.options.mode,
-                opt.options.padding,
+                opt.args.sort,
+                opt.args.mode,
+                opt.args.padding,
             );
         },
         else => return err,
@@ -236,17 +233,17 @@ pub fn main() !void {
 
     var gi_stack = gitignore.GitignoreStack.init();
     defer gi_stack.deinit(allocator);
-    if (!opt.options.@"no-gitignore") {
+    if (!opt.args.@"no-gitignore") {
         _ = try gi_stack.tryPushDir(dir, "", allocator);
     }
 
-    try walk(allocator, opt.options.@"no-gitignore", &gi_stack, &loc_map, dir, "");
+    try walk(allocator, opt.args.@"no-gitignore", &gi_stack, &loc_map, dir, "");
     try printLocMap(
         allocator,
         &loc_map,
-        opt.options.sort,
-        opt.options.mode,
-        opt.options.padding,
+        opt.args.sort,
+        opt.args.mode,
+        opt.args.padding,
     );
 }
 

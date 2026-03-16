@@ -32,21 +32,18 @@ pub fn main() !void {
             .version = "Print version",
             .help = "Print help information",
         };
-    }, .{
-        .argument_prompt = "command",
-        .version_string = util.get_build_info(),
-    });
+    }, "command", util.get_build_info());
     defer opt.deinit();
 
-    const argv = if (opt.positional_arguments.len == 0) {
+    const argv = if (opt.positional_args.len == 0) {
         return error.NoCommand;
-    } else opt.positional_arguments;
+    } else opt.positional_args;
 
     var keep_running = true;
     var i: usize = 0;
     while (keep_running) {
         i += 1;
-        if (opt.options.max) |max| {
+        if (opt.args.max) |max| {
             if (max != 0 and i >= max) {
                 keep_running = false;
             }
@@ -62,7 +59,7 @@ pub fn main() !void {
         }
 
         if (keep_running) {
-            if (opt.options.interval) |pause| {
+            if (opt.args.interval) |pause| {
                 std.Thread.sleep(pause * time.ns_per_s);
             }
         }

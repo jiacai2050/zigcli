@@ -50,34 +50,31 @@ pub fn main() !void {
             .output = "Write to file instead of stdout",
             .timeout = "Max time this request can cost",
         };
-    }, .{
-        .argument_prompt = "[file]",
-        .version_string = "0.1.0",
-    });
+    }, "[file]", "0.1.0");
     defer opt.deinit();
 
     const sep = "-" ** 30;
-    std.debug.print("{s}Program{s}\n{s}\n\n", .{ sep, sep, opt.program_name });
+    std.debug.print("{s}Program{s}\n{s}\n\n", .{ sep, sep, opt.program });
     std.debug.print("{s}Arguments{s}\n", .{ sep, sep });
-    inline for (std.meta.fields(@TypeOf(opt.options))) |field| {
-        const format = "{s:>10}: " ++ switch (field.type) {
+    inline for (std.meta.fields(@TypeOf(opt.args))) |fld| {
+        const format = "{s:>10}: " ++ switch (fld.type) {
             []const u8 => "{s}",
             ?[]const u8 => "{?s}",
             else => "{any}",
         } ++ "\n";
-        std.debug.print(format, .{ field.name, @field(opt.options, field.name) });
+        std.debug.print(format, .{ fld.name, @field(opt.args, fld.name) });
     }
 
     std.debug.print("\n{s}Positionals{s}\n", .{ sep, sep });
-    for (opt.positional_arguments, 0..) |argument, index| {
-        std.debug.print("{d}: {s}\n", .{ index + 1, argument });
+    for (opt.positional_args, 0..) |arg, idx| {
+        std.debug.print("{d}: {s}\n", .{ idx + 1, arg });
     }
 
     // Provide a print_help util method
     std.debug.print("\n{s}print_help{s}\n", .{ sep, sep });
     const stdout = std.fs.File.stdout();
-    var buffer: [1024]u8 = undefined;
-    var writer = stdout.writer(&buffer);
+    var buf: [1024]u8 = undefined;
+    var writer = stdout.writer(&buf);
     try opt.printHelp(&writer.interface);
     try writer.interface.flush();
 }

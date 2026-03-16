@@ -39,10 +39,10 @@ pub fn main() !void {
             .help = "Print help information",
             .version = "Print version",
         };
-    }, .{ .version_string = util.get_build_info() });
+    }, null, util.get_build_info());
     defer opt.deinit();
 
-    switch (opt.options.__commands__) {
+    switch (opt.args.__commands__) {
         .status => {
             const is_dark = SLSGetAppearanceThemeLegacy();
             if (is_dark) {
