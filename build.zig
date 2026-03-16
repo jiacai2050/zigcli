@@ -201,8 +201,10 @@ fn makeCompileStep(
     const is_darwin = @import("builtin").os.tag == .macos and target.result.os.tag == .macos;
     const is_win = target.result.os.tag == .windows;
     if (!is_darwin) {
-        if (std.mem.eql(u8, name, "night-shift") or std.mem.eql(u8, name, "dark-mode")) {
-            return null;
+        inline for (.{ "night-shift", "dark-mode", "fastfetch" }) |blacklist| {
+            if (std.mem.eql(u8, name, blacklist)) {
+                return null;
+            }
         }
     }
     const exe = b.addExecutable(.{
