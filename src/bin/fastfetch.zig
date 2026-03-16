@@ -87,7 +87,7 @@ pub fn formatUptime(allocator: mem.Allocator, uptime_seconds: u64) ![]const u8 {
 fn getUptime(allocator: mem.Allocator) ![]const u8 {
     if (comptime native_os == .linux) {
         // /proc/uptime contains "uptime_seconds idle_seconds".
-        const file = try fs.openFileAbsolute("/proc/uptime", .{});
+        const file = try fs.cwd().openFile("/proc/uptime", .{});
         defer file.close();
         var buf: [64]u8 = undefined;
         const byte_count = try file.read(&buf);
@@ -118,7 +118,7 @@ fn getUptime(allocator: mem.Allocator) ![]const u8 {
 fn getOs(allocator: mem.Allocator) ![]const u8 {
     if (comptime native_os == .linux) {
         // Read PRETTY_NAME from /etc/os-release.
-        const file = fs.openFileAbsolute("/etc/os-release", .{}) catch {
+        const file = fs.cwd().openFile("/etc/os-release", .{}) catch {
             return "Linux";
         };
         defer file.close();
@@ -152,7 +152,7 @@ fn getOs(allocator: mem.Allocator) ![]const u8 {
 fn getCpu(allocator: mem.Allocator) ![]const u8 {
     if (comptime native_os == .linux) {
         // The first "model name" entry in /proc/cpuinfo is the CPU model.
-        const file = fs.openFileAbsolute("/proc/cpuinfo", .{}) catch {
+        const file = fs.cwd().openFile("/proc/cpuinfo", .{}) catch {
             return "Unknown";
         };
         defer file.close();
@@ -181,7 +181,7 @@ fn getCpu(allocator: mem.Allocator) ![]const u8 {
 /// Gets memory usage as "used MiB / total MiB" on Linux, or "total MiB" on macOS.
 fn getMemory(allocator: mem.Allocator) ![]const u8 {
     if (comptime native_os == .linux) {
-        const file = fs.openFileAbsolute("/proc/meminfo", .{}) catch {
+        const file = fs.cwd().openFile("/proc/meminfo", .{}) catch {
             return "Unknown";
         };
         defer file.close();
