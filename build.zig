@@ -249,9 +249,12 @@ fn makeCompileStep(
         if (is_win) {
             return null;
         }
-        // macOS sysctl requires libc; Linux uses /proc and needs no extra library.
+        // fastfetch uses @cImport which requires linking libc to find headers.
+        exe.linkLibC();
         if (is_darwin) {
-            exe.linkLibC();
+            exe.linkFramework("CoreGraphics");
+            exe.linkFramework("Foundation");
+            exe.linkFramework("IOKit");
         }
     } else if (std.mem.eql(u8, name, "progress")) {
         // Linux uses the /proc filesystem; macOS uses libproc.
