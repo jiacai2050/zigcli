@@ -914,10 +914,10 @@ test "parse/valid option values" {
     const expected_positional = input_arguments[input_arguments.len - 2 ..];
     try std.testing.expectEqualDeep(result.positional_arguments, expected_positional);
 
-    var writer_list: std.ArrayList(u8) = .empty;
-    defer writer_list.deinit(gpa);
+    var aw: std.Io.Writer.Allocating = .init(gpa);
+    defer aw.deinit();
 
-    try result.printHelp(writer_list.writer(gpa));
+    try result.printHelp(&aw.writer);
     try std.testing.expectEqualStrings(
         \\ USAGE:
         \\     awesome-cli [OPTIONS] [--] ...
@@ -928,7 +928,7 @@ test "parse/valid option values" {
         \\      --timeout INTEGER            (required)
         \\      --user-agent STRING          (default: Brave)
         \\
-    , writer_list.items);
+    , aw.written());
 }
 
 test "parse/bool value" {
@@ -1072,10 +1072,10 @@ test "parse/default value" {
     try std.testing.expectEqualStrings("A1", result.options.a1);
     try std.testing.expectEqual(result.positional_arguments.len, 0);
 
-    var writer_list: std.ArrayList(u8) = .empty;
-    defer writer_list.deinit(gpa);
+    var aw: std.Io.Writer.Allocating = .init(gpa);
+    defer aw.deinit();
 
-    try result.printHelp(writer_list.writer(gpa));
+    try result.printHelp(&aw.writer);
     try std.testing.expectEqualStrings(
         \\ USAGE:
         \\     awesome-cli [OPTIONS] [--] ...
@@ -1090,7 +1090,7 @@ test "parse/default value" {
         \\      --d1                         (default: true)
         \\      --d2                         padding message
         \\
-    , writer_list.items);
+    , aw.written());
 }
 
 test "parse/enum option" {
@@ -1113,10 +1113,10 @@ test "parse/enum option" {
 
     try std.testing.expectEqual(result.options.a1, .A);
 
-    var writer_list: std.ArrayList(u8) = .empty;
-    defer writer_list.deinit(gpa);
+    var aw: std.Io.Writer.Allocating = .init(gpa);
+    defer aw.deinit();
 
-    try result.printHelp(writer_list.writer(gpa));
+    try result.printHelp(&aw.writer);
     try std.testing.expectEqualStrings(
         \\ USAGE:
         \\     awesome-cli [OPTIONS] [--] ...
@@ -1126,7 +1126,7 @@ test "parse/enum option" {
         \\      --a2 STRING                   (valid: C|D)(default: D)
         \\      --a3 STRING                   (valid: X|Y)(required)
         \\
-    , writer_list.items);
+    , aw.written());
 }
 
 test "parse/positional arguments" {
@@ -1150,10 +1150,10 @@ test "parse/positional arguments" {
     const expected_positional = input_arguments[input_arguments.len - 2 ..];
     try std.testing.expectEqualDeep(result.positional_arguments, expected_positional);
 
-    var writer_list: std.ArrayList(u8) = .empty;
-    defer writer_list.deinit(gpa);
+    var aw: std.Io.Writer.Allocating = .init(gpa);
+    defer aw.deinit();
 
-    try result.printHelp(writer_list.writer(gpa));
+    try result.printHelp(&aw.writer);
     try std.testing.expectEqualStrings(
         \\ USAGE:
         \\     awesome-cli [OPTIONS] [--] ...
@@ -1161,7 +1161,7 @@ test "parse/positional arguments" {
         \\ OPTIONS:
         \\      --a INTEGER                  (default: 1)
         \\
-    , writer_list.items);
+    , aw.written());
 }
 
 test "parse/print_help_and_exit false" {
@@ -1217,10 +1217,10 @@ test "parse/sub commands" {
     try std.testing.expectEqualDeep(result.options.a, 2);
     try std.testing.expectEqual(result.positional_arguments.len, 0);
 
-    var writer_list: std.ArrayList(u8) = .empty;
-    defer writer_list.deinit(gpa);
+    var aw: std.Io.Writer.Allocating = .init(gpa);
+    defer aw.deinit();
 
-    try result.printHelp(writer_list.writer(gpa));
+    try result.printHelp(&aw.writer);
     try std.testing.expectEqualStrings(
         \\ USAGE:
         \\     awesome-cli [OPTIONS] [COMMANDS]
@@ -1232,5 +1232,5 @@ test "parse/sub commands" {
         \\ OPTIONS:
         \\      --a INTEGER                  (default: 1)
         \\
-    , writer_list.items);
+    , aw.written());
 }
