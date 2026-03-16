@@ -616,16 +616,20 @@ test "hspan basic" {
     const span_row = out.items[span_row_start..span_row_end];
     // The span row should have exactly 3 `|` characters (left, after col 0, right border).
     var pipe_count: usize = 0;
-    for (span_row) |ch| if (ch == '|') { pipe_count += 1; };
+    for (span_row) |ch| {
+        if (ch == '|') pipe_count += 1;
+    }
     try std.testing.expectEqual(@as(usize, 3), pipe_count);
 }
 
 test "hspan of 3 columns" {
     // 4-column table; one row has a cell spanning all 3 right-hand columns.
+    // Use 3-character names ("Who", "Amy", "Bob") so col 0 width is exactly 3,
+    // which means the Bob row starts with exactly `|Bob|` in the output.
     const t = Table(4){
-        .header = [_]Cell{ Cell.init("Name"), Cell.init("Q1"), Cell.init("Q2"), Cell.init("Q3") },
+        .header = [_]Cell{ Cell.init("Who"), Cell.init("Q1"), Cell.init("Q2"), Cell.init("Q3") },
         .rows = &[_][4]Cell{
-            .{ Cell.init("Alice"), Cell.init("90"), Cell.init("85"), Cell.init("92") },
+            .{ Cell.init("Amy"), Cell.init("90"), Cell.init("85"), Cell.init("92") },
             // "On leave" spans columns 1-3 (Q1, Q2, Q3).
             .{ Cell.init("Bob"), Cell.init("On leave").withHspan(3), Cell.span(), Cell.span() },
         },
@@ -643,6 +647,8 @@ test "hspan of 3 columns" {
     const span_row_end = std.mem.indexOfPos(u8, out.items, span_row_start, "\n") orelse unreachable;
     const span_row = out.items[span_row_start..span_row_end];
     var pipe_count: usize = 0;
-    for (span_row) |ch| if (ch == '|') { pipe_count += 1; };
+    for (span_row) |ch| {
+        if (ch == '|') pipe_count += 1;
+    }
     try std.testing.expectEqual(@as(usize, 3), pipe_count);
 }
