@@ -119,6 +119,7 @@ fn buildBinaries(
         "tcp-proxy",
         "timeout",
         "cowsay",
+        "2fa",
     }) |name| {
         try buildBinary(
             b,
