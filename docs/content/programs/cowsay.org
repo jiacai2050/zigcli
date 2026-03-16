@@ -1,0 +1,57 @@
+#+TITLE: cowsay
+#+DATE: 2026-03-16T04:25:00+0800
+#+LASTMOD: 2026-03-16T04:25:00+0800
+#+TYPE: docs
+#+DESCRIPTION: Generate an ASCII picture of a cow saying something
+
+#+begin_src bash :results verbatim :exports results :wrap example :dir ../../..
+./zig-out/bin/cowsay -h
+#+end_src
+
+#+RESULTS:
+#+begin_example
+ USAGE:
+     ./zig-out/bin/cowsay [OPTIONS] [--] [message]
+
+ OPTIONS:
+  -f, --face STRING                Which cow face to use (cow, tux). Default: cow.(valid: cow|tux)(default: cow)
+  -v, --version                    Print version.
+  -h, --help                       Print help information.
+#+end_example
+
+** Demo
+#+begin_src bash
+$ cowsay hi
+ ____
+< hi >
+ ----
+        \   ^__^
+         \  (oo)\_______
+            (__)\       )\/\
+                ||----w |
+                ||     ||
+
+$ cowsay -f tux hi
+ ____
+< hi >
+ ----
+   \
+    \
+        .--.
+       |o_o |
+       |:_/ |
+      //   \ \
+     (|     | )
+    /'\_   _/`\
+    \___)=(___/
+
+$ cowsay hello world
+ ___________
+< hello world >
+ -----------
+        \   ^__^
+         \  (oo)\_______
+            (__)\       )\/\
+                ||----w |
+                ||     ||
+#+end_src
