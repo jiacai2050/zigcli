@@ -1,6 +1,6 @@
 #+TITLE: progress
 #+DATE: 2026-03-16T14:00:00+0800
-#+LASTMOD: 2026-03-16T14:00:00+0800
+#+LASTMOD: 2026-03-16T14:01:00+0800
 #+TYPE: docs
 #+DESCRIPTION: View progress of running coreutils commands (cp, mv, dd, tar, etc.)
 
