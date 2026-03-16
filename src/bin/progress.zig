@@ -441,7 +441,7 @@ fn displayProgress(
     const size_str = humanSize(&size_buf, info.size);
 
     if (throughput_bps) |bps| {
-        if (bps > 0) {
+        if (bps > 0 and std.math.isFinite(bps)) {
             var speed_buf: [32]u8 = undefined;
             const speed_str = humanSize(&speed_buf, @intFromFloat(bps));
             const remaining: u64 = info.size -| info.position;
