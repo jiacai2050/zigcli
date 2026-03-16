@@ -116,14 +116,14 @@ fn printInfo(allocator: mem.Allocator, writer: *std.Io.Writer) !void {
     }
     try writer.print("Kernel:      {s}\n", .{kernel});
     try writer.print("Uptime:      {s}\n", .{uptime_info});
-    try writer.print("CPU:         {s}\n", .{cpu_info});
-    try writer.print("Memory:      {s}\n", .{memory_info});
-    try writer.print("Page:        {s}\n", .{page_size_info});
-    try writer.print("Disk:        {s}\n", .{disk_info});
-    try writer.print("Battery:     {s}\n", .{battery_info});
+    try writer.print("Shell:       {s}\n", .{shell});
     try writer.print("Resolution:  {s}\n", .{resolution_info});
     try writer.print("Theme:       {s}\n", .{theme_info});
-    try writer.print("Shell:       {s}\n", .{shell});
+    try writer.print("CPU:         {s}\n", .{cpu_info});
+    try writer.print("Memory:      {s}\n", .{memory_info});
+    try writer.print("Disk:        {s}\n", .{disk_info});
+    try writer.print("Battery:     {s}\n", .{battery_info});
+    try writer.print("Page:        {s}\n", .{page_size_info});
 }
 
 /// Formats a raw uptime in seconds as a human-readable string, e.g. "2 hours, 30 mins".
@@ -355,14 +355,29 @@ fn getDisk(allocator: mem.Allocator) ![]const u8 {
     });
 }
 
-/// Gets the main display resolution, e.g. "2880x1800".
+/// Gets the main display resolution and refresh rate, e.g. "2880x1800 @ 60Hz".
 fn getResolution(allocator: mem.Allocator) ![]const u8 {
     if (comptime native_os == .macos) {
         const display_id = c.CGMainDisplayID();
-        const bounds = c.CGDisplayBounds(display_id);
+        const mode = c.CGDisplayCopyDisplayMode(display_id);
+        if (mode == null) return "Unknown";
+        defer c.CGDisplayModeRelease(mode);
+
+        const width = c.CGDisplayModeGetWidth(mode);
+        const height = c.CGDisplayModeGetHeight(mode);
+        const refresh_rate = c.CGDisplayModeGetRefreshRate(mode);
+
+        if (refresh_rate > 0) {
+            return fmt.allocPrint(allocator, "{d}x{d} @ {d}Hz", .{
+                @as(u32, @intCast(width)),
+                @as(u32, @intCast(height)),
+                @as(u32, @intFromFloat(refresh_rate)),
+            });
+        }
+
         return fmt.allocPrint(allocator, "{d}x{d}", .{
-            @as(u32, @intFromFloat(bounds.size.width)),
-            @as(u32, @intFromFloat(bounds.size.height)),
+            @as(u32, @intCast(width)),
+            @as(u32, @intCast(height)),
         });
     }
 

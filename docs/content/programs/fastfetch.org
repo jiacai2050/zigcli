@@ -39,13 +39,13 @@ jiacai@mario
 OS:          macOS 26.3 aarch64
 Host:        Mac14,10
 Kernel:      25.3.0
-Uptime:      18 days, 11 hours, 57 mins
+Uptime:      18 days, 12 hours, 15 mins
+Shell:       bash
+Resolution:  1728x1117 @ 120Hz
+Theme:       Light
 CPU:         Apple M2 Pro (12 cores: 8P + 4E)
-Memory:      24837 MiB / 32768 MiB (75%) [App: 8438 MiB, Wired: 3577 MiB, Compressed: 12821 MiB]
-Page:        16 KiB
+Memory:      25583 MiB / 32768 MiB (78%) [App: 8817 MiB, Wired: 3915 MiB, Compressed: 12851 MiB]
 Disk:        827 GiB / 926 GiB (89%)
 Battery:     80% [Discharging]
-Resolution:  1728x1117
-Theme:       Light
-Shell:       bash
+Page:        16 KiB
 #+end_example
