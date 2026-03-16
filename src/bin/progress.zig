@@ -1,11 +1,12 @@
 //! Progress - Coreutils Progress Viewer
 //! Port of https://github.com/Xfennec/progress
-//! Shows progress of running coreutils-like operations by monitoring /proc.
-//! Linux only (requires /proc filesystem).
+//! Shows progress of running coreutils-like operations by monitoring processes.
+//! Supported platforms: Linux (via /proc), macOS (via libproc).
 
 const std = @import("std");
 const simargs = @import("simargs");
 const util = @import("util.zig");
+const builtin = @import("builtin");
 const fs = std.fs;
 const mem = std.mem;
 const fmt = std.fmt;
@@ -236,8 +237,24 @@ fn runOnce(
     return snap2.items.len > 0;
 }
 
-/// Scan /proc and return FileInfo entries for all matching processes.
+/// Scan running processes and return FileInfo entries for all matching open files.
+/// Dispatches to the platform-specific implementation.
 fn scanProc(
+    allocator: mem.Allocator,
+    pid_filter: ?[]const u32,
+    cmd_filter: []const []const u8,
+) !std.ArrayList(FileInfo) {
+    if (builtin.os.tag == .linux) {
+        return scanProcLinux(allocator, pid_filter, cmd_filter);
+    } else if (builtin.os.tag == .macos) {
+        return scanProcMacos(allocator, pid_filter, cmd_filter);
+    } else {
+        @compileError("progress is only supported on Linux and macOS");
+    }
+}
+
+/// Scan /proc and return FileInfo entries for all matching processes.
+fn scanProcLinux(
     allocator: mem.Allocator,
     pid_filter: ?[]const u32,
     cmd_filter: []const []const u8,
@@ -385,6 +402,132 @@ fn parseFdinfoPos(text: []const u8) ?u64 {
         }
     }
     return null;
+}
+
+/// Scan processes using macOS libproc and return FileInfo entries for all matching open files.
+fn scanProcMacos(
+    allocator: mem.Allocator,
+    pid_filter: ?[]const u32,
+    cmd_filter: []const []const u8,
+) !std.ArrayList(FileInfo) {
+    const c = @cImport({
+        @cInclude("libproc.h");
+        @cInclude("sys/proc_info.h");
+        @cInclude("sys/stat.h");
+    });
+
+    var results: std.ArrayList(FileInfo) = .empty;
+
+    // Determine the number of bytes needed for the full PID list.
+    const pids_size = c.proc_listpids(c.PROC_ALL_PIDS, 0, null, 0);
+    if (pids_size <= 0) return results;
+
+    const pid_buf = try allocator.alloc(c.pid_t, @as(usize, @intCast(pids_size)) / @sizeOf(c.pid_t));
+    defer allocator.free(pid_buf);
+
+    const actual_pids_size = c.proc_listpids(c.PROC_ALL_PIDS, 0, @ptrCast(pid_buf.ptr), pids_size);
+    if (actual_pids_size <= 0) return results;
+    const pid_count = @as(usize, @intCast(actual_pids_size)) / @sizeOf(c.pid_t);
+
+    for (pid_buf[0..pid_count]) |pid| {
+        if (pid == 0) continue;
+        const pid_u32: u32 = @intCast(pid);
+
+        // Check PID filter.
+        if (pid_filter) |pids| {
+            var pid_found = false;
+            for (pids) |p| {
+                if (p == pid_u32) {
+                    pid_found = true;
+                    break;
+                }
+            }
+            if (!pid_found) continue;
+        }
+
+        // Read the command name via libproc.
+        var name_buf = std.mem.zeroes([256]u8);
+        _ = c.proc_name(pid, @ptrCast(&name_buf), name_buf.len);
+        const comm = mem.sliceTo(&name_buf, 0);
+        if (comm.len == 0) continue;
+
+        // Apply command filter (only when no PID filter is active).
+        if (pid_filter == null and cmd_filter.len > 0) {
+            var cmd_found = false;
+            for (cmd_filter) |cmd| {
+                if (mem.eql(u8, comm, cmd)) {
+                    cmd_found = true;
+                    break;
+                }
+            }
+            if (!cmd_found) continue;
+        }
+
+        // Get the file-descriptor list for this process.
+        const fds_size = c.proc_pidinfo(pid, c.PROC_PIDLISTFDS, 0, null, 0);
+        if (fds_size <= 0) continue;
+
+        const fd_buf = try allocator.alloc(
+            c.struct_proc_fdinfo,
+            @as(usize, @intCast(fds_size)) / @sizeOf(c.struct_proc_fdinfo),
+        );
+        defer allocator.free(fd_buf);
+
+        const actual_fds_size = c.proc_pidinfo(pid, c.PROC_PIDLISTFDS, 0, @ptrCast(fd_buf.ptr), fds_size);
+        if (actual_fds_size <= 0) continue;
+        const fd_count = @as(usize, @intCast(actual_fds_size)) / @sizeOf(c.struct_proc_fdinfo);
+
+        for (fd_buf[0..fd_count]) |fd_entry| {
+            // Only interested in vnode (regular-file) descriptors.
+            if (fd_entry.proc_fdtype != c.PROX_FDTYPE_VNODE) continue;
+
+            // Get vnode path info, including the current file seek offset.
+            var vnode_info: c.struct_vnode_fdinfowithpath = undefined;
+            const vnode_ret = c.proc_pidfdinfo(
+                pid,
+                fd_entry.proc_fd,
+                c.PROC_PIDFDVNODEPATHINFO,
+                @ptrCast(&vnode_info),
+                @as(c_int, @intCast(@sizeOf(c.struct_vnode_fdinfowithpath))),
+            );
+            if (vnode_ret <= 0) continue;
+
+            // Extract the null-terminated file path.
+            const path_cstr: [*c]const u8 = @ptrCast(&vnode_info.pvip.vip_path);
+            const file_path = mem.sliceTo(path_cstr, 0);
+            if (file_path.len == 0) continue;
+            if (mem.startsWith(u8, file_path, "/dev/")) continue;
+
+            // Stat the file to verify it is a regular file and get its size.
+            var stat_buf: c.struct_stat = undefined;
+            if (c.stat(path_cstr, &stat_buf) != 0) continue;
+            if ((stat_buf.st_mode & c.S_IFMT) != c.S_IFREG) continue;
+            if (stat_buf.st_size <= 0) continue;
+
+            // fi_offset is off_t (i64); skip non-positive offsets.
+            const file_offset = vnode_info.pfi.fi_offset;
+            if (file_offset <= 0) continue;
+            const position: u64 = @intCast(file_offset);
+            const size: u64 = @intCast(stat_buf.st_size);
+            if (position > size) continue;
+
+            const comm_dup = try allocator.dupe(u8, comm);
+            errdefer allocator.free(comm_dup);
+            const path_dup = try allocator.dupe(u8, file_path);
+            errdefer allocator.free(path_dup);
+
+            try results.append(allocator, .{
+                .pid = pid_u32,
+                .fd = @intCast(fd_entry.proc_fd),
+                .comm = comm_dup,
+                .path = path_dup,
+                .position = position,
+                .size = size,
+            });
+        }
+    }
+
+    return results;
 }
 
 /// Format a byte count as a human-readable string (e.g. "1.5 MiB").

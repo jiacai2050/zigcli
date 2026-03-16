@@ -244,8 +244,12 @@ fn makeCompileStep(
             return null;
         }
     } else if (std.mem.eql(u8, name, "progress")) {
-        // only build for Linux (uses /proc filesystem)
-        if (target.result.os.tag != .linux) {
+        // Linux uses the /proc filesystem; macOS uses libproc.
+        if (target.result.os.tag == .linux) {
+            // No special libraries needed for /proc access on Linux.
+        } else if (is_darwin) {
+            exe.linkLibC();
+        } else {
             return null;
         }
     }
