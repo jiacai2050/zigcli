@@ -146,39 +146,41 @@ fn writeSpeechBubble(writer: *std.Io.Writer, message: []const u8) !void {
 
 test "speech bubble single line" {
     // A single-line message should use '< text >' delimiters.
-    var writer = std.Io.Writer.Allocating.init(testing.allocator);
-    defer writer.deinit();
-
-    try writeSpeechBubble(&writer.interface, "hi");
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(testing.allocator);
+    var w = out.writer(testing.allocator);
+    try writeSpeechBubble(&w, "hi");
 
     try testing.expectEqualStrings(
         \\ ____
         \\< hi >
         \\ ----
-    , writer.writer.buffered());
+        \\
+    , out.items);
 }
 
 test "speech bubble multi line" {
     // A multi-line message should use '/', '|', '\' delimiters.
-    var writer = std.Io.Writer.Allocating.init(testing.allocator);
-    defer writer.deinit();
-
-    try writeSpeechBubble(&writer.interface, "hello\nworld");
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(testing.allocator);
+    var w = out.writer(testing.allocator);
+    try writeSpeechBubble(&w, "hello\nworld");
 
     try testing.expectEqualStrings(
         \\ _______
         \\/ hello \
         \\\ world /
         \\ -------
-    , writer.writer.buffered());
+        \\
+    , out.items);
 }
 
 test "speech bubble three lines" {
     // Middle lines should use '|' delimiters; first is '/', last is '\'.
-    var writer = std.Io.Writer.Allocating.init(testing.allocator);
-    defer writer.deinit();
-
-    try writeSpeechBubble(&writer.interface, "one\ntwo\nthree");
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(testing.allocator);
+    var w = out.writer(testing.allocator);
+    try writeSpeechBubble(&w, "one\ntwo\nthree");
 
     try testing.expectEqualStrings(
         \\ _______
@@ -186,5 +188,6 @@ test "speech bubble three lines" {
         \\| two   |
         \\\ three /
         \\ -------
-    , writer.writer.buffered());
+        \\
+    , out.items);
 }
