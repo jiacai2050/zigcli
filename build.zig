@@ -119,6 +119,7 @@ fn buildBinaries(
         "tcp-proxy",
         "timeout",
         "cowsay",
+        "progress",
     }) |name| {
         try buildBinary(
             b,
@@ -239,6 +240,15 @@ fn makeCompileStep(
     } else if (std.mem.eql(u8, name, "pidof")) {
         // only build for macOS
         if (is_darwin) {
+            exe.linkLibC();
+        } else {
+            return null;
+        }
+    } else if (std.mem.eql(u8, name, "progress")) {
+        // Linux uses the /proc filesystem; macOS uses libproc.
+        if (target.result.os.tag == .linux) {
+            // No special libraries needed for /proc access on Linux.
+        } else if (is_darwin) {
             exe.linkLibC();
         } else {
             return null;
