@@ -119,6 +119,8 @@ fn buildBinaries(
         "tcp-proxy",
         "timeout",
         "cowsay",
+        "fastfetch",
+        "progress",
         "2fa",
     }) |name| {
         try buildBinary(
@@ -200,8 +202,10 @@ fn makeCompileStep(
     const is_darwin = @import("builtin").os.tag == .macos and target.result.os.tag == .macos;
     const is_win = target.result.os.tag == .windows;
     if (!is_darwin) {
-        if (std.mem.eql(u8, name, "night-shift") or std.mem.eql(u8, name, "dark-mode")) {
-            return null;
+        inline for (.{ "night-shift", "dark-mode", "fastfetch" }) |blacklist| {
+            if (std.mem.eql(u8, name, blacklist)) {
+                return null;
+            }
         }
     }
     const exe = b.addExecutable(.{
@@ -240,6 +244,26 @@ fn makeCompileStep(
     } else if (std.mem.eql(u8, name, "pidof")) {
         // only build for macOS
         if (is_darwin) {
+            exe.linkLibC();
+        } else {
+            return null;
+        }
+    } else if (std.mem.eql(u8, name, "fastfetch")) {
+        if (is_win) {
+            return null;
+        }
+        // fastfetch uses @cImport which requires linking libc to find headers.
+        exe.linkLibC();
+        if (is_darwin) {
+            exe.linkFramework("CoreGraphics");
+            exe.linkFramework("Foundation");
+            exe.linkFramework("IOKit");
+        }
+    } else if (std.mem.eql(u8, name, "progress")) {
+        // Linux uses the /proc filesystem; macOS uses libproc.
+        if (target.result.os.tag == .linux) {
+            // No special libraries needed for /proc access on Linux.
+        } else if (is_darwin) {
             exe.linkLibC();
         } else {
             return null;
