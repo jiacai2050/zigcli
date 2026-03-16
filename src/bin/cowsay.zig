@@ -4,6 +4,7 @@
 const std = @import("std");
 const simargs = @import("simargs");
 const util = @import("util.zig");
+const Writer = std.Io.Writer;
 const mem = std.mem;
 const testing = std.testing;
 
@@ -94,7 +95,7 @@ pub fn main() !void {
 /// Renders a speech bubble around the given message to the writer.
 /// Single-line messages use `< text >` borders.
 /// Multi-line messages use `/`, `|`, `\` borders on the sides.
-fn writeSpeechBubble(writer: anytype, message: []const u8) !void {
+fn writeSpeechBubble(writer: *Writer, message: []const u8) !void {
     // Collect lines and find the maximum line width.
     var lines_buf: [64][]const u8 = undefined;
     var line_count: usize = 0;
