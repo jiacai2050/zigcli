@@ -163,7 +163,7 @@ const WalkResult = struct {
 fn walk(
     /// Long-lived allocator for GitignoreStack patterns and data that outlives this call.
     allocator: mem.Allocator,
-    walk_ctx: anytype,
+    walk_ctx: WalkOptions,
     gi_stack: *gitignore.GitignoreStack,
     iter: *fs.Dir.Iterator,
     writer: *std.Io.Writer,

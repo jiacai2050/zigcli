@@ -4,6 +4,7 @@
 const std = @import("std");
 const simargs = @import("simargs");
 const util = @import("util.zig");
+const Writer = std.Io.Writer;
 const mem = std.mem;
 const testing = std.testing;
 
@@ -94,7 +95,7 @@ pub fn main() !void {
 /// Renders a speech bubble around the given message to the writer.
 /// Single-line messages use `< text >` borders.
 /// Multi-line messages use `/`, `|`, `\` borders on the sides.
-fn writeSpeechBubble(writer: anytype, message: []const u8) !void {
+fn writeSpeechBubble(writer: *Writer, message: []const u8) !void {
     // Collect lines and find the maximum line width.
     var lines_buf: [64][]const u8 = undefined;
     var line_count: usize = 0;
@@ -146,23 +147,23 @@ fn writeSpeechBubble(writer: anytype, message: []const u8) !void {
 
 test "speech bubble single line" {
     // A single-line message should use '< text >' delimiters.
-    var out: std.ArrayList(u8) = .empty;
-    defer out.deinit(testing.allocator);
-    try writeSpeechBubble(out.writer(testing.allocator), "hi");
+    var aw: std.Io.Writer.Allocating = .init(testing.allocator);
+    defer aw.deinit();
+    try writeSpeechBubble(&aw.writer, "hi");
 
     try testing.expectEqualStrings(
         \\ ____
         \\< hi >
         \\ ----
         \\
-    , out.items);
+    , aw.written());
 }
 
 test "speech bubble multi line" {
     // A multi-line message should use '/', '|', '\' delimiters.
-    var out: std.ArrayList(u8) = .empty;
-    defer out.deinit(testing.allocator);
-    try writeSpeechBubble(out.writer(testing.allocator), "hello\nworld");
+    var aw: std.Io.Writer.Allocating = .init(testing.allocator);
+    defer aw.deinit();
+    try writeSpeechBubble(&aw.writer, "hello\nworld");
 
     try testing.expectEqualStrings(
         \\ _______
@@ -170,14 +171,14 @@ test "speech bubble multi line" {
         \\\ world /
         \\ -------
         \\
-    , out.items);
+    , aw.written());
 }
 
 test "speech bubble three lines" {
     // Middle lines should use '|' delimiters; first is '/', last is '\'.
-    var out: std.ArrayList(u8) = .empty;
-    defer out.deinit(testing.allocator);
-    try writeSpeechBubble(out.writer(testing.allocator), "one\ntwo\nthree");
+    var aw: std.Io.Writer.Allocating = .init(testing.allocator);
+    defer aw.deinit();
+    try writeSpeechBubble(&aw.writer, "one\ntwo\nthree");
 
     try testing.expectEqualStrings(
         \\ _______
@@ -186,5 +187,5 @@ test "speech bubble three lines" {
         \\\ three /
         \\ -------
         \\
-    , out.items);
+    , aw.written());
 }

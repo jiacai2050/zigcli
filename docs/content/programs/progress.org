@@ -1,0 +1,35 @@
+#+TITLE: progress
+#+DATE: 2026-03-16T14:00:00+0800
+#+LASTMOD: 2026-03-16T14:01:00+0800
+#+TYPE: docs
+#+DESCRIPTION: View progress of running coreutils commands (cp, mv, dd, tar, etc.)
+
+A port of [[https://github.com/Xfennec/progress][Xfennec/progress]] to Zig.
+
+Monitors running processes and displays the percentage, throughput, and ETA for
+ongoing file operations such as =cp=, =mv=, =dd=, =tar=, =cat=, =rsync=, etc.
+
+Supports Linux (via =/proc=) and macOS (via =libproc=).
+
+#+begin_src bash :results verbatim :exports results :wrap example :dir ../../..
+./zig-out/bin/progress -h
+#+end_src
+
+** Example output
+
+#+begin_example
+[24185] cp /home/user/bigfile.iso
+        73.5% (7.4 GiB / 10.0 GiB) [284.5 MiB/s] ETA 0:09
+#+end_example
+
+** Key flags
+
+| Flag         | Description                                   |
+|--------------+-----------------------------------------------|
+| =-m=         | Loop while monitored processes are running    |
+| =-p <pids>=  | Monitor specific PIDs (comma-separated)       |
+| =-c <cmds>=  | Monitor specific command names                |
+| =-w=         | Wait for a matching process to appear         |
+| =-W <secs>=  | Set wait timeout in seconds                   |
+| =-q=         | Quiet mode — percentages only                 |
+| =-n=         | Disable ANSI color output                     |

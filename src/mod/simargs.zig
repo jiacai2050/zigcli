@@ -2,7 +2,7 @@
 
 const std = @import("std");
 const assert = std.debug.assert;
-const Writer = std.io.Writer;
+const Writer = std.Io.Writer;
 const testing = std.testing;
 const is_test = @import("builtin").is_test;
 
@@ -27,6 +27,7 @@ const OptionError = ParseError ||
 pub const ParseOptions = struct {
     argument_prompt: ?[]const u8 = null,
     version_string: ?[]const u8 = null,
+    print_help_and_exit: bool = true,
 };
 
 /// Parses arguments according to the given structure.
@@ -194,7 +195,7 @@ const MessageHelper = struct {
         };
     }
 
-    fn printDefault(comptime field: std.builtin.Type.StructField, writer: anytype) !void {
+    fn printDefault(comptime field: std.builtin.Type.StructField, writer: *Writer) !void {
         if (field.default_value_ptr == null) {
             if (@typeInfo(field.type) != .optional) {
                 try writer.writeAll("(required)");
@@ -234,7 +235,7 @@ const MessageHelper = struct {
         self: MessageHelper,
         comptime Options: type,
         sub_command_name: ?[]const u8,
-        writer: anytype,
+        writer: *Writer,
     ) !void {
         const option_fields = comptime buildOptionFields(Options);
         const sub_command_messages = if (@hasField(Options, command_field_name_default)) blk: {
@@ -385,7 +386,7 @@ fn ParseResult(
             }
         }
 
-        pub fn printHelp(self: Self, writer: anytype) !void {
+        pub fn printHelp(self: Self, writer: *Writer) !void {
             try MessageHelper.init(
                 self.allocator,
                 self.program_name,
@@ -587,6 +588,7 @@ fn OptionParser(
             argument_index: *usize,
             message_helper: MessageHelper,
             sub_command_name: ?[]const u8,
+            comptime options: ParseOptions,
         ) !CurrentOptions {
             // State machine used to parse option flags and positional arguments.
             // The parser transitions between states based on the prefix of each input.
@@ -601,7 +603,7 @@ fn OptionParser(
             // 3. .start -> .arguments -> subcommand.parseCommand:
             //    When positional arguments start, if the first one matches a subcommand name,
             //    the parser delegates control to that subcommand's logic.
-            var options: CurrentOptions = undefined;
+            var options_value: CurrentOptions = undefined;
             var command_parser = CommandParser(CurrentOptions){};
             var sub_command_is_set = false;
 
@@ -610,18 +612,18 @@ fn OptionParser(
                 if (comptime std.mem.eql(u8, field.name, command_field_name_default)) {
                     if (field.default_value_ptr) |value_ptr| {
                         sub_command_is_set = true;
-                        @field(options, field.name) = @as(*align(1) const field.type, @ptrCast(value_ptr)).*;
+                        @field(options_value, field.name) = @as(*align(1) const field.type, @ptrCast(value_ptr)).*;
                     }
                     continue;
                 }
 
                 if (field.default_value_ptr) |value_ptr| {
-                    @field(options, field.name) = @as(*align(1) const field.type, @ptrCast(value_ptr)).*;
+                    @field(options_value, field.name) = @as(*align(1) const field.type, @ptrCast(value_ptr)).*;
                 } else {
                     const option_type_kind = OptionType.from_zig_type(field.type);
                     if (!option_type_kind.is_required()) {
                         if (@typeInfo(field.type) == .optional) {
-                            @field(options, field.name) = null;
+                            @field(options_value, field.name) = null;
                         }
                     }
                 }
@@ -681,17 +683,18 @@ fn OptionParser(
                         };
 
                         if (option.option_type == .Bool or option.option_type == .RequiredBool) {
-                            _ = try setOptionValue(CurrentOptions, &options, option.long_name, "true");
+                            _ = try setOptionValue(CurrentOptions, &options_value, option.long_name, "true");
                             option.is_set = true;
                             state = .start;
                             current_option = null;
 
-                            if (!is_test) {
+                            if (!is_test and options.print_help_and_exit) {
                                 if (std.mem.eql(u8, option.long_name, "help")) {
-                                    var stdout_buffer: [1024]u8 = undefined;
+                                    var stdout_buffer: [4096]u8 = undefined;
                                     var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
                                     const stdout = &stdout_writer.interface;
                                     message_helper.printHelp(CurrentOptions, sub_command_name, stdout) catch @panic("OOM");
+                                    stdout_writer.interface.flush() catch {};
                                     std.process.exit(0);
                                 } else if (std.mem.eql(u8, option.long_name, "version")) {
                                     message_helper.printVersion() catch @panic("OOM");
@@ -708,7 +711,7 @@ fn OptionParser(
                             const sub_parser_fields = std.meta.fields(sub_parser_type);
                             inline for (sub_parser_fields) |field| {
                                 if (std.mem.eql(u8, field.name, argument)) {
-                                    const UnionType = @TypeOf(@field(options, command_field_name_default));
+                                    const UnionType = @TypeOf(@field(options_value, command_field_name_default));
                                     const union_fields = std.meta.fields(UnionType);
                                     inline for (union_fields) |union_field| {
                                         if (comptime std.mem.eql(u8, union_field.name, field.name)) {
@@ -718,8 +721,9 @@ fn OptionParser(
                                                 argument_index,
                                                 message_helper,
                                                 field.name,
+                                                options,
                                             );
-                                            @field(options, command_field_name_default) = @unionInit(UnionType, field.name, value);
+                                            @field(options_value, command_field_name_default) = @unionInit(UnionType, field.name, value);
                                             sub_command_is_set = true;
                                             break :outer;
                                         }
@@ -732,7 +736,7 @@ fn OptionParser(
                     },
                     .waitValue => {
                         const option = current_option.?;
-                        _ = try setOptionValue(CurrentOptions, &options, option.long_name, argument);
+                        _ = try setOptionValue(CurrentOptions, &options_value, option.long_name, argument);
                         option.is_set = true;
                         state = .start;
                         current_option = null;
@@ -760,7 +764,7 @@ fn OptionParser(
                 }
             }
 
-            return options;
+            return options_value;
         }
 
         fn parse(
@@ -786,6 +790,7 @@ fn OptionParser(
                 &argument_index,
                 message_helper,
                 null,
+                options,
             );
             var result = ParseResult(Options, options.version_string, options.argument_prompt){
                 .program_name = input_arguments[0],
@@ -909,10 +914,10 @@ test "parse/valid option values" {
     const expected_positional = input_arguments[input_arguments.len - 2 ..];
     try std.testing.expectEqualDeep(result.positional_arguments, expected_positional);
 
-    var writer_list: std.ArrayList(u8) = .empty;
-    defer writer_list.deinit(gpa);
+    var aw: std.Io.Writer.Allocating = .init(gpa);
+    defer aw.deinit();
 
-    try result.printHelp(writer_list.writer(gpa));
+    try result.printHelp(&aw.writer);
     try std.testing.expectEqualStrings(
         \\ USAGE:
         \\     awesome-cli [OPTIONS] [--] ...
@@ -923,7 +928,7 @@ test "parse/valid option values" {
         \\      --timeout INTEGER            (required)
         \\      --user-agent STRING          (default: Brave)
         \\
-    , writer_list.items);
+    , aw.written());
 }
 
 test "parse/bool value" {
@@ -1067,10 +1072,10 @@ test "parse/default value" {
     try std.testing.expectEqualStrings("A1", result.options.a1);
     try std.testing.expectEqual(result.positional_arguments.len, 0);
 
-    var writer_list: std.ArrayList(u8) = .empty;
-    defer writer_list.deinit(gpa);
+    var aw: std.Io.Writer.Allocating = .init(gpa);
+    defer aw.deinit();
 
-    try result.printHelp(writer_list.writer(gpa));
+    try result.printHelp(&aw.writer);
     try std.testing.expectEqualStrings(
         \\ USAGE:
         \\     awesome-cli [OPTIONS] [--] ...
@@ -1085,7 +1090,7 @@ test "parse/default value" {
         \\      --d1                         (default: true)
         \\      --d2                         padding message
         \\
-    , writer_list.items);
+    , aw.written());
 }
 
 test "parse/enum option" {
@@ -1108,10 +1113,10 @@ test "parse/enum option" {
 
     try std.testing.expectEqual(result.options.a1, .A);
 
-    var writer_list: std.ArrayList(u8) = .empty;
-    defer writer_list.deinit(gpa);
+    var aw: std.Io.Writer.Allocating = .init(gpa);
+    defer aw.deinit();
 
-    try result.printHelp(writer_list.writer(gpa));
+    try result.printHelp(&aw.writer);
     try std.testing.expectEqualStrings(
         \\ USAGE:
         \\     awesome-cli [OPTIONS] [--] ...
@@ -1121,7 +1126,7 @@ test "parse/enum option" {
         \\      --a2 STRING                   (valid: C|D)(default: D)
         \\      --a3 STRING                   (valid: X|Y)(required)
         \\
-    , writer_list.items);
+    , aw.written());
 }
 
 test "parse/positional arguments" {
@@ -1145,10 +1150,10 @@ test "parse/positional arguments" {
     const expected_positional = input_arguments[input_arguments.len - 2 ..];
     try std.testing.expectEqualDeep(result.positional_arguments, expected_positional);
 
-    var writer_list: std.ArrayList(u8) = .empty;
-    defer writer_list.deinit(gpa);
+    var aw: std.Io.Writer.Allocating = .init(gpa);
+    defer aw.deinit();
 
-    try result.printHelp(writer_list.writer(gpa));
+    try result.printHelp(&aw.writer);
     try std.testing.expectEqualStrings(
         \\ USAGE:
         \\     awesome-cli [OPTIONS] [--] ...
@@ -1156,7 +1161,25 @@ test "parse/positional arguments" {
         \\ OPTIONS:
         \\      --a INTEGER                  (default: 1)
         \\
-    , writer_list.items);
+    , aw.written());
+}
+
+test "parse/print_help_and_exit false" {
+    const gpa = std.testing.allocator;
+    var input_arguments = [_][:0]u8{
+        try gpa.dupeZ(u8, "awesome-cli"),
+        try gpa.dupeZ(u8, "--help"),
+    };
+    defer for (input_arguments) |argument| {
+        gpa.free(argument);
+    };
+
+    var parser = OptionParser(struct { help: bool }).init(gpa);
+    const result = try parser.parse(&input_arguments, .{ .print_help_and_exit = false });
+    defer result.deinit();
+
+    try std.testing.expect(result.options.help);
+    try std.testing.expectEqual(result.positional_arguments.len, 0);
 }
 
 test "parse/sub commands" {
@@ -1194,10 +1217,10 @@ test "parse/sub commands" {
     try std.testing.expectEqualDeep(result.options.a, 2);
     try std.testing.expectEqual(result.positional_arguments.len, 0);
 
-    var writer_list: std.ArrayList(u8) = .empty;
-    defer writer_list.deinit(gpa);
+    var aw: std.Io.Writer.Allocating = .init(gpa);
+    defer aw.deinit();
 
-    try result.printHelp(writer_list.writer(gpa));
+    try result.printHelp(&aw.writer);
     try std.testing.expectEqualStrings(
         \\ USAGE:
         \\     awesome-cli [OPTIONS] [COMMANDS]
@@ -1209,5 +1232,5 @@ test "parse/sub commands" {
         \\ OPTIONS:
         \\      --a INTEGER                  (default: 1)
         \\
-    , writer_list.items);
+    , aw.written());
 }

@@ -120,6 +120,7 @@ fn buildBinaries(
         "timeout",
         "cowsay",
         "fastfetch",
+        "progress",
     }) |name| {
         try buildBinary(
             b,
@@ -251,6 +252,15 @@ fn makeCompileStep(
         // macOS sysctl requires libc; Linux uses /proc and needs no extra library.
         if (is_darwin) {
             exe.linkLibC();
+        }
+    } else if (std.mem.eql(u8, name, "progress")) {
+        // Linux uses the /proc filesystem; macOS uses libproc.
+        if (target.result.os.tag == .linux) {
+            // No special libraries needed for /proc access on Linux.
+        } else if (is_darwin) {
+            exe.linkLibC();
+        } else {
+            return null;
         }
     }
 
