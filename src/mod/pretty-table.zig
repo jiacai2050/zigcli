@@ -616,7 +616,7 @@ test "hspan basic" {
     const span_row = out.items[span_row_start..span_row_end];
     // The span row should have exactly 3 `|` characters (left, after col 0, right border).
     var pipe_count: usize = 0;
-    for (span_row) |ch| if (ch == '|') pipe_count += 1;
+    for (span_row) |ch| if (ch == '|') { pipe_count += 1; };
     try std.testing.expectEqual(@as(usize, 3), pipe_count);
 }
 
@@ -643,6 +643,6 @@ test "hspan of 3 columns" {
     const span_row_end = std.mem.indexOfPos(u8, out.items, span_row_start, "\n") orelse unreachable;
     const span_row = out.items[span_row_start..span_row_end];
     var pipe_count: usize = 0;
-    for (span_row) |ch| if (ch == '|') pipe_count += 1;
+    for (span_row) |ch| if (ch == '|') { pipe_count += 1; };
     try std.testing.expectEqual(@as(usize, 3), pipe_count);
 }
