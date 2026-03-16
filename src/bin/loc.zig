@@ -178,6 +178,45 @@ const LinesOfCode = struct {
 
 const LocMap = std.enums.EnumMap(Language, LinesOfCode);
 
+/// A source file found during directory walking, to be processed in parallel.
+const FileEntry = struct {
+    /// Path relative to the root directory being scanned.
+    rel_path: []const u8,
+    /// Language determined from the file name.
+    lang: Language,
+};
+
+/// Shared mutable state for parallel file processing.
+const ProcessState = struct {
+    root_dir: fs.Dir,
+    loc_map: LocMap = .{},
+    mutex: std.Thread.Mutex = .{},
+};
+
+/// Thread-pool task: process one file and merge its counts into the shared map.
+fn processFileTask(state: *ProcessState, entry: FileEntry) void {
+    var local_map: LocMap = .{};
+    populateLoc(&local_map, state.root_dir, entry.rel_path, entry.lang) catch |err| {
+        std.log.err("Failed to process {s}: {}", .{ entry.rel_path, err });
+        return;
+    };
+    state.mutex.lock();
+    defer state.mutex.unlock();
+    mergeLocMaps(&state.loc_map, &local_map);
+}
+
+/// Merge all entries from src into dst.
+fn mergeLocMaps(dst: *LocMap, src: *LocMap) void {
+    var it = src.iterator();
+    while (it.next()) |src_entry| {
+        if (dst.getPtr(src_entry.key)) |dst_entry| {
+            dst_entry.merge(src_entry.value.*);
+        } else {
+            dst.put(src_entry.key, src_entry.value.*);
+        }
+    }
+}
+
 pub fn main() !void {
     var gpa = util.Allocator.instance;
     defer gpa.deinit();
@@ -188,6 +227,7 @@ pub fn main() !void {
         mode: Separator.Mode = .box,
         padding: usize = 3,
         @"no-gitignore": bool = false,
+        jobs: ?usize = null,
         version: bool = false,
         help: bool = false,
 
@@ -195,6 +235,7 @@ pub fn main() !void {
             .sort = .s,
             .mode = .m,
             .padding = .p,
+            .jobs = .j,
             .version = .v,
             .help = .h,
         };
@@ -204,6 +245,7 @@ pub fn main() !void {
             .mode = "Line drawing characters",
             .padding = "Column padding",
             .@"no-gitignore" = "Do not use .gitignore rules to filter files.",
+            .jobs = "Number of parallel threads (default: number of CPUs)",
             .version = "Print version",
             .sort = "Column to sort by",
         };
@@ -218,10 +260,13 @@ pub fn main() !void {
     else
         opt.positional_arguments[0];
 
-    var loc_map = LocMap{};
-    var dir = fs.cwd().openDir(file_or_dir, .{ .iterate = true }) catch |err| switch (err) {
+    var root_dir = fs.cwd().openDir(file_or_dir, .{ .iterate = true }) catch |err| switch (err) {
         error.NotDir => {
-            try populateLoc(allocator, &loc_map, fs.cwd(), file_or_dir);
+            var loc_map = LocMap{};
+            const lang = Language.parse(fs.path.basename(file_or_dir));
+            if (lang != .Other) {
+                try populateLoc(&loc_map, fs.cwd(), file_or_dir, lang);
+            }
             return printLocMap(
                 allocator,
                 &loc_map,
@@ -232,18 +277,40 @@ pub fn main() !void {
         },
         else => return err,
     };
-    defer dir.close();
+    defer root_dir.close();
 
     var gi_stack = gitignore.GitignoreStack.init();
     defer gi_stack.deinit(allocator);
     if (!opt.options.@"no-gitignore") {
-        _ = try gi_stack.tryPushDir(dir, "", allocator);
+        _ = try gi_stack.tryPushDir(root_dir, "", allocator);
     }
 
-    try walk(allocator, opt.options.@"no-gitignore", &gi_stack, &loc_map, dir, "");
+    // Collect all files to process.
+    var file_entries: std.ArrayList(FileEntry) = .empty;
+    defer {
+        for (file_entries.items) |entry| allocator.free(entry.rel_path);
+        file_entries.deinit(allocator);
+    }
+    try collectFiles(allocator, opt.options.@"no-gitignore", &gi_stack, &file_entries, root_dir, "");
+
+    // Process all files in parallel using a thread pool.
+    var process_state = ProcessState{ .root_dir = root_dir };
+    var thread_pool: std.Thread.Pool = undefined;
+    try thread_pool.init(.{
+        .allocator = allocator,
+        .n_jobs = opt.options.jobs,
+    });
+    defer thread_pool.deinit();
+
+    var wg: std.Thread.WaitGroup = .{};
+    for (file_entries.items) |entry| {
+        thread_pool.spawnWg(&wg, processFileTask, .{ &process_state, entry });
+    }
+    thread_pool.waitAndWork(&wg);
+
     try printLocMap(
         allocator,
-        &loc_map,
+        &process_state.loc_map,
         opt.options.sort,
         opt.options.mode,
         opt.options.padding,
@@ -300,17 +367,19 @@ fn printLocMap(
     try writer.interface.flush();
 }
 
-fn walk(
-    /// Long-lived allocator for GitignoreStack patterns.
+/// Walk the directory tree and collect all processable file entries into files.
+/// The allocator is used for path strings and the ArrayList backing store;
+/// callers typically pass an arena allocator so everything can be freed at once.
+fn collectFiles(
     allocator: std.mem.Allocator,
     no_gitignore: bool,
     gi_stack: *gitignore.GitignoreStack,
-    loc_map: *LocMap,
+    files: *std.ArrayList(FileEntry),
     dir: fs.Dir,
     rel_dir: []const u8,
 ) anyerror!void {
-    // Per-level arena for temporary strings (rel_path).
-    // Freed when this call returns, so memory doesn't accumulate.
+    // Per-level arena for temporary rel_path strings.
+    // Freed when this call returns so memory does not accumulate across levels.
     var local_arena = std.heap.ArenaAllocator.init(allocator);
     defer local_arena.deinit();
     const local = local_arena.allocator();
@@ -326,7 +395,11 @@ fn walk(
 
         switch (e.kind) {
             .file => {
-                try populateLoc(allocator, loc_map, dir, e.name);
+                const lang = Language.parse(e.name);
+                if (lang == .Other) continue;
+                // Duplicate the path so it outlives the local arena.
+                const path_copy = try allocator.dupe(u8, rel_path);
+                try files.append(allocator, .{ .rel_path = path_copy, .lang = lang });
             },
             .directory => {
                 var sub_dir = try dir.openDir(e.name, .{ .iterate = true });
@@ -338,7 +411,7 @@ fn walk(
                     false;
                 defer if (layer_pushed) gi_stack.pop(allocator);
 
-                try walk(allocator, no_gitignore, gi_stack, loc_map, sub_dir, rel_path);
+                try collectFiles(allocator, no_gitignore, gi_stack, files, sub_dir, rel_path);
             },
             else => {},
         }
@@ -354,13 +427,7 @@ const State = enum {
     InMultipleLineComment,
 };
 
-fn populateLoc(allocator: std.mem.Allocator, loc_map: *LocMap, dir: fs.Dir, basename: []const u8) anyerror!void {
-    _ = allocator;
-    const lang = Language.parse(basename);
-    if (lang == Language.Other) {
-        return;
-    }
-
+fn populateLoc(loc_map: *LocMap, dir: fs.Dir, rel_path: []const u8, lang: Language) anyerror!void {
     // Why no `getOrPutValue` in EnumMap?
     var loc_entry = loc_map.getPtr(lang) orelse blk: {
         loc_map.put(lang, .{
@@ -373,7 +440,7 @@ fn populateLoc(allocator: std.mem.Allocator, loc_map: *LocMap, dir: fs.Dir, base
         });
         break :blk loc_map.getPtr(lang).?;
     };
-    var file = try dir.openFile(basename, .{});
+    var file = try dir.openFile(rel_path, .{});
     defer file.close();
     loc_entry.files += 1;
 
@@ -394,7 +461,7 @@ fn populateLoc(allocator: std.mem.Allocator, loc_map: *LocMap, dir: fs.Dir, base
                     switch (e) {
                         error.EndOfStream => return,
                         else => {
-                            std.log.err("Error when seek line delimiter, name:{s}, err:{any}", .{ basename, e });
+                            std.log.err("Error when seek line delimiter, name:{s}, err:{any}", .{ rel_path, e });
                             return e;
                         },
                     }
@@ -417,10 +484,8 @@ fn populateLoc(allocator: std.mem.Allocator, loc_map: *LocMap, dir: fs.Dir, base
 
             var offset_so_far: usize = 0;
             while (offset_so_far < ptr.len) {
-                var line_end = offset_so_far;
-                while (line_end < ptr.len and ptr[line_end] != '\n') {
-                    line_end += 1;
-                }
+                // Use indexOfScalarPos which can leverage SIMD for fast newline search.
+                const line_end = std.mem.indexOfScalarPos(u8, ptr, offset_so_far, '\n') orelse ptr.len;
                 const line = ptr[offset_so_far..line_end];
                 offset_so_far = line_end + 1;
 
@@ -478,39 +543,9 @@ fn updateLineType(
     };
 }
 
-fn isWhitespace(c: u8) bool {
-    for (std.ascii.whitespace) |space| {
-        if (space == c) {
-            return true;
-        }
-    }
-    return false;
-}
-
 fn trimWhitespace(line: []const u8) ?[]const u8 {
-    if (line.len == 0) {
-        return null;
-    }
-
-    var start_idx: usize = 0;
-    var end_idx: usize = line.len - 1;
-    while (start_idx <= end_idx) {
-        if (!isWhitespace(line[start_idx])) {
-            break;
-        }
-        start_idx += 1;
-    }
-    while (end_idx >= start_idx) {
-        if (!isWhitespace(line[end_idx])) {
-            break;
-        }
-        end_idx -= 1;
-    }
-
-    return if (start_idx > end_idx)
-        null
-    else
-        return line[start_idx .. end_idx + 1];
+    const trimmed = std.mem.trim(u8, line, &std.ascii.whitespace);
+    return if (trimmed.len == 0) null else trimmed;
 }
 
 test "trimWhitespace" {
@@ -524,7 +559,6 @@ test "trimWhitespace" {
 }
 
 test "LOC Zig/Python/Ruby" {
-    const allocator = std.testing.allocator;
     var loc_map = LocMap{};
     const dir = fs.cwd();
 
@@ -578,7 +612,7 @@ test "LOC Zig/Python/Ruby" {
 
         try std.testing.expectEqual(Language.parse(basename), lang);
 
-        try populateLoc(allocator, &loc_map, dir, basename);
+        try populateLoc(&loc_map, dir, basename, lang);
         var loc = loc_map.get(lang).?;
         // On windows, newline will be \r\n, so size is different
         // Zig file stays the same since it's special taken care of in .gitattributes
