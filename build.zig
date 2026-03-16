@@ -119,6 +119,7 @@ fn buildBinaries(
         "tcp-proxy",
         "timeout",
         "cowsay",
+        "fastfetch",
     }) |name| {
         try buildBinary(
             b,
@@ -242,6 +243,14 @@ fn makeCompileStep(
             exe.linkLibC();
         } else {
             return null;
+        }
+    } else if (std.mem.eql(u8, name, "fastfetch")) {
+        if (is_win) {
+            return null;
+        }
+        // macOS sysctl requires libc; Linux uses /proc and needs no extra library.
+        if (is_darwin) {
+            exe.linkLibC();
         }
     }
 
