@@ -453,9 +453,9 @@ fn populateLoc(loc_map: *LocMap, dir: fs.Dir, rel_path: []const u8, lang: Langua
 
     var state = State.Unknown;
     // Use buffered read() instead of mmap to avoid TLB shootdown overhead when
-    // multiple worker threads process files in parallel.  mmap/munmap require
-    // inter-CPU TLB invalidation (IPI) on every unmap, which serialises all
-    // threads.  A plain read() into a private stack buffer has no such cost.
+    // multiple worker threads process files in parallel.  Each mmap/munmap
+    // requires inter-CPU TLB invalidation (IPI) on every core, which serialises
+    // all threads.  A plain read() into a private stack buffer has no such cost.
     var buf: [65536]u8 = undefined;
     var rdr = file.reader(&buf);
     while (true) {
