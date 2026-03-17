@@ -19,8 +19,8 @@ cd "${script_dir}/.."
 
 targets=(
   "aarch64-linux"
-  "x86_64-linux"
-  "x86-linux"
+  "x86_64-linux-gnu"
+  "x86-linux-gnu"
   # This target is built on CI directly.
   # "aarch64-macos"
   "x86_64-macos"
