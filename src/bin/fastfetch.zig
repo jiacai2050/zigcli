@@ -138,14 +138,15 @@ fn printInfo(allocator: mem.Allocator, writer: *std.Io.Writer, show_all: bool) !
 
     // Color palette (matches fastfetch: background colors, width=3, range 0-15)
     try writer.writeAll("\n");
-    inline for (.{ "40", "41", "42", "43", "44", "45", "46", "47" }) |bg| {
-        try writer.writeAll("\x1b[" ++ bg ++ "m   \x1b[0m");
+    inline for ([_][8][]const u8{
+        .{ "40", "41", "42", "43", "44", "45", "46", "47" },
+        .{ "100", "101", "102", "103", "104", "105", "106", "107" },
+    }) |row| {
+        inline for (row) |bg| {
+            try writer.writeAll("\x1b[" ++ bg ++ "m   \x1b[0m");
+        }
+        try writer.writeAll("\n");
     }
-    try writer.writeAll("\n");
-    inline for (.{ "100", "101", "102", "103", "104", "105", "106", "107" }) |bg| {
-        try writer.writeAll("\x1b[" ++ bg ++ "m   \x1b[0m");
-    }
-    try writer.writeAll("\n");
 }
 
 /// Formats a raw uptime in seconds as a human-readable string, e.g. "2 hours, 30 mins".
@@ -187,11 +188,13 @@ pub fn formatUptime(allocator: mem.Allocator, uptime_s: u64) ![]const u8 {
 
 fn plural(count: u64, singular: []const u8) []const u8 {
     if (count == 1) return singular;
-    if (mem.eql(u8, singular, "min")) return "mins";
-    if (mem.eql(u8, singular, "sec")) return "secs";
-    if (mem.eql(u8, singular, "hour")) return "hours";
-    if (mem.eql(u8, singular, "day")) return "days";
-    return singular;
+    return switch (singular[0]) {
+        'm' => "mins",
+        's' => "secs",
+        'h' => "hours",
+        'd' => "days",
+        else => singular,
+    };
 }
 
 /// Gets system uptime as a human-readable string.
@@ -577,31 +580,22 @@ fn getTheme() []const u8 {
         const home = std.posix.getenv("HOME") orelse return "Unknown";
         var buf: [1024]u8 = undefined;
 
-        // Check dconf/gsettings color-scheme (GNOME 42+)
-        const dconf_path = fmt.bufPrint(&buf, "{s}/.config/dconf/user", .{home}) catch return "Unknown";
-        if (fs.openFileAbsolute(dconf_path, .{})) |file| {
-            defer file.close();
-            const n = file.readAll(&buf) catch 0;
-            if (mem.indexOf(u8, buf[0..n], "prefer-dark") != null) return "Dark";
-        } else |_| {}
+        const checks = .{
+            .{ "{s}/.config/dconf/user", &[_][]const u8{"prefer-dark"} },
+            .{ "{s}/.config/gtk-4.0/settings.ini", &[_][]const u8{ "gtk-application-prefer-dark-theme=1", "gtk-application-prefer-dark-theme=true" } },
+            .{ "{s}/.config/gtk-3.0/settings.ini", &[_][]const u8{ "gtk-application-prefer-dark-theme=1", "gtk-application-prefer-dark-theme=true" } },
+        };
 
-        // Check GTK4 settings
-        const gtk4_path = fmt.bufPrint(&buf, "{s}/.config/gtk-4.0/settings.ini", .{home}) catch return "Unknown";
-        if (fs.openFileAbsolute(gtk4_path, .{})) |file| {
-            defer file.close();
-            const n = file.readAll(&buf) catch 0;
-            if (mem.indexOf(u8, buf[0..n], "gtk-application-prefer-dark-theme=1") != null) return "Dark";
-            if (mem.indexOf(u8, buf[0..n], "gtk-application-prefer-dark-theme=true") != null) return "Dark";
-        } else |_| {}
-
-        // Check GTK3 settings
-        const gtk3_path = fmt.bufPrint(&buf, "{s}/.config/gtk-3.0/settings.ini", .{home}) catch return "Unknown";
-        if (fs.openFileAbsolute(gtk3_path, .{})) |file| {
-            defer file.close();
-            const n = file.readAll(&buf) catch 0;
-            if (mem.indexOf(u8, buf[0..n], "gtk-application-prefer-dark-theme=1") != null) return "Dark";
-            if (mem.indexOf(u8, buf[0..n], "gtk-application-prefer-dark-theme=true") != null) return "Dark";
-        } else |_| {}
+        inline for (checks) |check| {
+            const path = fmt.bufPrint(&buf, check[0], .{home}) catch continue;
+            if (fs.openFileAbsolute(path, .{})) |file| {
+                defer file.close();
+                const n = file.readAll(&buf) catch 0;
+                for (check[1]) |needle| {
+                    if (mem.indexOf(u8, buf[0..n], needle) != null) return "Dark";
+                }
+            } else |_| {}
+        }
 
         return "Light";
     }
@@ -737,8 +731,7 @@ fn getPackages(allocator: mem.Allocator) ![]const u8 {
 
     if (comptime native_os == .linux) {
         // dpkg
-        if (fs.openDirAbsolute("/var/lib/dpkg/info", .{ .iterate = true })) |*dir_| {
-            var dir = dir_.*;
+        if (fs.openDirAbsolute("/var/lib/dpkg/info", .{ .iterate = true })) |dir| {
             defer dir.close();
             var count: u32 = 0;
             var iter = dir.iterate();
