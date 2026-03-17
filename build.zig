@@ -200,7 +200,7 @@ fn makeCompileStep(
     // Since when cross compile to darwin on linux, there is no framework in the host!
     const is_darwin = @import("builtin").os.tag == .macos and target.result.os.tag == .macos;
     const is_win = target.result.os.tag == .windows;
-    if (!is_darwin) {
+    if (is_darwin) {
         inline for (.{ "night-shift", "dark-mode", "fastfetch" }) |blacklist| {
             if (std.mem.eql(u8, name, blacklist)) {
                 return null;

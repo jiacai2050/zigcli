@@ -8,7 +8,6 @@ const builtin = @import("builtin");
 const mem = std.mem;
 const fmt = std.fmt;
 const fs = std.fs;
-const assert = std.debug.assert;
 
 pub const std_options: std.Options = .{
     .log_level = .info,
@@ -21,6 +20,8 @@ const c = @cImport({
     @cInclude("sys/time.h");
     @cInclude("sys/statvfs.h");
     @cInclude("unistd.h");
+    @cInclude("ifaddrs.h");
+    @cInclude("arpa/inet.h");
     if (native_os == .macos) {
         @cInclude("sys/sysctl.h");
         @cInclude("sys/mount.h");
@@ -42,15 +43,18 @@ pub fn main() !void {
     const opt = try simargs.parse(allocator, struct {
         help: bool = false,
         version: bool = false,
+        all: bool = false,
 
         pub const __shorts__ = .{
             .help = .h,
             .version = .v,
+            .all = .a,
         };
 
         pub const __messages__ = .{
             .help = "Print help information.",
             .version = "Print version.",
+            .all = "Show all info including terminal, packages, and local IP.",
         };
     }, .{
         .version_string = util.get_build_info(),
@@ -65,12 +69,12 @@ pub fn main() !void {
     var output_buf: [8192]u8 = undefined;
     var writer = stdout.writer(&output_buf);
 
-    try printInfo(arena_alloc, &writer.interface);
+    try printInfo(arena_alloc, &writer.interface, opt.options.all);
     try writer.interface.flush();
 }
 
 /// Prints all system information lines to the writer.
-fn printInfo(allocator: mem.Allocator, writer: *std.Io.Writer) !void {
+fn printInfo(allocator: mem.Allocator, writer: *std.Io.Writer, show_all: bool) !void {
     const uname_info = std.posix.uname();
     const hostname = mem.sliceTo(&uname_info.nodename, 0);
     const kernel = mem.sliceTo(&uname_info.release, 0);
@@ -94,8 +98,9 @@ fn printInfo(allocator: mem.Allocator, writer: *std.Io.Writer) !void {
     const theme_info = getTheme();
     const bytes_per_page = fetchPageSize();
     const memory_info = try getMemory(allocator, bytes_per_page);
-    const page_size_info = try getPageSize(allocator);
+    const page_size_info = try fmt.allocPrint(allocator, "{d} KiB", .{bytes_per_page / 1024});
     const uptime_info = try getUptime(allocator);
+    const terminal_info = getTerminal();
 
     // Print "username@hostname" header.
     try writer.writeAll(username);
@@ -109,14 +114,12 @@ fn printInfo(allocator: mem.Allocator, writer: *std.Io.Writer) !void {
     while (i < header_len) : (i += 1) try writer.writeAll("─");
     try writer.writeAll("\n");
 
-    // Print labelled info fields. Labels are padded to 12 characters so values align.
     try writer.print("OS:          {s} {s}\n", .{ os_name, arch });
-    if (comptime native_os == .macos) {
-        try writer.print("Host:        {s}\n", .{host_info});
-    }
+    try writer.print("Host:        {s}\n", .{host_info});
     try writer.print("Kernel:      {s}\n", .{kernel});
     try writer.print("Uptime:      {s}\n", .{uptime_info});
     try writer.print("Shell:       {s}\n", .{shell});
+    try writer.print("Terminal:    {s}\n", .{terminal_info});
     try writer.print("Resolution:  {s}\n", .{resolution_info});
     try writer.print("Theme:       {s}\n", .{theme_info});
     try writer.print("CPU:         {s}\n", .{cpu_info});
@@ -124,6 +127,13 @@ fn printInfo(allocator: mem.Allocator, writer: *std.Io.Writer) !void {
     try writer.print("Disk:        {s}\n", .{disk_info});
     try writer.print("Battery:     {s}\n", .{battery_info});
     try writer.print("Page:        {s}\n", .{page_size_info});
+
+    if (show_all) {
+        const packages_info = try getPackages(allocator);
+        const ip_info = try getLocalIp(allocator);
+        try writer.print("Packages:    {s}\n", .{packages_info});
+        try writer.print("Local IP:    {s}\n", .{ip_info});
+    }
 }
 
 /// Formats a raw uptime in seconds as a human-readable string, e.g. "2 hours, 30 mins".
@@ -137,23 +147,39 @@ pub fn formatUptime(allocator: mem.Allocator, uptime_s: u64) ![]const u8 {
     const minutes = (uptime_s % s_per_hour) / s_per_min;
     const seconds = uptime_s % s_per_min;
 
+    const p = plural;
     if (days > 0) {
-        return fmt.allocPrint(
-            allocator,
-            "{d} days, {d} hours, {d} mins",
-            .{ days, hours, minutes },
-        );
+        return fmt.allocPrint(allocator, "{d} {s}, {d} {s}, {d} {s}", .{
+            days,  p(days, "day"),
+            hours, p(hours, "hour"),
+            minutes, p(minutes, "min"),
+        });
     }
 
     if (hours > 0) {
-        return fmt.allocPrint(allocator, "{d} hours, {d} mins", .{ hours, minutes });
+        return fmt.allocPrint(allocator, "{d} {s}, {d} {s}", .{
+            hours, p(hours, "hour"),
+            minutes, p(minutes, "min"),
+        });
     }
 
     if (minutes > 0) {
-        return fmt.allocPrint(allocator, "{d} mins, {d} secs", .{ minutes, seconds });
+        return fmt.allocPrint(allocator, "{d} {s}, {d} {s}", .{
+            minutes, p(minutes, "min"),
+            seconds, p(seconds, "sec"),
+        });
     }
 
-    return fmt.allocPrint(allocator, "{d} secs", .{seconds});
+    return fmt.allocPrint(allocator, "{d} {s}", .{ seconds, p(seconds, "sec") });
+}
+
+fn plural(count: u64, singular: []const u8) []const u8 {
+    if (count == 1) return singular;
+    if (mem.eql(u8, singular, "min")) return "mins";
+    if (mem.eql(u8, singular, "sec")) return "secs";
+    if (mem.eql(u8, singular, "hour")) return "hours";
+    if (mem.eql(u8, singular, "day")) return "days";
+    return singular;
 }
 
 /// Gets system uptime as a human-readable string.
@@ -333,73 +359,115 @@ fn getHost(allocator: mem.Allocator) ![]const u8 {
     return "Unknown";
 }
 
-/// Gets disk usage as "used GiB / total GiB (percent%)" for the root mount.
+/// Gets disk usage for important mount points.
 fn getDisk(allocator: mem.Allocator) ![]const u8 {
-    var vfs: c.struct_statvfs = undefined;
-    if (c.statvfs("/", &vfs) != 0) {
-        return "Unknown";
+    if (comptime native_os == .macos) {
+        return getDiskMounts(allocator, &[_][]const u8{"/"});
     }
-
-    const bytes_per_block = vfs.f_frsize;
-    const bytes_total = @as(u64, vfs.f_blocks) * bytes_per_block;
-    const bytes_free = @as(u64, vfs.f_bfree) * bytes_per_block;
-    const bytes_used = bytes_total -| bytes_free;
-
-    const percent = if (bytes_total > 0) (bytes_used * 100 / bytes_total) else 0;
-    const GiB = 1024 * 1024 * 1024;
-
-    return fmt.allocPrint(allocator, "{d} GiB / {d} GiB ({d}%)", .{
-        bytes_used / GiB,
-        bytes_total / GiB,
-        percent,
-    });
+    if (comptime native_os == .linux) {
+        return getDiskMounts(allocator, &[_][]const u8{ "/", "/home" });
+    }
+    return "Unknown";
 }
 
-/// Gets the main display resolution and refresh rate, e.g. "2880x1800 @ 60Hz".
-fn getResolution(allocator: mem.Allocator) ![]const u8 {
-    if (comptime native_os == .macos) {
-        const display_id = c.CGMainDisplayID();
-        const mode = c.CGDisplayCopyDisplayMode(display_id);
-        if (mode == null) return "Unknown";
-        defer c.CGDisplayModeRelease(mode);
+fn getDiskMounts(allocator: mem.Allocator, mounts: []const []const u8) ![]const u8 {
+    var parts: std.ArrayList(u8) = .empty;
+    const GiB = 1024 * 1024 * 1024;
+    var seen_dev: [8]u64 = .{0} ** 8;
+    var seen_count: usize = 0;
 
-        const width = c.CGDisplayModeGetWidth(mode);
-        const height = c.CGDisplayModeGetHeight(mode);
-        const refresh_rate = c.CGDisplayModeGetRefreshRate(mode);
+    for (mounts) |mount| {
+        var vfs: c.struct_statvfs = undefined;
+        if (c.statvfs(mount.ptr, &vfs) != 0) continue;
 
-        if (refresh_rate > 0) {
-            return fmt.allocPrint(allocator, "{d}x{d} @ {d}Hz", .{
-                @as(u32, @intCast(width)),
-                @as(u32, @intCast(height)),
-                @as(u32, @intFromFloat(refresh_rate)),
-            });
+        // Deduplicate by filesystem ID to avoid counting the same device twice.
+        const fsid: u64 = @bitCast(vfs.f_fsid);
+        var dup = false;
+        for (seen_dev[0..seen_count]) |s| {
+            if (s == fsid) {
+                dup = true;
+                break;
+            }
+        }
+        if (dup) continue;
+        if (seen_count < seen_dev.len) {
+            seen_dev[seen_count] = fsid;
+            seen_count += 1;
         }
 
-        return fmt.allocPrint(allocator, "{d}x{d}", .{
-            @as(u32, @intCast(width)),
-            @as(u32, @intCast(height)),
+        const bytes_per_block = vfs.f_frsize;
+        const bytes_total = @as(u64, vfs.f_blocks) * bytes_per_block;
+        const bytes_free = @as(u64, vfs.f_bfree) * bytes_per_block;
+        const bytes_used = bytes_total -| bytes_free;
+        const percent = if (bytes_total > 0) (bytes_used * 100 / bytes_total) else 0;
+
+        if (parts.items.len > 0) try parts.appendSlice(allocator, ", ");
+        const entry = try fmt.allocPrint(allocator, "{s}: {d} GiB / {d} GiB ({d}%)", .{
+            mount, bytes_used / GiB, bytes_total / GiB, percent,
         });
+        try parts.appendSlice(allocator, entry);
+    }
+
+    return if (parts.items.len > 0) parts.items else "Unknown";
+}
+
+/// Gets display resolution(s) and refresh rate.
+fn getResolution(allocator: mem.Allocator) ![]const u8 {
+    if (comptime native_os == .macos) {
+        var display_ids: [8]c.CGDirectDisplayID = undefined;
+        var display_count: u32 = 0;
+        if (c.CGGetActiveDisplayList(display_ids.len, &display_ids, &display_count) != 0 or display_count == 0) {
+            return "Unknown";
+        }
+
+        var parts: std.ArrayList(u8) = .empty;
+        for (display_ids[0..display_count]) |did| {
+            const mode = c.CGDisplayCopyDisplayMode(did);
+            if (mode == null) continue;
+            defer c.CGDisplayModeRelease(mode);
+
+            const width: u32 = @intCast(c.CGDisplayModeGetWidth(mode));
+            const height: u32 = @intCast(c.CGDisplayModeGetHeight(mode));
+            const refresh_rate = c.CGDisplayModeGetRefreshRate(mode);
+
+            if (parts.items.len > 0) try parts.appendSlice(allocator, ", ");
+            if (refresh_rate > 0) {
+                const entry = try fmt.allocPrint(allocator, "{d}x{d} @ {d}Hz", .{ width, height, @as(u32, @intFromFloat(refresh_rate)) });
+                try parts.appendSlice(allocator, entry);
+            } else {
+                const entry = try fmt.allocPrint(allocator, "{d}x{d}", .{ width, height });
+                try parts.appendSlice(allocator, entry);
+            }
+        }
+        return if (parts.items.len > 0) parts.items else "Unknown";
     }
 
     if (comptime native_os == .linux) {
-        // Try sysfs DRM modes
+        // DRM connectors are named like "card0-HDMI-A-1", "card0-eDP-1", etc.
         var drm_dir = fs.openDirAbsolute("/sys/class/drm", .{ .iterate = true }) catch return "Unknown";
         defer drm_dir.close();
+        var parts: std.ArrayList(u8) = .empty;
         var iter = drm_dir.iterate();
         while (try iter.next()) |entry| {
-            if (entry.kind == .directory and (mem.startsWith(u8, entry.name, "card") or mem.startsWith(u8, entry.name, "drm"))) {
-                var subdir = drm_dir.openDir(entry.name, .{}) catch continue;
-                defer subdir.close();
-                const file = subdir.openFile("modes", .{}) catch continue;
-                defer file.close();
-                var buf: [64]u8 = undefined;
-                const n = try file.read(&buf);
-                if (n > 0) {
-                    const first_line = mem.sliceTo(buf[0..n], '\n');
-                    return allocator.dupe(u8, mem.trim(u8, first_line, " \n\r\t"));
-                }
-            }
+            // Connectors contain a dash after "cardN"
+            if (!mem.startsWith(u8, entry.name, "card")) continue;
+            // Skip bare "cardN" directories (no connector suffix)
+            if (mem.indexOfScalar(u8, entry.name[4..], '-') == null) continue;
+
+            const modes_path = try fmt.allocPrint(allocator, "/sys/class/drm/{s}/modes", .{entry.name});
+            const file = fs.openFileAbsolute(modes_path, .{}) catch continue;
+            defer file.close();
+            var buf: [64]u8 = undefined;
+            const n = file.read(&buf) catch continue;
+            if (n == 0) continue;
+            const first_line = mem.sliceTo(buf[0..n], '\n');
+            const mode_str = mem.trim(u8, first_line, " \n\r\t");
+            if (mode_str.len == 0) continue;
+
+            if (parts.items.len > 0) try parts.appendSlice(allocator, ", ");
+            try parts.appendSlice(allocator, mode_str);
         }
+        return if (parts.items.len > 0) parts.items else "Unknown";
     }
 
     return "Unknown";
@@ -443,21 +511,38 @@ fn getBattery(allocator: mem.Allocator) ![]const u8 {
     }
 
     if (comptime native_os == .linux) {
-        // Read from /sys/class/power_supply/BAT0/
-        const capacity_file = fs.openFileAbsolute("/sys/class/power_supply/BAT0/capacity", .{}) catch return "No Battery";
-        defer capacity_file.close();
-        const status_file = fs.openFileAbsolute("/sys/class/power_supply/BAT0/status", .{}) catch return "No Battery";
-        defer status_file.close();
+        // Scan /sys/class/power_supply/ for battery devices.
+        var ps_dir = fs.openDirAbsolute("/sys/class/power_supply", .{ .iterate = true }) catch return "No Battery";
+        defer ps_dir.close();
+        var iter = ps_dir.iterate();
+        while (try iter.next()) |entry| {
+            // Check if this is a battery by reading its type file.
+            const type_path = try fmt.allocPrint(allocator, "/sys/class/power_supply/{s}/type", .{entry.name});
+            const type_file = fs.openFileAbsolute(type_path, .{}) catch continue;
+            defer type_file.close();
+            var type_buf: [16]u8 = undefined;
+            const n_type = type_file.read(&type_buf) catch continue;
+            const dev_type = mem.trim(u8, type_buf[0..n_type], " \n\t");
+            if (!mem.eql(u8, dev_type, "Battery")) continue;
 
-        var cap_buf: [8]u8 = undefined;
-        const n_cap = try capacity_file.read(&cap_buf);
-        const capacity = try fmt.parseInt(u32, mem.trim(u8, cap_buf[0..n_cap], " \n\t"), 10);
+            const cap_path = try fmt.allocPrint(allocator, "/sys/class/power_supply/{s}/capacity", .{entry.name});
+            const capacity_file = fs.openFileAbsolute(cap_path, .{}) catch continue;
+            defer capacity_file.close();
+            const stat_path = try fmt.allocPrint(allocator, "/sys/class/power_supply/{s}/status", .{entry.name});
+            const status_file = fs.openFileAbsolute(stat_path, .{}) catch continue;
+            defer status_file.close();
 
-        var stat_buf: [16]u8 = undefined;
-        const n_stat = try status_file.read(&stat_buf);
-        const status = mem.trim(u8, stat_buf[0..n_stat], " \n\t");
+            var cap_buf: [8]u8 = undefined;
+            const n_cap = capacity_file.read(&cap_buf) catch continue;
+            const capacity = fmt.parseInt(u32, mem.trim(u8, cap_buf[0..n_cap], " \n\t"), 10) catch continue;
 
-        return fmt.allocPrint(allocator, "{d}% [{s}]", .{ capacity, status });
+            var stat_buf: [16]u8 = undefined;
+            const n_stat = status_file.read(&stat_buf) catch continue;
+            const status = mem.trim(u8, stat_buf[0..n_stat], " \n\t");
+
+            return fmt.allocPrint(allocator, "{d}% [{s}]", .{ capacity, status });
+        }
+        return "No Battery";
     }
 
     return "Unknown";
@@ -468,7 +553,6 @@ fn getTheme() []const u8 {
     if (comptime native_os == .macos) {
         const key = c.CFStringCreateWithCString(null, "AppleInterfaceStyle", c.kCFStringEncodingUTF8);
         defer _ = c.CFRelease(key);
-        // kCFPreferencesAnyApplication is the global domain equivalent.
         const value = c.CFPreferencesCopyAppValue(key, c.kCFPreferencesAnyApplication);
         if (value != null) {
             defer _ = c.CFRelease(value);
@@ -478,15 +562,35 @@ fn getTheme() []const u8 {
     }
 
     if (comptime native_os == .linux) {
-        // Simple GTK config check
         const home = std.posix.getenv("HOME") orelse return "Unknown";
-        // We use a temporary buffer to check.
         var buf: [1024]u8 = undefined;
-        const path = fmt.bufPrint(&buf, "{s}/.config/gtk-3.0/settings.ini", .{home}) catch return "Unknown";
-        const file = fs.openFileAbsolute(path, .{}) catch return "Unknown";
-        defer file.close();
-        const n = file.readAll(&buf) catch 0;
-        if (mem.indexOf(u8, buf[0..n], "gtk-application-prefer-dark-theme=1") != null) return "Dark";
+
+        // Check dconf/gsettings color-scheme (GNOME 42+)
+        const dconf_path = fmt.bufPrint(&buf, "{s}/.config/dconf/user", .{home}) catch return "Unknown";
+        if (fs.openFileAbsolute(dconf_path, .{})) |file| {
+            defer file.close();
+            const n = file.readAll(&buf) catch 0;
+            if (mem.indexOf(u8, buf[0..n], "prefer-dark") != null) return "Dark";
+        } else |_| {}
+
+        // Check GTK4 settings
+        const gtk4_path = fmt.bufPrint(&buf, "{s}/.config/gtk-4.0/settings.ini", .{home}) catch return "Unknown";
+        if (fs.openFileAbsolute(gtk4_path, .{})) |file| {
+            defer file.close();
+            const n = file.readAll(&buf) catch 0;
+            if (mem.indexOf(u8, buf[0..n], "gtk-application-prefer-dark-theme=1") != null) return "Dark";
+            if (mem.indexOf(u8, buf[0..n], "gtk-application-prefer-dark-theme=true") != null) return "Dark";
+        } else |_| {}
+
+        // Check GTK3 settings
+        const gtk3_path = fmt.bufPrint(&buf, "{s}/.config/gtk-3.0/settings.ini", .{home}) catch return "Unknown";
+        if (fs.openFileAbsolute(gtk3_path, .{})) |file| {
+            defer file.close();
+            const n = file.readAll(&buf) catch 0;
+            if (mem.indexOf(u8, buf[0..n], "gtk-application-prefer-dark-theme=1") != null) return "Dark";
+            if (mem.indexOf(u8, buf[0..n], "gtk-application-prefer-dark-theme=true") != null) return "Dark";
+        } else |_| {}
+
         return "Light";
     }
 
@@ -575,13 +679,7 @@ fn getMemory(allocator: mem.Allocator, bytes_per_page: u64) ![]const u8 {
     return "Unknown";
 }
 
-/// Gets the system page size as a human-readable string.
-fn getPageSize(allocator: mem.Allocator) ![]const u8 {
-    const bytes_per_page = fetchPageSize();
-    return fmt.allocPrint(allocator, "{d} KiB", .{bytes_per_page / 1024});
-}
-
-/// Fetches the system page size in bytes.
+/// Gets the system page size in bytes.
 fn fetchPageSize() u64 {
     if (comptime native_os == .macos) {
         var bytes_per_page: u32 = 0;
@@ -596,6 +694,83 @@ fn fetchPageSize() u64 {
     }
 
     return 4096;
+}
+
+/// Gets the terminal name from environment variables.
+fn getTerminal() []const u8 {
+    return std.posix.getenv("TERM_PROGRAM") orelse
+        std.posix.getenv("TERM") orelse "Unknown";
+}
+
+/// Gets installed package count (behind --all flag since it may be slow).
+fn getPackages(allocator: mem.Allocator) ![]const u8 {
+    var parts: std.ArrayList(u8) = .empty;
+
+    if (comptime native_os == .macos) {
+        // Count Homebrew packages
+        const brew_paths = [_][]const u8{ "/opt/homebrew/Cellar", "/usr/local/Cellar" };
+        for (brew_paths) |brew_path| {
+            var dir = fs.openDirAbsolute(brew_path, .{ .iterate = true }) catch continue;
+            defer dir.close();
+            var count: u32 = 0;
+            var iter = dir.iterate();
+            while (try iter.next()) |_| count += 1;
+            if (count > 0) {
+                const entry = try fmt.allocPrint(allocator, "{d} (brew)", .{count});
+                try parts.appendSlice(allocator, entry);
+            }
+            break; // only use the first found path
+        }
+    }
+
+    if (comptime native_os == .linux) {
+        // dpkg
+        if (fs.openDirAbsolute("/var/lib/dpkg/info", .{ .iterate = true })) |*dir_| {
+            var dir = dir_.*;
+            defer dir.close();
+            var count: u32 = 0;
+            var iter = dir.iterate();
+            while (try iter.next()) |entry| {
+                if (mem.endsWith(u8, entry.name, ".list")) count += 1;
+            }
+            if (count > 0) {
+                const entry = try fmt.allocPrint(allocator, "{d} (dpkg)", .{count});
+                try parts.appendSlice(allocator, entry);
+            }
+        } else |_| {}
+    }
+
+    return if (parts.items.len > 0) parts.items else "Unknown";
+}
+
+/// Gets the local IP address using getifaddrs.
+fn getLocalIp(allocator: mem.Allocator) ![]const u8 {
+    var ifap: ?*c.struct_ifaddrs = null;
+    if (c.getifaddrs(&ifap) != 0) return "Unknown";
+    defer c.freeifaddrs(ifap);
+
+    var parts: std.ArrayList(u8) = .empty;
+    var ifa = ifap;
+    while (ifa) |a| : (ifa = a.ifa_next) {
+        const sa = a.ifa_addr orelse continue;
+        if (sa.*.sa_family != c.AF_INET) continue;
+
+        const name = mem.sliceTo(a.ifa_name, 0);
+        // Skip loopback
+        if (mem.eql(u8, name, "lo") or mem.eql(u8, name, "lo0")) continue;
+
+        var addr_buf: [c.INET_ADDRSTRLEN]u8 = undefined;
+        const sin: *const c.struct_sockaddr_in = @ptrCast(@alignCast(sa));
+        const result = c.inet_ntop(c.AF_INET, &sin.sin_addr, &addr_buf, c.INET_ADDRSTRLEN);
+        if (result == null) continue;
+
+        const ip = mem.sliceTo(&addr_buf, 0);
+        if (parts.items.len > 0) try parts.appendSlice(allocator, ", ");
+        const entry = try fmt.allocPrint(allocator, "{s} ({s})", .{ ip, name });
+        try parts.appendSlice(allocator, entry);
+    }
+
+    return if (parts.items.len > 0) parts.items else "Unknown";
 }
 
 /// Parses a /proc/meminfo line of the form "Key:   12345 kB" and returns the kB value.
@@ -614,24 +789,37 @@ test "format uptime: seconds only" {
     try std.testing.expectEqualStrings("45 secs", result);
 }
 
+test "format uptime: one second" {
+    const result = try formatUptime(std.testing.allocator, 1);
+    defer std.testing.allocator.free(result);
+    try std.testing.expectEqualStrings("1 sec", result);
+}
+
 test "format uptime: minutes and seconds" {
     const result = try formatUptime(std.testing.allocator, 90);
     defer std.testing.allocator.free(result);
-    try std.testing.expectEqualStrings("1 mins, 30 secs", result);
+    try std.testing.expectEqualStrings("1 min, 30 secs", result);
 }
 
 test "format uptime: hours and minutes" {
     // 1 hour + 1 minute + 1 second — seconds are dropped at the hours scale.
     const result = try formatUptime(std.testing.allocator, 3661);
     defer std.testing.allocator.free(result);
-    try std.testing.expectEqualStrings("1 hours, 1 mins", result);
+    try std.testing.expectEqualStrings("1 hour, 1 min", result);
 }
 
 test "format uptime: days hours minutes" {
     // 1 day + 1 hour + 1 minute + 1 second.
     const result = try formatUptime(std.testing.allocator, 90061);
     defer std.testing.allocator.free(result);
-    try std.testing.expectEqualStrings("1 days, 1 hours, 1 mins", result);
+    try std.testing.expectEqualStrings("1 day, 1 hour, 1 min", result);
+}
+
+test "format uptime: plural days" {
+    // 2 days + 3 hours + 5 minutes
+    const result = try formatUptime(std.testing.allocator, 2 * 86400 + 3 * 3600 + 5 * 60);
+    defer std.testing.allocator.free(result);
+    try std.testing.expectEqualStrings("2 days, 3 hours, 5 mins", result);
 }
 
 test "parse kb line" {
