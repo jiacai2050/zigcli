@@ -54,7 +54,7 @@ pub fn main() !void {
         pub const __messages__ = .{
             .help = "Print help information.",
             .version = "Print version.",
-            .all = "Show all info including terminal, packages, and local IP.",
+            .all = "Show all info including packages.",
         };
     }, .{
         .version_string = util.get_build_info(),
@@ -128,12 +128,24 @@ fn printInfo(allocator: mem.Allocator, writer: *std.Io.Writer, show_all: bool) !
     try writer.print("Battery:     {s}\n", .{battery_info});
     try writer.print("Page:        {s}\n", .{page_size_info});
 
+    const ip_info = try getLocalIp(allocator);
+    try writer.print("Local IP:    {s}\n", .{ip_info});
+
     if (show_all) {
         const packages_info = try getPackages(allocator);
-        const ip_info = try getLocalIp(allocator);
         try writer.print("Packages:    {s}\n", .{packages_info});
-        try writer.print("Local IP:    {s}\n", .{ip_info});
     }
+
+    // Color palette (matches fastfetch: background colors, width=3, range 0-15)
+    try writer.writeAll("\n");
+    inline for (.{ "40", "41", "42", "43", "44", "45", "46", "47" }) |bg| {
+        try writer.writeAll("\x1b[" ++ bg ++ "m   \x1b[0m");
+    }
+    try writer.writeAll("\n");
+    inline for (.{ "100", "101", "102", "103", "104", "105", "106", "107" }) |bg| {
+        try writer.writeAll("\x1b[" ++ bg ++ "m   \x1b[0m");
+    }
+    try writer.writeAll("\n");
 }
 
 /// Formats a raw uptime in seconds as a human-readable string, e.g. "2 hours, 30 mins".
