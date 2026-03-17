@@ -53,12 +53,10 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
-        targets: [x86_64-windows, x86_64-linux, x86_64-macos, aarch64-macos]
+        targets: [x86_64-windows, x86_64-linux-gnu, x86_64-macos, aarch64-macos]
     steps:
       - uses: actions/checkout@v4
       - uses: mlugg/setup-zig@v2
-        with:
-          version: 0.15.1
       - name: Build
         run: |
           zig build -Dtarget=${{ matrix.targets }}

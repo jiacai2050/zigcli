@@ -201,7 +201,7 @@ fn makeCompileStep(
     const is_darwin = @import("builtin").os.tag == .macos and target.result.os.tag == .macos;
     const is_win = target.result.os.tag == .windows;
     if (!is_darwin) {
-        inline for (.{ "night-shift", "dark-mode", "fastfetch" }) |blacklist| {
+        inline for (.{ "night-shift", "dark-mode" }) |blacklist| {
             if (std.mem.eql(u8, name, blacklist)) {
                 return null;
             }
@@ -249,6 +249,10 @@ fn makeCompileStep(
         }
     } else if (std.mem.eql(u8, name, "fastfetch")) {
         if (is_win) {
+            return null;
+        }
+        // fastfetch uses @cImport with OS-specific headers that must exist on the host.
+        if (@import("builtin").os.tag != target.result.os.tag) {
             return null;
         }
         // fastfetch uses @cImport which requires linking libc to find headers.
