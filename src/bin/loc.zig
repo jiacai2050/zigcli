@@ -456,24 +456,25 @@ fn populateLoc(loc_map: *LocMap, dir: fs.Dir, rel_path: []const u8, lang: Langua
     // multiple worker threads process files in parallel.  Each mmap/munmap
     // requires inter-CPU TLB invalidation (IPI) on every core, which serialises
     // all threads.  A plain read() into a private stack buffer has no such cost.
-    var buf: [65536]u8 = undefined;
+    var buf: [4096]u8 = undefined;
     var rdr = file.reader(&buf);
     while (true) {
-        const line = rdr.interface.takeDelimiterExclusive('\n') catch |e| switch (e) {
+        const line_result = rdr.interface.takeDelimiterExclusive('\n');
+        if (line_result) |line| {
+            state = updateLineType(state, line, lang, loc_entry);
+        } else |e| switch (e) {
             error.EndOfStream => return,
             // Line exceeds buffer — classify conservatively as code and skip
             // to the next newline so processing continues for the rest of the file.
             error.StreamTooLong => {
                 loc_entry.codes += 1;
                 _ = rdr.interface.discardDelimiterInclusive('\n') catch return;
-                continue;
             },
             else => {
                 std.log.err("Error reading file {s}: {any}", .{ rel_path, e });
                 return e;
             },
-        };
-        state = updateLineType(state, line, lang, loc_entry);
+        }
     }
 }
 
