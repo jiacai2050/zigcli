@@ -580,21 +580,25 @@ fn getTheme() []const u8 {
         const home = std.posix.getenv("HOME") orelse return "Unknown";
         var buf: [1024]u8 = undefined;
 
-        const checks = .{
-            .{ "{s}/.config/dconf/user", &[_][]const u8{"prefer-dark"} },
-            .{ "{s}/.config/gtk-4.0/settings.ini", &[_][]const u8{ "gtk-application-prefer-dark-theme=1", "gtk-application-prefer-dark-theme=true" } },
-            .{ "{s}/.config/gtk-3.0/settings.ini", &[_][]const u8{ "gtk-application-prefer-dark-theme=1", "gtk-application-prefer-dark-theme=true" } },
+        const config_files = [_][]const u8{
+            "/.config/dconf/user",
+            "/.config/gtk-4.0/settings.ini",
+            "/.config/gtk-3.0/settings.ini",
+        };
+        const needles = [_][]const u8{
+            "prefer-dark",
+            "gtk-application-prefer-dark-theme=1",
+            "gtk-application-prefer-dark-theme=true",
         };
 
-        inline for (checks) |check| {
-            const path = fmt.bufPrint(&buf, check[0], .{home}) catch continue;
-            if (fs.openFileAbsolute(path, .{})) |file| {
-                defer file.close();
-                const n = file.readAll(&buf) catch 0;
-                for (check[1]) |needle| {
-                    if (mem.indexOf(u8, buf[0..n], needle) != null) return "Dark";
-                }
-            } else |_| {}
+        for (config_files) |suffix| {
+            const path = fmt.bufPrint(&buf, "{s}{s}", .{ home, suffix }) catch continue;
+            const file = fs.openFileAbsolute(path, .{}) catch continue;
+            defer file.close();
+            const n = file.readAll(&buf) catch continue;
+            for (needles) |needle| {
+                if (mem.indexOf(u8, buf[0..n], needle) != null) return "Dark";
+            }
         }
 
         return "Light";
@@ -731,18 +735,17 @@ fn getPackages(allocator: mem.Allocator) ![]const u8 {
 
     if (comptime native_os == .linux) {
         // dpkg
-        if (fs.openDirAbsolute("/var/lib/dpkg/info", .{ .iterate = true })) |dir| {
-            defer dir.close();
-            var count: u32 = 0;
-            var iter = dir.iterate();
-            while (try iter.next()) |entry| {
-                if (mem.endsWith(u8, entry.name, ".list")) count += 1;
-            }
-            if (count > 0) {
-                const entry = try fmt.allocPrint(allocator, "{d} (dpkg)", .{count});
-                try parts.appendSlice(allocator, entry);
-            }
-        } else |_| {}
+        var dir = fs.openDirAbsolute("/var/lib/dpkg/info", .{ .iterate = true }) catch return "Unknown";
+        defer dir.close();
+        var count: u32 = 0;
+        var iter = dir.iterate();
+        while (try iter.next()) |entry| {
+            if (mem.endsWith(u8, entry.name, ".list")) count += 1;
+        }
+        if (count > 0) {
+            const entry = try fmt.allocPrint(allocator, "{d} (dpkg)", .{count});
+            try parts.appendSlice(allocator, entry);
+        }
     }
 
     return if (parts.items.len > 0) parts.items else "Unknown";
