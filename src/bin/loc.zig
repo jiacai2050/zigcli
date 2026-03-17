@@ -452,46 +452,28 @@ fn populateLoc(loc_map: *LocMap, dir: fs.Dir, rel_path: []const u8, lang: Langua
     loc_entry.size += file_size;
 
     var state = State.Unknown;
-    switch (@import("builtin").os.tag) {
-        .windows => {
-            var buf: [1024]u8 = undefined;
-            var rdr = file.reader(&buf);
-            while (true) {
-                const line = rdr.interface.takeDelimiterExclusive('\n') catch |e| {
-                    switch (e) {
-                        error.EndOfStream => return,
-                        else => {
-                            std.log.err("Error when seek line delimiter, name:{s}, err:{any}", .{ rel_path, e });
-                            return e;
-                        },
-                    }
-                };
-
-                state = updateLineType(state, line, lang, loc_entry);
-            }
-        },
-        else => {
-            var ptr = try std.posix.mmap(
-                null,
-                file_size,
-                std.posix.PROT.READ,
-                .{ .TYPE = .PRIVATE },
-
-                file.handle,
-                0,
-            );
-            defer std.posix.munmap(ptr);
-
-            var offset_so_far: usize = 0;
-            while (offset_so_far < ptr.len) {
-                // Use indexOfScalarPos which can leverage SIMD for fast newline search.
-                const line_end = std.mem.indexOfScalarPos(u8, ptr, offset_so_far, '\n') orelse ptr.len;
-                const line = ptr[offset_so_far..line_end];
-                offset_so_far = line_end + 1;
-
-                state = updateLineType(state, line, lang, loc_entry);
-            }
-        },
+    // Use buffered read() instead of mmap to avoid TLB shootdown overhead when
+    // multiple worker threads process files in parallel.  mmap/munmap require
+    // inter-CPU TLB invalidation (IPI) on every unmap, which serialises all
+    // threads.  A plain read() into a private stack buffer has no such cost.
+    var buf: [65536]u8 = undefined;
+    var rdr = file.reader(&buf);
+    while (true) {
+        const line = rdr.interface.takeDelimiterExclusive('\n') catch |e| switch (e) {
+            error.EndOfStream => return,
+            // Line exceeds buffer — classify conservatively as code and skip
+            // to the next newline so processing continues for the rest of the file.
+            error.StreamTooLong => {
+                loc_entry.codes += 1;
+                _ = rdr.interface.discardDelimiterInclusive('\n') catch return;
+                continue;
+            },
+            else => {
+                std.log.err("Error reading file {s}: {any}", .{ rel_path, e });
+                return e;
+            },
+        };
+        state = updateLineType(state, line, lang, loc_entry);
     }
 }
 
