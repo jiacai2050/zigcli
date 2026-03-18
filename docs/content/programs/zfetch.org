@@ -1,6 +1,6 @@
 #+TITLE: zfetch
 #+DATE: 2026-03-16T20:30:00+0800
-#+LASTMOD: 2026-03-18T17:29:10+0800
+#+LASTMOD: 2026-03-18T20:00:26+0800
 #+TYPE: docs
 #+DESCRIPTION: A high-performance system information fetcher written in Zig
 
@@ -12,8 +12,9 @@ The "z" stands for both *Zig* (the language it's written in) and *zap* (⚡ ligh
 - **Detailed Memory Info**:
   - On macOS: Provides breakdown of App Memory, Wired Memory, and Compressed Memory (matching Activity Monitor).
   - On Linux: Provides Swap usage details.
+  - On FreeBSD: Uses =sysctl= for memory and ACPI for battery status.
 - **Hardware Insights**: Displays CPU core distribution (Performance vs. Efficiency cores on Apple Silicon), GPU (macOS), and Page Size.
-- **High Performance**: Uses =sysctl=, =IOKit=, =CoreFoundation= on macOS and =procfs=, =sysfs= on Linux.
+- **High Performance**: Uses =sysctl=, =IOKit=, =CoreFoundation= on macOS, =procfs=, =sysfs= on Linux, and =sysctl= on FreeBSD.
 
 ** Demo
 
@@ -30,64 +31,65 @@ The "z" stands for both *Zig* (the language it's written in) and *zap* (⚡ ligh
 
 #+RESULTS:
 #+begin_example
-jiacai@mario
-────────────
-OS:          macOS 26.3 aarch64
-Host:        Mac14,10
-Kernel:      25.3.0
-Uptime:      19 days, 23 hours, 56 mins
-Shell:       bash
-Terminal:    ghostty
-Resolution:  1728x1117 @ 120Hz
-Theme:       Light
-CPU:         Apple M2 Pro (12 cores: 8P + 4E)
-Memory:      25432 MiB / 32768 MiB (77%) [App: 18103 MiB, Wired: 3554 MiB, Compressed: 3774 MiB]
-Disk:        /: 830 GiB / 926 GiB (89%)
-Battery:     80% [Discharging]
-Page:        16 KiB
-Local IP:    10.192.157.86 (en0), 100.80.224.100 (utun0)
+                     ..'         jiacai@mario
+                 ,xNMM.          ────────────
+               .OMMMMo           OS           macOS 26.3 aarch64
+               lMM"              Host         Mac14,10
+     .;loddo:.  .olloddol;.      Kernel       25.3.0
+   cKMMMMMMMMMMNWMMMMMMMMMM0:    Uptime       20 days, 11 hours, 6 mins
+ .KMMMMMMMMMMMMMMMMMMMMMMMWd.    Shell        bash
+ XMMMMMMMMMMMMMMMMMMMMMMMX.      Terminal     ghostty
+;MMMMMMMMMMMMMMMMMMMMMMMM:       Resolution   1728x1117 @ 120Hz
+:MMMMMMMMMMMMMMMMMMMMMMMM:       Theme        Light
+.MMMMMMMMMMMMMMMMMMMMMMMMX.      CPU          Apple M2 Pro (12 cores: 8P + 4E)
+ kMMMMMMMMMMMMMMMMMMMMMMMMWd.    Memory       24.6 GiB / 32.0 GiB (77%) [App: 14.8 GiB, Wired: 3.5 GiB, Compressed: 6.2 GiB]
+ 'XMMMMMMMMMMMMMMMMMMMMMMMMMMk   Disk         /: 827 GiB / 926 GiB (89%)
+  'XMMMMMMMMMMMMMMMMMMMMMMMMK.   Battery      80% [Discharging]
+    kMMMMMMMMMMMMMMMMMMMMMMd     Page         16 KiB
+     ;KMMMMMMMWXXWMMMMMMMk.      Local IP     10.192.157.86 (en0), 100.80.224.100 (utun0)
+       "cooc*"    "*coo'"
 #+end_example
 
 *** Linux
 
 #+begin_example
-jiacai@ThinkCentre-M760t
-───────────────────────
-OS:          Ubuntu 24.04.3 LTS x86_64
-Host:        LENOVO 12USCTO1WW
-Kernel:      6.11.0-29-generic
-Uptime:      22 days, 6 hours, 35 mins
-Shell:       bash 5.2.21
-Terminal:    tmux
-Resolution:  2560x1440
-Theme:       Light
-CPU:         13th Gen Intel(R) Core(TM) i7-13700 (24 logical, 16 physical cores)
-Memory:      15251 MiB / 31709 MiB (48%) [Swap: 12990 MiB / 61035 MiB]
-Disk:        /: 548 GiB / 878 GiB (62%)
-Battery:     No Battery
-Page:        4 KiB
-Local IP:    10.192.32.23 (eno1), 172.17.0.1 (docker0)
-Packages:    2216 (dpkg)
+         _nnnn_           jiacai@ThinkCentre-M760t
+        dGGGGMMb          ───────────────────────
+       @p~qp~~qMb         OS           Ubuntu 24.04.3 LTS x86_64
+       M|@||@) M|         Host         LENOVO 12USCTO1WW
+       @,----.JM|         Kernel       6.11.0-29-generic
+      JS^\__/  qKL        Uptime       2 hours, 52 mins
+     dZP        qKRb      Shell        bash
+    dZP          qKKb     Terminal     tmux
+   fZP            SMMb    Resolution   2560x1440
+   HZM            MMMM    Theme        Light
+   FqM            MMMM    CPU          13th Gen Intel(R) Core(TM) i7-13700 (24 logical, 16 physical cores)
+ __| ".        |\dS"qML   Memory       2.9 GiB / 30.9 GiB (9%) [Swap: 0 MiB / 59.6 GiB]
+ |    `.       | `' \Zq   Disk         /: 547 GiB / 878 GiB (62%)
+_)      \.___.,|     .'   Battery      No Battery
+\____   )MMMMMP|   .'     Page         4 KiB
+     `-'       `--'       Local IP     10.192.32.23 (eno1), 172.17.0.1 (docker0)
+
+
 #+end_example
 
 *** FreeBSD
 
 #+begin_example
-root@freebsd
-────────────
-OS:          FreeBSD 15.0-RELEASE x86_64
-Host:        FreeBSD
-Kernel:      15.0-RELEASE
-Uptime:      5 mins, 29 secs
-Shell:       sh
-Terminal:    vt100
-Resolution:  Unknown
-Theme:       Light
-CPU:         QEMU Virtual CPU version 2.5+ (2 cores)
-Memory:      380 MiB / 2005 MiB (18%)
-Disk:        /: 2 GiB / 4 GiB (67%)
-Battery:     No Battery
-Page:        4 KiB
-Local IP:    10.0.2.15 (vtnet0)
-Packages:    2 (pkg)
+ ```                        `      root@freebsd
+  ` `.....---.......--.```   -/    ────────────
+  +o   .--`         /y:`      +.   OS           FreeBSD 15.0-RELEASE x86_64
+   yo`:.            :o      `+-    Host         FreeBSD
+    y/               -/`   -o/     Kernel       15.0-RELEASE
+   .-                  ::/sy+:.    Uptime       27 mins, 15 secs
+   /                     `--  /    Shell        sh
+  `:                          :`   Terminal     vt100
+  `:                          :`   Resolution   Unknown
+   /                          /    Theme        Light
+   .-                        -.    CPU          QEMU Virtual CPU version 2.5+ (2 cores)
+    --                      -.     Memory       171 MiB / 1.9 GiB (8%)
+     `:`                  `:`      Disk         /: 2 GiB / 4 GiB (67%)
+       .--             `--.        Battery      No Battery
+          .---.....----.           Page         4 KiB
+                                   Local IP     10.0.2.15 (vtnet0)
 #+end_example

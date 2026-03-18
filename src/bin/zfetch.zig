@@ -52,6 +52,7 @@ pub fn main() !void {
     const arena_alloc = arena.allocator();
 
     const stdout = std.fs.File.stdout();
+    const is_tty = stdout.isTty();
     var output_buf: [8192]u8 = undefined;
     var writer = stdout.writer(&output_buf);
 
@@ -60,6 +61,7 @@ pub fn main() !void {
         &writer.interface,
         opt.options.all,
         opt.options.format == .json,
+        is_tty,
     );
     try writer.interface.flush();
 }
@@ -137,12 +139,147 @@ fn collectInfo(
     };
 }
 
+/// ASCII art logos for each supported OS.
+/// Color markers: $1..$6 switch ANSI color mid-line.
+const logo_lines: []const []const u8 = switch (builtin.os.tag) {
+    .macos => &.{
+        "                     ..'       ",
+        "                 ,xNMM.        ",
+        "               .OMMMMo         ",
+        "               lMM\"            ",
+        "     .;loddo:.  .olloddol;.    ",
+        "   cKMMMMMMMMMMNWMMMMMMMMMM0:  ",
+        " $2.KMMMMMMMMMMMMMMMMMMMMMMMWd.  ",
+        " XMMMMMMMMMMMMMMMMMMMMMMMX.    ",
+        "$3;MMMMMMMMMMMMMMMMMMMMMMMM:    ",
+        ":MMMMMMMMMMMMMMMMMMMMMMMM:     ",
+        "$4.MMMMMMMMMMMMMMMMMMMMMMMMX.   ",
+        " kMMMMMMMMMMMMMMMMMMMMMMMMWd.  ",
+        " $5'XMMMMMMMMMMMMMMMMMMMMMMMMMMk ",
+        "  'XMMMMMMMMMMMMMMMMMMMMMMMMK. ",
+        "    $6kMMMMMMMMMMMMMMMMMMMMMMd   ",
+        "     ;KMMMMMMMWXXWMMMMMMMk.    ",
+        "       \"cooc*\"    \"*coo'\"      ",
+    },
+    .linux => &.{
+        "         $1_nnnn_        ",
+        "        $1dGGGGMMb       ",
+        "       $1@p~$2qp~~qM$1b      ",
+        "       $1M|$2@||@) $1M|      ",
+        "       $1@,----.JM|      ",
+        "      $3JS^\\__/  qKL     ",
+        "     $3dZP        qKRb   ",
+        "    $3dZP          qKKb  ",
+        "   $3fZP            SMMb ",
+        "   $3HZM            MMMM ",
+        "   $3FqM            MMMM ",
+        " $3__| \".        |\\dS\"qML",
+        " $3|    `.       | `' \\Zq",
+        "$3_)      \\.___.,|     .' ",
+        "$3\\____   )MMMMMP|   .'   ",
+        "     $3`-'       `--'     ",
+    },
+    .freebsd => &.{
+        " $2```                        $1`  ",
+        "  $2` `.....---...$1....--.```   -/ ",
+        "  $2+o   .--`         $1/y:`      +.",
+        "   $2yo`:.            $1:o      `+- ",
+        "    $2y/               $1-/`   -o/  ",
+        "   $2.-                  $1::/sy+:. ",
+        "   $2/                     $1`--  / ",
+        "  $2`:                          $1:` ",
+        "  $2`:                          $1:` ",
+        "   $2/                          $1/  ",
+        "   $2.-                        $1-.  ",
+        "    $2--                      $1-.   ",
+        "     $2`:`                  $1`:`    ",
+        "       $2.--             $1`--.     ",
+        "          $2.---.....----.        ",
+    },
+    else => &.{},
+};
+
+/// ANSI color codes for logo color markers ($1..$6).
+const logo_colors: []const []const u8 = switch (builtin.os.tag) {
+    .macos => &.{
+        "\x1b[32m", // $1 green
+        "\x1b[33m", // $2 yellow
+        "\x1b[31m", // $3 red
+        "\x1b[35m", // $4 magenta
+        "\x1b[34m", // $5 blue
+        "\x1b[36m", // $6 cyan
+    },
+    .linux => &.{
+        "\x1b[37m", // $1 white
+        "\x1b[33m", // $2 yellow
+        "\x1b[30m", // $3 black
+    },
+    .freebsd => &.{
+        "\x1b[31m", // $1 red
+        "\x1b[91m", // $2 bright red
+    },
+    else => &.{},
+};
+
+/// Writes a logo line, expanding $N color markers.
+fn writeLogo(
+    writer: *std.Io.Writer,
+    line: []const u8,
+    width: usize,
+    color: bool,
+) !void {
+    var i: usize = 0;
+    var vis: usize = 0;
+    // Start with first color.
+    if (color and logo_colors.len > 0) {
+        try writer.writeAll(logo_colors[0]);
+    }
+    while (i < line.len) {
+        if (line[i] == '$' and i + 1 < line.len and
+            line[i + 1] >= '1' and line[i + 1] <= '9')
+        {
+            const idx = line[i + 1] - '1';
+            if (color and idx < logo_colors.len) {
+                try writer.writeAll(logo_colors[idx]);
+            }
+            i += 2;
+        } else {
+            try writer.writeAll(line[i..][0..1]);
+            vis += 1;
+            i += 1;
+        }
+    }
+    if (color) try writer.writeAll("\x1b[0m");
+    // Pad to uniform width.
+    for (vis..width) |_| {
+        try writer.writeAll(" ");
+    }
+}
+
+/// Visual width of a logo line (excluding $N markers).
+fn logoVisualWidth(line: []const u8) usize {
+    var w: usize = 0;
+    var i: usize = 0;
+    while (i < line.len) {
+        if (line[i] == '$' and i + 1 < line.len and
+            line[i + 1] >= '1' and line[i + 1] <= '9')
+        {
+            i += 2;
+        } else {
+            w += 1;
+            i += 1;
+        }
+    }
+    return w;
+}
+
 /// Prints all system information to the writer.
 fn printInfo(
     allocator: mem.Allocator,
     writer: *std.Io.Writer,
     show_all: bool,
     json: bool,
+    color: bool,
 ) !void {
     const info = try collectInfo(allocator, show_all);
 
@@ -151,47 +288,107 @@ fn printInfo(
         return;
     }
 
-    // Print "username@hostname" header.
-    try writer.print("{s}@{s}\n", .{
-        info.username, info.hostname,
-    });
+    // Build info lines.
+    var lines_buf: [24][]const u8 = undefined;
+    var line_count: usize = 0;
 
-    const header_len = info.username.len + 1 + info.hostname.len;
-    var i: usize = 0;
-    while (i < header_len) : (i += 1) {
-        try writer.writeAll("─");
+    const header = try fmt.allocPrint(
+        allocator,
+        "{s}@{s}",
+        .{ info.username, info.hostname },
+    );
+    lines_buf[line_count] = header;
+    line_count += 1;
+
+    // Separator matching header length.
+    var sep_buf: [128]u8 = undefined;
+    var sep_pos: usize = 0;
+    for (0..header.len) |_| {
+        const s = "─";
+        @memcpy(sep_buf[sep_pos..][0..s.len], s);
+        sep_pos += s.len;
     }
-    try writer.writeAll("\n");
+    lines_buf[line_count] = sep_buf[0..sep_pos];
+    line_count += 1;
 
-    try writer.print("OS:          {s} {s}\n", .{ info.os, info.arch });
-    try writer.print("Host:        {s}\n", .{info.host});
-    try writer.print("Kernel:      {s}\n", .{info.kernel});
-    try writer.print("Uptime:      {s}\n", .{info.uptime});
-    try writer.print("Shell:       {s}\n", .{info.shell});
-    try writer.print("Terminal:    {s}\n", .{info.terminal});
-    try writer.print("Resolution:  {s}\n", .{info.resolution});
-    try writer.print("Theme:       {s}\n", .{info.theme});
-    try writer.print("CPU:         {s}\n", .{info.cpu});
-    try writer.print("Memory:      {s}\n", .{info.memory});
-    try writer.print("Disk:        {s}\n", .{info.disk});
-    try writer.print("Battery:     {s}\n", .{info.battery});
-    try writer.print("Page:        {s}\n", .{info.page});
-    try writer.print("Local IP:    {s}\n", .{info.local_ip});
-
+    const fields = [_]struct { []const u8, []const u8 }{
+        .{ "OS", try fmt.allocPrint(allocator, "{s} {s}", .{ info.os, info.arch }) },
+        .{ "Host", info.host },
+        .{ "Kernel", info.kernel },
+        .{ "Uptime", info.uptime },
+        .{ "Shell", info.shell },
+        .{ "Terminal", info.terminal },
+        .{ "Resolution", info.resolution },
+        .{ "Theme", info.theme },
+        .{ "CPU", info.cpu },
+        .{ "Memory", info.memory },
+        .{ "Disk", info.disk },
+        .{ "Battery", info.battery },
+        .{ "Page", info.page },
+        .{ "Local IP", info.local_ip },
+    };
+    for (fields) |f| {
+        lines_buf[line_count] = try fmt.allocPrint(
+            allocator,
+            "{s:<13}{s}",
+            .{ f[0], f[1] },
+        );
+        line_count += 1;
+    }
     if (info.packages) |packages| {
-        try writer.print("Packages:    {s}\n", .{packages});
+        lines_buf[line_count] = try fmt.allocPrint(
+            allocator,
+            "{s:<13}{s}",
+            .{ "Packages", packages },
+        );
+        line_count += 1;
     }
 
-    // Color palette.
-    try writer.writeAll("\n");
-    inline for ([_][8][]const u8{
-        .{ "40", "41", "42", "43", "44", "45", "46", "47" },
-        .{ "100", "101", "102", "103", "104", "105", "106", "107" },
-    }) |row| {
-        inline for (row) |bg| {
-            try writer.writeAll("\x1b[" ++ bg ++ "m   \x1b[0m");
+    // Empty line before color palette.
+    lines_buf[line_count] = "";
+    line_count += 1;
+
+    // Print logo and info side by side.
+    var logo_width: usize = 0;
+    for (logo_lines) |line| {
+        const w = logoVisualWidth(line);
+        if (w > logo_width) logo_width = w;
+    }
+    logo_width += 2; // Gap between logo and info.
+    const total = @max(logo_lines.len + 2, line_count);
+    for (0..total) |i| {
+        // Logo column.
+        if (i < logo_lines.len) {
+            try writeLogo(writer, logo_lines[i], logo_width, color);
+        } else {
+            for (0..logo_width) |_| {
+                try writer.writeAll(" ");
+            }
+        }
+
+        // Info column.
+        if (i < line_count) {
+            try writer.print("{s}", .{lines_buf[i]});
         }
         try writer.writeAll("\n");
+    }
+
+    // Color palette (only in TTY mode).
+    if (color) {
+        inline for ([_][8][]const u8{
+            .{ "40", "41", "42", "43", "44", "45", "46", "47" },
+            .{ "100", "101", "102", "103", "104", "105", "106", "107" },
+        }) |row| {
+            for (0..logo_width) |_| {
+                try writer.writeAll(" ");
+            }
+            inline for (row) |bg| {
+                try writer.writeAll(
+                    "\x1b[" ++ bg ++ "m   \x1b[0m",
+                );
+            }
+            try writer.writeAll("\n");
+        }
     }
 }
 

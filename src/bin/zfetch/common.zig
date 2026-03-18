@@ -69,31 +69,30 @@ pub fn formatUptime(allocator: mem.Allocator, uptime_s: u64) ![]const u8 {
     const minutes = (uptime_s % s_per_hour) / s_per_min;
     const seconds = uptime_s % s_per_min;
 
-    const p = plural;
     if (days > 0) {
         return fmt.allocPrint(allocator, "{d} {s}, {d} {s}, {d} {s}", .{
-            days,    p(days, "day"),
-            hours,   p(hours, "hour"),
-            minutes, p(minutes, "min"),
+            days,    plural(days, "day"),
+            hours,   plural(hours, "hour"),
+            minutes, plural(minutes, "min"),
         });
     }
 
     if (hours > 0) {
         return fmt.allocPrint(allocator, "{d} {s}, {d} {s}", .{
-            hours,   p(hours, "hour"),
-            minutes, p(minutes, "min"),
+            hours,   plural(hours, "hour"),
+            minutes, plural(minutes, "min"),
         });
     }
 
     if (minutes > 0) {
         return fmt.allocPrint(allocator, "{d} {s}, {d} {s}", .{
-            minutes, p(minutes, "min"),
-            seconds, p(seconds, "sec"),
+            minutes, plural(minutes, "min"),
+            seconds, plural(seconds, "sec"),
         });
     }
 
     return fmt.allocPrint(allocator, "{d} {s}", .{
-        seconds, p(seconds, "sec"),
+        seconds, plural(seconds, "sec"),
     });
 }
 
