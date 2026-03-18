@@ -1,26 +1,12 @@
-#+TITLE: fastfetch
+#+TITLE: zfetch
 #+DATE: 2026-03-16T20:30:00+0800
+#+LASTMOD: 2026-03-18T08:48:18+0800
 #+TYPE: docs
 #+DESCRIPTION: A high-performance system information fetcher written in Zig
 
-#+begin_src bash :results verbatim :exports results :wrap example :dir ../../..
-./zig-out/bin/fastfetch -h
-#+end_src
+=zfetch= (⚡) is a lightweight, high-performance system information fetcher inspired by the original =fastfetch=. The "z" stands for both *Zig* (the language it's written in) and *zap* (⚡ lightning-fast). It aims to be extremely fast by avoiding external process calls and using native C APIs or virtual filesystems instead.
 
-#+RESULTS:
-#+begin_example
-  USAGE:
-     ./zig-out/bin/fastfetch [OPTIONS]
-
- OPTIONS:
-  -h, --help                       Print help information.
-  -v, --version                    Print version.
-#+end_example
-
-** Features
-=fastfetch= is a lightweight, high-performance system information fetcher inspired by the original =fastfetch=. It aims to be extremely fast by avoiding external process calls and using native C APIs or virtual filesystems instead.
-
-- **Cross-platform**: Supports both macOS and Linux.
+- **Cross-platform**: Supports macOS, Linux, and FreeBSD.
 - **Detailed Memory Info**:
   - On macOS: Provides breakdown of App Memory, Wired Memory, and Compressed Memory (matching Activity Monitor).
   - On Linux: Provides Swap usage details.
@@ -29,7 +15,7 @@
 
 ** Demo
 #+begin_src bash :results verbatim :exports results :wrap example :dir ../../..
-./zig-out/bin/fastfetch
+./zig-out/bin/zfetch
 #+end_src
 
 #+RESULTS:
@@ -39,13 +25,15 @@ jiacai@mario
 OS:          macOS 26.3 aarch64
 Host:        Mac14,10
 Kernel:      25.3.0
-Uptime:      18 days, 12 hours, 15 mins
+Uptime:      19 days, 23 hours, 56 mins
 Shell:       bash
+Terminal:    ghostty
 Resolution:  1728x1117 @ 120Hz
 Theme:       Light
 CPU:         Apple M2 Pro (12 cores: 8P + 4E)
-Memory:      25583 MiB / 32768 MiB (78%) [App: 8817 MiB, Wired: 3915 MiB, Compressed: 12851 MiB]
-Disk:        827 GiB / 926 GiB (89%)
+Memory:      25432 MiB / 32768 MiB (77%) [App: 18103 MiB, Wired: 3554 MiB, Compressed: 3774 MiB]
+Disk:        /: 830 GiB / 926 GiB (89%)
 Battery:     80% [Discharging]
 Page:        16 KiB
+Local IP:    10.192.157.86 (en0), 100.80.224.100 (utun0)
 #+end_example

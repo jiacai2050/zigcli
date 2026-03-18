@@ -119,7 +119,7 @@ fn buildBinaries(
         "tcp-proxy",
         "timeout",
         "cowsay",
-        "fastfetch",
+        "zfetch",
         "progress",
     }) |name| {
         try buildBinary(
@@ -207,6 +207,15 @@ fn makeCompileStep(
             }
         }
     }
+    if (target.result.os.tag == .freebsd) {
+        // Blocked by
+        // @compileError("std.net.if_nametoindex unimplemented for this OS");
+        inline for (.{ "zigfetch", "tcp-proxy" }) |blacklist| {
+            if (std.mem.eql(u8, name, blacklist)) {
+                return null;
+            }
+        }
+    }
     const exe = b.addExecutable(.{
         .name = name,
         .root_module = b.createModule(.{
@@ -247,15 +256,17 @@ fn makeCompileStep(
         } else {
             return null;
         }
-    } else if (std.mem.eql(u8, name, "fastfetch")) {
-        if (is_win) {
+    } else if (std.mem.eql(u8, name, "zfetch")) {
+        const target_os = target.result.os.tag;
+        // Only supports macOS, Linux, and FreeBSD.
+        switch (target_os) {
+            .macos, .linux, .freebsd => {},
+            else => return null,
+        }
+        // zfetch uses @cImport with OS-specific headers that must exist on the host.
+        if (@import("builtin").os.tag != target_os and target_os == .macos) {
             return null;
         }
-        // fastfetch uses @cImport with OS-specific headers that must exist on the host.
-        if (@import("builtin").os.tag != target.result.os.tag) {
-            return null;
-        }
-        // fastfetch uses @cImport which requires linking libc to find headers.
         exe.linkLibC();
         if (is_darwin) {
             exe.linkFramework("CoreGraphics");

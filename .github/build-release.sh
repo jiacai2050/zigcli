@@ -26,6 +26,8 @@ targets=(
   "x86_64-macos"
   "x86_64-windows"
   "aarch64-windows"
+  "x86_64-freebsd"
+  "aarch64-freebsd"
 )
 
 export BUILD_DATE=$(date +'%Y-%m-%dT%H:%M:%S%z')
