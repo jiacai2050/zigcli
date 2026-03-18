@@ -5,6 +5,8 @@ const mem = std.mem;
 const fmt = std.fmt;
 const fs = std.fs;
 
+const max_read_bytes = 1024 * 1024;
+
 const c = @cImport({
     @cInclude("sys/types.h");
     @cInclude("sys/socket.h");
@@ -229,7 +231,9 @@ pub fn getOsFromRelease(allocator: mem.Allocator, fallback: []const u8) ![]const
         return fallback;
     };
     defer file.close();
-    const content = try file.readToEndAlloc(allocator, 4096);
+    const content = file.readToEndAlloc(allocator, max_read_bytes) catch {
+        return fallback;
+    };
     var iter = mem.splitScalar(u8, content, '\n');
     while (iter.next()) |line| {
         if (!mem.startsWith(u8, line, "PRETTY_NAME=")) continue;
@@ -350,7 +354,9 @@ pub fn getMemoryFromProc(allocator: mem.Allocator) ![]const u8 {
         return "Unknown";
     };
     defer file.close();
-    const content = try file.readToEndAlloc(allocator, 4096);
+    const content = file.readToEndAlloc(allocator, max_read_bytes) catch {
+        return "Unknown";
+    };
     var bytes_total_kb: u64 = 0;
     var bytes_available_kb: u64 = 0;
     var bytes_swap_total_kb: u64 = 0;
@@ -404,7 +410,9 @@ pub fn getCpuFromProc(allocator: mem.Allocator) ![]const u8 {
         return "Unknown";
     };
     defer file.close();
-    const content = try file.readToEndAlloc(allocator, 65536);
+    const content = file.readToEndAlloc(allocator, max_read_bytes) catch {
+        return "Unknown";
+    };
     var iter = mem.splitScalar(u8, content, '\n');
     var model: ?[]const u8 = null;
     var logical_count: u32 = 0;
@@ -460,8 +468,12 @@ pub fn getHostFromDmi(allocator: mem.Allocator, fallback: []const u8) ![]const u
     ) catch return fallback;
     defer product_file.close();
 
-    const vendor = try vendor_file.readToEndAlloc(allocator, 64);
-    const product = try product_file.readToEndAlloc(allocator, 64);
+    const vendor = vendor_file.readToEndAlloc(allocator, max_read_bytes) catch {
+        return fallback;
+    };
+    const product = product_file.readToEndAlloc(allocator, max_read_bytes) catch {
+        return fallback;
+    };
 
     return fmt.allocPrint(allocator, "{s} {s}", .{
         mem.trim(u8, vendor, " \n\t"),
