@@ -16,10 +16,6 @@ const platform = switch (builtin.os.tag) {
     else => @compileError("Unsupported OS"),
 };
 
-pub const std_options: std.Options = .{
-    .log_level = .info,
-};
-
 const Format = enum { text, json };
 
 pub fn main() !void {
@@ -107,7 +103,7 @@ fn collectInfo(
     else
         shell_path;
 
-    const bytes_per_page = platform.fetchPageSize();
+    const bytes_per_page = std.heap.pageSize();
 
     return .{
         .username = username,

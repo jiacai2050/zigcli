@@ -290,35 +290,26 @@ pub fn getMemory(
     else
         0;
 
-    const MiB = 1024 * 1024;
+    const used = try common.fmtSize(allocator, bytes_used);
+    const total = try common.fmtSize(allocator, bytes_total);
+    const app = try common.fmtSize(
+        allocator,
+        pages_app * bytes_per_page,
+    );
+    const wired = try common.fmtSize(
+        allocator,
+        pages_wired * bytes_per_page,
+    );
+    const compressed = try common.fmtSize(
+        allocator,
+        pages_compressed * bytes_per_page,
+    );
     return fmt.allocPrint(
         allocator,
-        "{d} MiB / {d} MiB ({d}%)" ++
-            " [App: {d} MiB, Wired: {d} MiB, Compressed: {d} MiB]",
-        .{
-            bytes_used / MiB,
-            bytes_total / MiB,
-            percent,
-            (pages_app * bytes_per_page) / MiB,
-            (pages_wired * bytes_per_page) / MiB,
-            (pages_compressed * bytes_per_page) / MiB,
-        },
+        "{s} / {s} ({d}%)" ++
+            " [App: {s}, Wired: {s}, Compressed: {s}]",
+        .{ used, total, percent, app, wired, compressed },
     );
-}
-
-pub fn fetchPageSize() u64 {
-    var bytes_per_page: u32 = 0;
-    var bpp_size: usize = @sizeOf(u32);
-    if (c.sysctlbyname(
-        "hw.pagesize",
-        &bytes_per_page,
-        &bpp_size,
-        null,
-        0,
-    ) == 0) {
-        return bytes_per_page;
-    }
-    return 4096;
 }
 
 pub fn getUptime(allocator: mem.Allocator) ![]const u8 {

@@ -5,10 +5,6 @@ const debugPrint = util.debugPrint;
 const net = std.net;
 const mem = std.mem;
 
-pub const std_options: std.Options = .{
-    .log_level = .debug,
-};
-
 const isLinux = util.isLinux();
 const isWindows = util.isWindows();
 

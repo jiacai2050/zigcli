@@ -1,10 +1,12 @@
 #+TITLE: zfetch
 #+DATE: 2026-03-16T20:30:00+0800
-#+LASTMOD: 2026-03-18T08:48:18+0800
+#+LASTMOD: 2026-03-18T17:29:10+0800
 #+TYPE: docs
 #+DESCRIPTION: A high-performance system information fetcher written in Zig
 
-=zfetch= (⚡) is a lightweight, high-performance system information fetcher inspired by the original =fastfetch=. The "z" stands for both *Zig* (the language it's written in) and *zap* (⚡ lightning-fast). It aims to be extremely fast by avoiding external process calls and using native C APIs or virtual filesystems instead.
+=zfetch= (⚡) is a lightweight, high-performance system information fetcher inspired by the [[https://github.com/fastfetch-cli/fastfetch][fastfetch]].
+
+The "z" stands for both *Zig* (the language it's written in) and *zap* (⚡ lightning-fast). It aims to be extremely fast by avoiding external process calls and using native C APIs or virtual filesystems instead.
 
 - **Cross-platform**: Supports macOS, Linux, and FreeBSD.
 - **Detailed Memory Info**:
@@ -14,6 +16,14 @@
 - **High Performance**: Uses =sysctl=, =IOKit=, =CoreFoundation= on macOS and =procfs=, =sysfs= on Linux.
 
 ** Demo
+
+{{< figure
+  src="https://fs.liujiacai.net/public/zfetch.webp"
+  alt="zfetch screenshot" width="400"
+>}}
+
+*** macOS
+
 #+begin_src bash :results verbatim :exports results :wrap example :dir ../../..
 ./zig-out/bin/zfetch
 #+end_src
@@ -36,4 +46,48 @@ Disk:        /: 830 GiB / 926 GiB (89%)
 Battery:     80% [Discharging]
 Page:        16 KiB
 Local IP:    10.192.157.86 (en0), 100.80.224.100 (utun0)
+#+end_example
+
+*** Linux
+
+#+begin_example
+jiacai@ThinkCentre-M760t
+───────────────────────
+OS:          Ubuntu 24.04.3 LTS x86_64
+Host:        LENOVO 12USCTO1WW
+Kernel:      6.11.0-29-generic
+Uptime:      22 days, 6 hours, 35 mins
+Shell:       bash 5.2.21
+Terminal:    tmux
+Resolution:  2560x1440
+Theme:       Light
+CPU:         13th Gen Intel(R) Core(TM) i7-13700 (24 logical, 16 physical cores)
+Memory:      15251 MiB / 31709 MiB (48%) [Swap: 12990 MiB / 61035 MiB]
+Disk:        /: 548 GiB / 878 GiB (62%)
+Battery:     No Battery
+Page:        4 KiB
+Local IP:    10.192.32.23 (eno1), 172.17.0.1 (docker0)
+Packages:    2216 (dpkg)
+#+end_example
+
+*** FreeBSD
+
+#+begin_example
+root@freebsd
+────────────
+OS:          FreeBSD 15.0-RELEASE x86_64
+Host:        FreeBSD
+Kernel:      15.0-RELEASE
+Uptime:      5 mins, 29 secs
+Shell:       sh
+Terminal:    vt100
+Resolution:  Unknown
+Theme:       Light
+CPU:         QEMU Virtual CPU version 2.5+ (2 cores)
+Memory:      380 MiB / 2005 MiB (18%)
+Disk:        /: 2 GiB / 4 GiB (67%)
+Battery:     No Battery
+Page:        4 KiB
+Local IP:    10.0.2.15 (vtnet0)
+Packages:    2 (pkg)
 #+end_example

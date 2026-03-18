@@ -47,10 +47,6 @@ pub fn getMemory(
     return common.getMemoryFromProc(allocator);
 }
 
-pub fn fetchPageSize() u64 {
-    return @intCast(c.getpagesize());
-}
-
 pub fn getUptime(allocator: mem.Allocator) ![]const u8 {
     return common.getUptimeFromProc(allocator);
 }

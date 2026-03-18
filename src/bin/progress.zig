@@ -13,10 +13,6 @@ const fmt = std.fmt;
 const time = std.time;
 const testing = std.testing;
 
-pub const std_options: std.Options = .{
-    .log_level = .warn,
-};
-
 /// Default commands to monitor, matching the original progress tool.
 const DEFAULT_COMMANDS = [_][]const u8{
     "cp",

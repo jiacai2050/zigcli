@@ -16,10 +16,6 @@ const mem = std.mem;
 const testing = std.testing;
 const fmt = std.fmt;
 
-pub const std_options: std.Options = .{
-    .log_level = .info,
-};
-
 const Mode = enum {
     ascii,
     box,

@@ -14,10 +14,6 @@ const Allocator = mem.Allocator;
 const Child = std.process.Child;
 const ArrayList = std.ArrayList;
 
-pub const std_options: std.Options = .{
-    .log_level = if (builtin.mode == .Debug) .debug else .info,
-};
-
 const Args = struct {
     help: bool = false,
     version: bool = false,

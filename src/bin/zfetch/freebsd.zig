@@ -140,12 +140,7 @@ pub fn getMemory(
         null,
         0,
     ) != 0) {
-        const MiB = 1024 * 1024;
-        return fmt.allocPrint(
-            allocator,
-            "{d} MiB",
-            .{physmem / MiB},
-        );
+        return common.fmtSize(allocator, physmem);
     }
 
     var inactive_count: u32 = 0;
@@ -165,16 +160,13 @@ pub fn getMemory(
     else
         0;
 
-    const MiB = 1024 * 1024;
+    const used = try common.fmtSize(allocator, bytes_used);
+    const total = try common.fmtSize(allocator, physmem);
     return fmt.allocPrint(
         allocator,
-        "{d} MiB / {d} MiB ({d}%)",
-        .{ bytes_used / MiB, physmem / MiB, percent },
+        "{s} / {s} ({d}%)",
+        .{ used, total, percent },
     );
-}
-
-pub fn fetchPageSize() u64 {
-    return @intCast(c.getpagesize());
 }
 
 pub fn getUptime(allocator: mem.Allocator) ![]const u8 {

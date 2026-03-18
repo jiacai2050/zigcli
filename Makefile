@@ -10,6 +10,9 @@ build:
 fmt:
 	zig fmt --check .
 
+fix:
+	zig fmt .
+
 clean:
 	rm -rf zig-out .zig-cache
 

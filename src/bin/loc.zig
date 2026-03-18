@@ -8,10 +8,6 @@ const gitignore = @import("gitignore");
 const StringUtil = util.StringUtil;
 const fs = std.fs;
 
-pub const std_options: std.Options = .{
-    .log_level = .info,
-};
-
 const Language = enum {
     Zig,
     C,

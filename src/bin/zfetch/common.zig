@@ -108,6 +108,19 @@ fn plural(count: u64, singular: []const u8) []const u8 {
     };
 }
 
+/// Formats bytes as "X MiB" or "X.Y GiB" (threshold: 1024 MiB).
+pub fn fmtSize(allocator: mem.Allocator, bytes: u64) ![]const u8 {
+    const mib = bytes / (1024 * 1024);
+    if (mib >= 1024) {
+        return fmt.allocPrint(
+            allocator,
+            "{d}.{d} GiB",
+            .{ mib / 1024, (mib % 1024) * 10 / 1024 },
+        );
+    }
+    return fmt.allocPrint(allocator, "{d} MiB", .{mib});
+}
+
 /// Gets disk usage for the given mount points.
 pub fn getDiskMounts(
     allocator: mem.Allocator,
@@ -410,25 +423,23 @@ pub fn getMemoryFromProc(allocator: mem.Allocator) ![]const u8 {
         0;
     const bytes_swap_used_kb = bytes_swap_total_kb -| bytes_swap_free_kb;
 
+    const used = try fmtSize(allocator, bytes_used_kb * 1024);
+    const total = try fmtSize(allocator, bytes_total_kb * 1024);
+
     if (bytes_swap_total_kb > 0) {
+        const sw_used = try fmtSize(allocator, bytes_swap_used_kb * 1024);
+        const sw_total = try fmtSize(allocator, bytes_swap_total_kb * 1024);
         return fmt.allocPrint(
             allocator,
-            "{d} MiB / {d} MiB ({d}%)" ++
-                " [Swap: {d} MiB / {d} MiB]",
-            .{
-                bytes_used_kb / 1024,
-                bytes_total_kb / 1024,
-                percent,
-                bytes_swap_used_kb / 1024,
-                bytes_swap_total_kb / 1024,
-            },
+            "{s} / {s} ({d}%) [Swap: {s} / {s}]",
+            .{ used, total, percent, sw_used, sw_total },
         );
     }
-    return fmt.allocPrint(allocator, "{d} MiB / {d} MiB ({d}%)", .{
-        bytes_used_kb / 1024,
-        bytes_total_kb / 1024,
-        percent,
-    });
+    return fmt.allocPrint(
+        allocator,
+        "{s} / {s} ({d}%)",
+        .{ used, total, percent },
+    );
 }
 
 /// Reads CPU info from /proc/cpuinfo.
