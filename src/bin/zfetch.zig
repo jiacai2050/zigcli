@@ -94,15 +94,8 @@ fn collectInfo(
     allocator: mem.Allocator,
     show_all: bool,
 ) !SysInfo {
-    const uname_info = std.posix.uname();
-    const hostname = try allocator.dupe(
-        u8,
-        mem.sliceTo(&uname_info.nodename, 0),
-    );
-    const kernel = try allocator.dupe(
-        u8,
-        mem.sliceTo(&uname_info.release, 0),
-    );
+    const hostname = try platform.getHostname(allocator);
+    const kernel = try platform.getKernel(allocator);
 
     const username = std.posix.getenv("USER") orelse
         std.posix.getenv("USERNAME") orelse "unknown";

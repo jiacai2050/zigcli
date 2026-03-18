@@ -18,6 +18,9 @@ const c = @cImport({
     @cInclude("IOKit/ps/IOPSKeys.h");
 });
 
+pub const getHostname = common.getHostname;
+pub const getKernel = common.getKernel;
+
 pub fn getOs(allocator: mem.Allocator) ![]const u8 {
     var version_buf: [64]u8 = undefined;
     var version_size: usize = version_buf.len;

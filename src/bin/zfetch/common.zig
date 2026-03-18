@@ -7,10 +7,28 @@ const fmt = std.fmt;
 const fs = std.fs;
 
 const c = @cImport({
+    @cInclude("sys/types.h");
+    @cInclude("sys/socket.h");
     @cInclude("sys/statvfs.h");
+    @cInclude("sys/utsname.h");
+    @cInclude("netinet/in.h");
     @cInclude("ifaddrs.h");
     @cInclude("arpa/inet.h");
 });
+
+/// Gets hostname via C uname (works on all POSIX).
+pub fn getHostname(allocator: mem.Allocator) ![]const u8 {
+    var uts: c.struct_utsname = undefined;
+    if (c.uname(&uts) != 0) return "unknown";
+    return allocator.dupe(u8, mem.sliceTo(&uts.nodename, 0));
+}
+
+/// Gets kernel release via C uname (works on all POSIX).
+pub fn getKernel(allocator: mem.Allocator) ![]const u8 {
+    var uts: c.struct_utsname = undefined;
+    if (c.uname(&uts) != 0) return "unknown";
+    return allocator.dupe(u8, mem.sliceTo(&uts.release, 0));
+}
 
 /// Formats a raw uptime in seconds as a human-readable string.
 pub fn formatUptime(allocator: mem.Allocator, uptime_s: u64) ![]const u8 {

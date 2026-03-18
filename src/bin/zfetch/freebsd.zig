@@ -24,6 +24,9 @@ fn sysctlString(
     return mem.trimRight(u8, buf[0..size], &[_]u8{0});
 }
 
+pub const getHostname = common.getHostname;
+pub const getKernel = common.getKernel;
+
 pub fn getOs(allocator: mem.Allocator) ![]const u8 {
     // FreeBSD also has /etc/os-release on recent versions.
     return common.getOsFromRelease(allocator, "FreeBSD");

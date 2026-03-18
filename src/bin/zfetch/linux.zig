@@ -9,6 +9,9 @@ const c = @cImport({
     @cInclude("unistd.h");
 });
 
+pub const getHostname = common.getHostname;
+pub const getKernel = common.getKernel;
+
 pub fn getOs(allocator: mem.Allocator) ![]const u8 {
     return common.getOsFromRelease(allocator, "Linux");
 }

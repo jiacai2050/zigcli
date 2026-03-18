@@ -207,6 +207,15 @@ fn makeCompileStep(
             }
         }
     }
+    if (target.result.os.tag == .freebsd) {
+        // Blocked by
+        // @compileError("std.net.if_nametoindex unimplemented for this OS");
+        inline for (.{ "zig-fetch", "tcp-proxy" }) |blacklist| {
+            if (std.mem.eql(u8, name, blacklist)) {
+                return null;
+            }
+        }
+    }
     const exe = b.addExecutable(.{
         .name = name,
         .root_module = b.createModule(.{
@@ -254,7 +263,7 @@ fn makeCompileStep(
             return null;
         }
         // zfetch uses @cImport with OS-specific headers that must exist on the host.
-        if (@import("builtin").os.tag != target_os) {
+        if (@import("builtin").os.tag != target_os and target_os == .macos) {
             return null;
         }
         exe.linkLibC();
