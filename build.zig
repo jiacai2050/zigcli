@@ -119,7 +119,7 @@ fn buildBinaries(
         "tcp-proxy",
         "timeout",
         "cowsay",
-        "fastfetch",
+        "zfetch",
         "progress",
     }) |name| {
         try buildBinary(
@@ -247,15 +247,16 @@ fn makeCompileStep(
         } else {
             return null;
         }
-    } else if (std.mem.eql(u8, name, "fastfetch")) {
-        if (is_win) {
+    } else if (std.mem.eql(u8, name, "zfetch")) {
+        const target_os = target.result.os.tag;
+        // Only supports macOS, Linux, and FreeBSD.
+        if (target_os != .macos and target_os != .linux and target_os != .freebsd) {
             return null;
         }
-        // fastfetch uses @cImport with OS-specific headers that must exist on the host.
-        if (@import("builtin").os.tag != target.result.os.tag) {
+        // zfetch uses @cImport with OS-specific headers that must exist on the host.
+        if (@import("builtin").os.tag != target_os) {
             return null;
         }
-        // fastfetch uses @cImport which requires linking libc to find headers.
         exe.linkLibC();
         if (is_darwin) {
             exe.linkFramework("CoreGraphics");
