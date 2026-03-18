@@ -6,7 +6,7 @@
 
 =zfetch= (⚡) is a lightweight, high-performance system information fetcher inspired by the original =fastfetch=. The "z" stands for both *Zig* (the language it's written in) and *zap* (⚡ lightning-fast). It aims to be extremely fast by avoiding external process calls and using native C APIs or virtual filesystems instead.
 
-- **Cross-platform**: Supports both macOS and Linux.
+- **Cross-platform**: Supports macOS, Linux, and FreeBSD.
 - **Detailed Memory Info**:
   - On macOS: Provides breakdown of App Memory, Wired Memory, and Compressed Memory (matching Activity Monitor).
   - On Linux: Provides Swap usage details.
