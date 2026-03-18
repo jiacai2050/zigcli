@@ -1,7 +1,6 @@
 //! Shared utilities for zfetch, platform-independent.
 
 const std = @import("std");
-const assert = std.debug.assert;
 const mem = std.mem;
 const fmt = std.fmt;
 const fs = std.fs;
@@ -104,7 +103,7 @@ pub fn getDiskMounts(
             }
         }
         if (dup) continue;
-        assert(seen_count < seen_dev.len);
+        if (seen_count >= seen_dev.len) continue;
         seen_dev[seen_count] = fsid;
         seen_count += 1;
 
@@ -525,35 +524,29 @@ pub fn getPackagesDpkg(allocator: mem.Allocator) ![]const u8 {
 
 /// Counts pkg packages from /var/db/pkg (FreeBSD).
 pub fn getPackagesPkg(allocator: mem.Allocator) ![]const u8 {
-    var dir = fs.openDirAbsolute(
-        "/var/db/pkg/local.sqlite",
-        .{},
-    ) catch {
-        // Fallback: count directories in /var/db/pkg.
-        var pkg_dir = fs.openDirAbsolute(
-            "/var/db/pkg",
-            .{ .iterate = true },
-        ) catch return "Unknown";
-        defer pkg_dir.close();
-        var count: u32 = 0;
-        var iter = pkg_dir.iterate();
-        while (try iter.next()) |entry| {
-            if (entry.kind == .directory) count += 1;
-        }
-        if (count > 0) {
-            return fmt.allocPrint(
-                allocator,
-                "{d} (pkg)",
-                .{count},
-            );
-        }
-        return "Unknown";
-    };
-    defer dir.close();
+    // TODO: Implement sqlite query for /var/db/pkg/local.sqlite.
+    // For now, count directories in /var/db/pkg as fallback.
+    var pkg_dir = fs.openDirAbsolute(
+        "/var/db/pkg",
+        .{ .iterate = true },
+    ) catch return "Unknown";
+    defer pkg_dir.close();
+    var count: u32 = 0;
+    var iter = pkg_dir.iterate();
+    while (try iter.next()) |entry| {
+        if (entry.kind == .directory) count += 1;
+    }
+    if (count > 0) {
+        return fmt.allocPrint(
+            allocator,
+            "{d} (pkg)",
+            .{count},
+        );
+    }
     return "Unknown";
 }
 
-// ── Tests ──────────────────────────────────────────────────────
+// ── Tests ───────────────────────────────────────
 
 test "format uptime: seconds only" {
     const result = try formatUptime(std.testing.allocator, 45);

@@ -151,13 +151,7 @@ fn printInfo(
     const info = try collectInfo(allocator, show_all);
 
     if (json) {
-        const formatted = try fmt.allocPrint(
-            allocator,
-            "{f}",
-            .{std.json.fmt(info, .{})},
-        );
-        try writer.writeAll(formatted);
-        try writer.writeAll("\n");
+        try writer.print("{f}\n", .{std.json.fmt(info, .{})});
         return;
     }
 

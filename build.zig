@@ -210,7 +210,7 @@ fn makeCompileStep(
     if (target.result.os.tag == .freebsd) {
         // Blocked by
         // @compileError("std.net.if_nametoindex unimplemented for this OS");
-        inline for (.{ "zig-fetch", "tcp-proxy" }) |blacklist| {
+        inline for (.{ "zigfetch", "tcp-proxy" }) |blacklist| {
             if (std.mem.eql(u8, name, blacklist)) {
                 return null;
             }
@@ -259,8 +259,9 @@ fn makeCompileStep(
     } else if (std.mem.eql(u8, name, "zfetch")) {
         const target_os = target.result.os.tag;
         // Only supports macOS, Linux, and FreeBSD.
-        if (target_os != .macos and target_os != .linux and target_os != .freebsd) {
-            return null;
+        switch (target_os) {
+            .macos, .linux, .freebsd => {},
+            else => return null,
         }
         // zfetch uses @cImport with OS-specific headers that must exist on the host.
         if (@import("builtin").os.tag != target_os and target_os == .macos) {
