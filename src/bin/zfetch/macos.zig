@@ -130,8 +130,8 @@ pub fn getHost(allocator: mem.Allocator) ![]const u8 {
     return allocator.dupe(u8, model);
 }
 
-pub fn getDiskMounts() []const []const u8 {
-    return &[_][]const u8{"/"};
+pub fn getDiskMounts() []const [:0]const u8 {
+    return &[_][:0]const u8{"/"};
 }
 
 pub fn getResolution(allocator: mem.Allocator) ![]const u8 {

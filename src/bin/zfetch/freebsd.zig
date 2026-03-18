@@ -62,8 +62,8 @@ pub fn getHost(allocator: mem.Allocator) ![]const u8 {
     return common.getHostFromDmi(allocator, "FreeBSD");
 }
 
-pub fn getDiskMounts() []const []const u8 {
-    return &[_][]const u8{ "/", "/home" };
+pub fn getDiskMounts() []const [:0]const u8 {
+    return &[_][:0]const u8{ "/", "/home" };
 }
 
 pub fn getResolution(allocator: mem.Allocator) ![]const u8 {

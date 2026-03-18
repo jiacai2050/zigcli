@@ -5,17 +5,44 @@ const mem = std.mem;
 const fmt = std.fmt;
 const fs = std.fs;
 
+const builtin = @import("builtin");
+
 const max_read_bytes = 1024 * 1024;
 
 const c = @cImport({
     @cInclude("sys/types.h");
     @cInclude("sys/socket.h");
-    @cInclude("sys/statvfs.h");
+    if (builtin.os.tag != .linux) @cInclude("sys/statvfs.h");
     @cInclude("sys/utsname.h");
     @cInclude("netinet/in.h");
     @cInclude("ifaddrs.h");
     @cInclude("arpa/inet.h");
 });
+
+/// Manual statvfs for Linux — the musl header has bitfields
+/// that Zig's @cImport cannot translate. Other OSes use @cImport.
+const Statvfs = if (builtin.os.tag == .linux)
+    extern struct {
+        f_bsize: c_ulong,
+        f_frsize: c_ulong,
+        f_blocks: c_ulong,
+        f_bfree: c_ulong,
+        f_bavail: c_ulong,
+        f_files: c_ulong,
+        f_ffree: c_ulong,
+        f_favail: c_ulong,
+        f_fsid: u64,
+        f_flag: c_ulong,
+        f_namemax: c_ulong,
+        __f_spare: [6]c_int = .{0} ** 6,
+    }
+else
+    c.struct_statvfs;
+
+extern "c" fn statvfs(
+    path: [*:0]const u8,
+    buf: *Statvfs,
+) c_int;
 
 /// Gets hostname via C uname (works on all POSIX).
 pub fn getHostname(allocator: mem.Allocator) ![]const u8 {
@@ -84,7 +111,7 @@ fn plural(count: u64, singular: []const u8) []const u8 {
 /// Gets disk usage for the given mount points.
 pub fn getDiskMounts(
     allocator: mem.Allocator,
-    mounts: []const []const u8,
+    mounts: []const [:0]const u8,
 ) ![]const u8 {
     var parts: std.ArrayList(u8) = .empty;
     const GiB = 1024 * 1024 * 1024;
@@ -92,11 +119,11 @@ pub fn getDiskMounts(
     var seen_count: usize = 0;
 
     for (mounts) |mount| {
-        var vfs: c.struct_statvfs = undefined;
-        if (c.statvfs(mount.ptr, &vfs) != 0) continue;
+        var vfs: Statvfs = undefined;
+        if (statvfs(mount.ptr, &vfs) != 0) continue;
 
         // Deduplicate by filesystem ID.
-        const fsid: u64 = @bitCast(vfs.f_fsid);
+        const fsid: u64 = vfs.f_fsid;
         var dup = false;
         for (seen_dev[0..seen_count]) |s| {
             if (s == fsid) {

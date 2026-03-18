@@ -18,9 +18,8 @@ script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd -P)
 cd "${script_dir}/.."
 
 targets=(
-  "aarch64-linux-gnu"
-  "x86_64-linux-gnu"
-  # "x86-linux-gnu"
+  "aarch64-linux"
+  "x86_64-linux"
   # This target is built on CI directly.
   # "aarch64-macos"
   "x86_64-macos"
