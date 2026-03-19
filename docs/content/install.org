@@ -1,10 +1,44 @@
 #+TITLE: Install
 #+DATE: 2025-01-02T23:20:23+0800
-#+LASTMOD: 2025-03-09T16:56:22+0800
+#+LASTMOD: 2026-03-19T20:18:15+0800
 #+TYPE: docs
 #+WEIGHT: 10
 #+AUTHOR: Jiacai Liu
 
+** CLI Programs
+
+*** Quick Install (recommended)
+#+begin_src bash
+curl -fsSL https://zigcli.liujiacai.net/install.sh | sh
+#+end_src
+
+#+RESULTS:
+
+This installs latest stable =loc=, =zfetch=, =timeout=, =tree=, and =cowsay= to =~/.local/bin= by default.
+
+Options:
+#+begin_src bash
+# Custom install directory
+curl -fsSL ... | sh -s -- --install-dir /usr/local/bin
+
+# Choose which binaries to install
+curl -fsSL ... | sh -s -- --bins "loc zfetch tree cowsay"
+
+# Pin a specific version
+curl -fsSL ... | sh -s -- --version v0.4.0
+
+# Use mirror for users in China
+curl -fsSL ... | sh -s -- --china
+#+end_src
+
+*** Build from source
+#+begin_src bash
+git clone https://github.com/jiacai2050/zigcli.git
+#+end_src
+Then build with zig 0.15.2
+#+begin_src bash
+make build
+#+end_src
 ** Packages
 #+begin_src bash
 zig fetch --save=zigcli https://github.com/jiacai2050/zigcli/archive/refs/tags/${TAG}.zip
@@ -20,14 +54,4 @@ const zigcli = b.dependency("zigcli", .{});
 // Currently zigcli provide two packages.
 exe.root_module.addImport("simargs", zigcli.module("simargs"));
 exe.root_module.addImport("pretty-table", zigcli.module("pretty-table"));
-#+end_src
-** CLI Programs
-The latest pre-built binaries are available on the [[https://github.com/jiacai2050/zigcli/releases][release page]] or you can build it from source.
-
-#+begin_src bash
-git clone https://github.com/jiacai2050/zigcli.git
-#+end_src
-Then build with zig 0.15.1
-#+begin_src bash
-make build
 #+end_src
