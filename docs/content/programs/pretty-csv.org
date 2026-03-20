@@ -1,0 +1,72 @@
+#+TITLE: pretty-csv
+#+DATE: 2026-03-20T10:00:00+0800
+#+LASTMOD: 2026-03-20T10:00:00+0800
+#+TYPE: docs
+#+DESCRIPTION: Pretty-print CSV files as aligned tables
+
+=pretty-csv= renders CSV (or TSV) files as aligned, bordered tables in the terminal.
+
+- Auto-fits table width to the terminal (truncates with =…=).
+- Three border styles: =ascii=, =box=, =dos=.
+- Transpose mode: show each record as a vertical key-value block.
+- Column selection: display only specific columns.
+- Supports quoted fields (RFC 4180).
+
+** Demo
+
+#+begin_example
+$ printf 'Name,Age,City\nAlice,30,Beijing\nBob,25,New York\nCharlie,35,London\n' | pretty-csv
+┌─────────┬─────┬──────────┐
+│ Name    │ Age │ City     │
+├─────────┼─────┼──────────┤
+│ Alice   │ 30  │ Beijing  │
+│ Bob     │ 25  │ New York │
+│ Charlie │ 35  │ London   │
+└─────────┴─────┴──────────┘
+#+end_example
+
+** Options
+
+| Flag | Short | Description |
+|------+-------+-------------|
+| =--delimiter= | =-d= | Field delimiter (default: =,=) |
+| =--style= | =-s= | Border style: =ascii=, =box=, =dos= |
+| =--padding= | =-p= | Cell padding (default: 1) |
+| =--no-header= | | Treat first row as data |
+| =--max-width= | =-w= | Max total table width (0 = auto-fit) |
+| =--transpose= | =-t= | Show each record vertically |
+| =--columns= | =-c= | Column indices to show (1-based) |
+| =--max-size= | | Max input file size in MiB (default: 64) |
+
+** Examples
+
+*** TSV input
+#+begin_src bash
+printf 'a\tb\n1\t2\n' | pretty-csv -d $'\t'
+#+end_src
+
+*** Select columns
+#+begin_src bash
+pretty-csv -c 1,3,5 data.csv
+#+end_src
+
+*** Transpose mode
+#+begin_example
+$ printf 'Name,Age,City\nAlice,30,Beijing\nBob,25,New York\n' | pretty-csv -t
+┌──────┬─────────┐
+│ Name │ Alice   │
+│ Age  │ 30      │
+│ City │ Beijing │
+└──────┴─────────┘
+
+┌──────┬──────────┐
+│ Name │ Bob      │
+│ Age  │ 25       │
+│ City │ New York │
+└──────┴──────────┘
+#+end_example
+
+*** Limit table width
+#+begin_src bash
+pretty-csv -w 80 wide-data.csv
+#+end_src

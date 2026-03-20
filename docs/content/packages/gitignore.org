@@ -1,0 +1,54 @@
+#+TITLE: gitignore
+#+DATE: 2026-03-20T08:45:00+0800
+#+LASTMOD: 2026-03-20T08:45:00+0800
+#+TYPE: docs
+#+WEIGHT: 30
+#+DESCRIPTION: Pure Zig .gitignore pattern matching — no libc dependency
+
+* Features
+- Full [[https://git-scm.com/docs/gitignore][.gitignore spec]] support: =*=, =?=, =[abc]=, =**/=, negation (=!=)
+- Recursive =.gitignore= filtering via =GitignoreStack= (per-directory layers)
+- Pure Zig implementation — no =libc= =fnmatch= dependency
+- Last-match-wins semantics across all layers
+
+* API
+
+** =Gitignore=
+Parse a single =.gitignore= file and match paths against it.
+
+#+begin_src zig
+const gitignore = @import("gitignore");
+
+var gi = try gitignore.Gitignore.init(allocator, content);
+defer gi.deinit();
+
+if (gi.shouldIgnore("build/output.o", false)) {
+    // path is ignored
+}
+#+end_src
+
+** =GitignoreStack=
+Manage a stack of =.gitignore= layers for recursive directory walks.
+Each layer is anchored to its directory, and patterns are evaluated with
+correct relative paths.
+
+#+begin_src zig
+const gitignore = @import("gitignore");
+
+var stack = gitignore.GitignoreStack.init();
+defer stack.deinit(allocator);
+
+// Push a layer when entering a directory.
+const pushed = try stack.tryPushDir(dir, rel_dir, allocator);
+
+if (stack.shouldIgnore(rel_path, is_dir)) {
+    // path is ignored
+}
+
+// Pop when leaving the directory.
+if (pushed) stack.pop(allocator);
+#+end_src
+
+* Used by
+- =tree=: Respects =.gitignore= when listing directory trees.
+- =loc=: Skips ignored files when counting lines of code.

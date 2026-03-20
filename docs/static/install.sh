@@ -9,7 +9,7 @@ set -eu
 
 VERSION="${VERSION:-latest}"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
-BINS="${BINS:-loc zfetch timeout repeat tree cowsay}"
+BINS="${BINS:-loc zfetch timeout repeat tree cowsay pretty-csv}"
 CHINA=0
 REPO="jiacai2050/zigcli"
 BASE_URL="https://github.com/${REPO}/releases/download"

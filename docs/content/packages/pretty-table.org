@@ -1,43 +1,155 @@
 #+TITLE: pretty-table
 #+DATE: 2024-08-17T17:48:29+0800
-#+LASTMOD: 2024-08-17T19:04:48+0800
+#+LASTMOD: 2026-03-20T08:50:00+0800
 #+TYPE: docs
 #+WEIGHT: 20
 #+DESCRIPTION: Print aligned and formatted tables
 
 * Features
-- Many box-drawing character to choose(=ascii=, =box=, =dos=).
+- Box-drawing character sets: =ascii=, =box=, =dos=.
 - Per-cell styling: foreground/background color, bold, italic.
 - Column spanning (=hspan=): a cell can span multiple columns.
+- Per-column text alignment: =left=, =right=, =center=.
+- Configurable cell padding and row separators.
 
 * Usage
-See [[https://github.com/jiacai2050/zigcli/blob/main/examples/pretty-table-demo.zig][pretty-table-demo.zig]]
+See [[https://github.com/jiacai2050/zigcli/blob/main/examples/pretty-table-demo.zig][pretty-table-demo.zig]].
+
+** Basic table
 
 #+begin_src zig
-    const t = Table(2){
-        .header = [_]Cell{ Cell.init("Language"), Cell.init("Files") },
-        .rows = &[_][2]Cell{
-            .{ Cell.init("Zig"), Cell.init("3") },
-            .{ Cell.init("Python"), Cell.init("2") },
-        },
-        .footer = [2]Cell{ Cell.init("Total"), Cell.init("5") },
-        .mode = .box, // or .ascii, .dos
-    };
+const Table = @import("pretty-table").Table;
+const Cell = @import("pretty-table").Cell;
 
-    const out = std.fs.File.stdout();
-    var buf: [1024]u8 = undefined;
-    var writer = out.writer(&buf);
-    try writer.interface.print("{f}", .{t});
-    try writer.interface.flush();
+const t = Table(2){
+    .header = [_]Cell{ Cell.init("Language"), Cell.init("Files") },
+    .rows = &[_][2]Cell{
+        .{ Cell.init("Zig"), Cell.init("3") },
+        .{ Cell.init("Python"), Cell.init("2") },
+    },
+    .footer = [2]Cell{ Cell.init("Total"), Cell.init("5") },
+    .mode = .box,
+    .padding = 1,
+};
+
+const out = std.fs.File.stdout();
+var buf: [4096]u8 = undefined;
+var writer = out.writer(&buf);
+try writer.interface.print("{f}", .{t});
+try writer.interface.flush();
 #+end_src
 
-#+begin_src plaintext
-┌────────┬─────┐
-│Language│Files│
-├────────┼─────┤
-│Zig     │3    │
-│Python  │2    │
-├────────┼─────┤
-│Total   │5    │
-└────────┴─────┘
+#+begin_example
+┌──────────┬───────┐
+│ Language │ Files │
+├──────────┼───────┤
+│ Zig      │ 3     │
+│ Python   │ 2     │
+├──────────┼───────┤
+│ Total    │ 5     │
+└──────────┴───────┘
+#+end_example
+
+** Right-aligned columns
+
+#+begin_src zig
+const t = Table(3){
+    .header = [_]Cell{ Cell.init("Name"), Cell.init("Score"), Cell.init("Rank") },
+    .rows = &[_][3]Cell{
+        .{ Cell.init("Alice"), Cell.init("9800"), Cell.init("1") },
+        .{ Cell.init("Bob"), Cell.init("7500"), Cell.init("2") },
+    },
+    .mode = .box,
+    .padding = 1,
+    .column_align = .{ .left, .right, .right },
+};
+#+end_src
+
+#+begin_example
+┌───────┬───────┬──────┐
+│ Name  │ Score │ Rank │
+├───────┼───────┼──────┤
+│ Alice │  9800 │    1 │
+│ Bob   │  7500 │    2 │
+└───────┴───────┴──────┘
+#+end_example
+
+** Per-cell styling
+
+#+begin_src zig
+const t = Table(2){
+    .header = [_]Cell{
+        Cell.init("Service").withFg(.bright_white).withBold(),
+        Cell.init("Status").withFg(.bright_white).withBold(),
+    },
+    .rows = &[_][2]Cell{
+        .{ Cell.init("web"), Cell.init("UP").withFg(.green) },
+        .{ Cell.init("cache"), Cell.init("DOWN").withFg(.red).withBold() },
+    },
+    .mode = .box,
+    .padding = 1,
+};
+#+end_src
+
+** Column spanning
+
+#+begin_src zig
+const t = Table(4){
+    .header = [_]Cell{
+        Cell.init("Name"), Cell.init("Q1"), Cell.init("Q2"), Cell.init("Q3"),
+    },
+    .rows = &[_][4]Cell{
+        .{ Cell.init("Alice"), Cell.init("90"), Cell.init("85"), Cell.init("92") },
+        .{
+            Cell.init("Bob"),
+            Cell.init("N/A (on leave)").withHspan(3),
+            Cell.span(),
+            Cell.span(),
+        },
+    },
+    .mode = .box,
+    .padding = 1,
+};
+#+end_src
+
+#+begin_example
+┌───────┬────┬────┬──────┐
+│ Name  │ Q1 │ Q2 │ Q3   │
+├───────┼────┼────┼──────┤
+│ Alice │ 90 │ 85 │ 92   │
+│ Bob   │ N/A (on leave) │
+└───────┴────┴────┴──────┘
+#+end_example
+
+** TableBuilder (runtime rows)
+
+When the number of rows is not known at comptime, use =TableBuilder(N)=.
+Column count is still comptime-fixed for type safety.
+
+#+begin_src zig
+const pt = @import("pretty-table");
+
+var t = pt.TableBuilder(3).init(allocator, .{
+    .mode = .box,
+    .padding = 1,
+    .column_align = .{ .left, .right, .right },
+});
+defer t.deinit();
+
+t.setHeader(.{ "Name", "Score", "Rank" });
+t.setFooter(.{ "Total", "", "—" });
+
+// String literals are auto-wrapped in Cell.init().
+try t.addRow(.{ "Alice", "9800", "1" });
+try t.addRow(.{ "Bob", "7500", "2" });
+
+// Use addRowCells for per-cell styling.
+try t.addRowCells(.{
+    pt.Cell.init("Charlie").withBold(),
+    pt.Cell.init("9900").withFg(.green),
+    pt.Cell.init("1").withFg(.green),
+});
+
+try writer.interface.print("{f}", .{t});
+try writer.interface.flush();
 #+end_src

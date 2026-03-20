@@ -170,9 +170,9 @@ pub const Separator = struct {
         .{ "╚", "═", "╩", "╝" },
     };
 
-    const Position = enum { First, Text, Sep, Last };
+    pub const Position = enum { First, Text, Sep, Last };
 
-    fn get(mode: Mode, row_pos: Position, col_pos: Position) []const u8 {
+    pub fn get(mode: Mode, row_pos: Position, col_pos: Position) []const u8 {
         const sep_table = switch (mode) {
             .ascii => ascii,
             .box => box,
@@ -367,6 +367,92 @@ pub fn Table(comptime len: usize) type {
             }
 
             try self.writeRowDelimiter(writer, .Last, column_lens);
+        }
+    };
+}
+
+/// Runtime table builder with dynamic rows. Column count is still comptime-fixed
+/// for type safety. Renders by delegating to `Table(len)`.
+pub fn TableBuilder(comptime len: usize) type {
+    return struct {
+        rows: std.ArrayList(Row(len)),
+        allocator: std.mem.Allocator,
+        header: ?Row(len) = null,
+        footer: ?Row(len) = null,
+        mode: Separator.Mode,
+        padding: usize,
+        column_align: [len]Align,
+        row_separator: bool,
+
+        const Self = @This();
+
+        pub const Options = struct {
+            mode: Separator.Mode = .ascii,
+            padding: usize = 0,
+            column_align: [len]Align = [_]Align{.left} ** len,
+            row_separator: bool = false,
+        };
+
+        pub fn init(allocator: std.mem.Allocator, opts: Options) Self {
+            return .{
+                .rows = .empty,
+                .allocator = allocator,
+                .mode = opts.mode,
+                .padding = opts.padding,
+                .column_align = opts.column_align,
+                .row_separator = opts.row_separator,
+            };
+        }
+
+        pub fn deinit(self: *Self) void {
+            self.rows.deinit(self.allocator);
+        }
+
+        /// Set header from string literals or Cell values.
+        pub fn setHeader(self: *Self, texts: anytype) void {
+            self.header = toCells(texts);
+        }
+
+        /// Set footer from string literals or Cell values.
+        pub fn setFooter(self: *Self, texts: anytype) void {
+            self.footer = toCells(texts);
+        }
+
+        /// Add a row from string literals. Each element is wrapped in Cell.init().
+        pub fn addRow(self: *Self, texts: anytype) !void {
+            try self.rows.append(self.allocator, toCells(texts));
+        }
+
+        /// Add a row of pre-built Cell values for full styling control.
+        pub fn addRowCells(self: *Self, cells: Row(len)) !void {
+            try self.rows.append(self.allocator, cells);
+        }
+
+        /// Convert a tuple of strings or Cells into a Row.
+        fn toCells(tuple: anytype) Row(len) {
+            var row: Row(len) = undefined;
+            inline for (0..len) |i| {
+                const val = tuple[i];
+                row[i] = switch (@TypeOf(val)) {
+                    Cell => val,
+                    else => Cell.init(val),
+                };
+            }
+            return row;
+        }
+
+        /// Render the table to a writer.
+        pub fn format(self: Self, writer: *std.Io.Writer) !void {
+            const t = Table(len){
+                .header = self.header,
+                .footer = self.footer,
+                .rows = self.rows.items,
+                .mode = self.mode,
+                .padding = self.padding,
+                .column_align = self.column_align,
+                .row_separator = self.row_separator,
+            };
+            try t.format(writer);
         }
     };
 }
@@ -651,4 +737,46 @@ test "hspan of 3 columns" {
         if (ch == '|') pipe_count += 1;
     }
     try std.testing.expectEqual(@as(usize, 3), pipe_count);
+}
+
+test "builder basic" {
+    const allocator = std.testing.allocator;
+    var t = TableBuilder(2).init(allocator, .{ .mode = .box, .padding = 1 });
+    defer t.deinit();
+
+    t.setHeader(.{ "Name", "Score" });
+    try t.addRow(.{ "Alice", "100" });
+    try t.addRow(.{ "Bob", "200" });
+    t.setFooter(.{ "Total", "300" });
+
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(allocator);
+    try out.writer(allocator).print("{f}", .{t});
+
+    try std.testing.expectEqualStrings(
+        \\┌───────┬───────┐
+        \\│ Name  │ Score │
+        \\├───────┼───────┤
+        \\│ Alice │ 100   │
+        \\│ Bob   │ 200   │
+        \\├───────┼───────┤
+        \\│ Total │ 300   │
+        \\└───────┴───────┘
+        \\
+    , out.items);
+}
+
+test "builder with styled cells" {
+    const allocator = std.testing.allocator;
+    var t = TableBuilder(2).init(allocator, .{});
+    defer t.deinit();
+
+    t.setHeader(.{ "K", "V" });
+    try t.addRowCells(.{ Cell.init("ok").withFg(.green), Cell.init("1") });
+
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(allocator);
+    try out.writer(allocator).print("{f}", .{t});
+
+    try std.testing.expect(std.mem.indexOf(u8, out.items, "\x1b[32mok\x1b[0m") != null);
 }
