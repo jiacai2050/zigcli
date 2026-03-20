@@ -457,7 +457,6 @@ pub fn TableBuilder(comptime len: usize) type {
     };
 }
 
-
 /// Runtime table with dynamic column count and optional truncation.
 /// Unlike `Table(N)`, column count is determined at runtime. Rows are
 /// slices of string slices.

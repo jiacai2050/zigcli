@@ -42,13 +42,10 @@ pub fn main() !void {
             .style = "Border style: ascii, box, dos",
             .padding = "Cell padding",
             .@"no-header" = "Treat first row as data",
-            .@"max-width" =
-            "Max total table width (0 = auto-fit terminal)",
+            .@"max-width" = "Max total table width (0 = auto-fit terminal)",
             .transpose = "Transpose: show each record vertically",
-            .columns =
-            "Column indices to show (1-based, comma-separated)",
-            .@"max-size" =
-            "Max input file size in MiB (default: 64)",
+            .columns = "Column indices to show (1-based, comma-separated)",
+            .@"max-size" = "Max input file size in MiB",
         };
     }, .{
         .argument_prompt = "[file]",
