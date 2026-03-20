@@ -170,9 +170,9 @@ pub const Separator = struct {
         .{ "╚", "═", "╩", "╝" },
     };
 
-    pub const Position = enum { First, Text, Sep, Last };
+    const Position = enum { First, Text, Sep, Last };
 
-    pub fn get(mode: Mode, row_pos: Position, col_pos: Position) []const u8 {
+    fn get(mode: Mode, row_pos: Position, col_pos: Position) []const u8 {
         const sep_table = switch (mode) {
             .ascii => ascii,
             .box => box,
@@ -457,6 +457,345 @@ pub fn TableBuilder(comptime len: usize) type {
     };
 }
 
+
+/// Runtime table with dynamic column count and optional truncation.
+/// Unlike `Table(N)`, column count is determined at runtime. Rows are
+/// slices of string slices.
+pub const DynTable = struct {
+    header: ?[]const Cell = null,
+    rows: std.ArrayList([]const Cell) = .empty,
+    num_cols: usize,
+    mode: Separator.Mode = .ascii,
+    padding: usize = 0,
+    /// Max total table width. 0 means auto-detect terminal width.
+    /// Internally converted to per-column max width.
+    max_width: u16 = 0,
+    /// Transpose: render each row as a vertical key-value block,
+    /// using the header (if set) as keys.
+    transpose: bool = false,
+    allocator: std.mem.Allocator,
+
+    pub fn init(
+        allocator: std.mem.Allocator,
+        num_cols: usize,
+    ) DynTable {
+        std.debug.assert(num_cols > 0);
+        return .{ .allocator = allocator, .num_cols = num_cols };
+    }
+
+    pub fn deinit(self: *DynTable) void {
+        if (self.header) |h| self.allocator.free(h);
+        for (self.rows.items) |row| self.allocator.free(row);
+        self.rows.deinit(self.allocator);
+    }
+
+    /// Set header from string slices.
+    pub fn setHeader(
+        self: *DynTable,
+        texts: []const []const u8,
+    ) !void {
+        if (self.header) |h| self.allocator.free(h);
+        const cells = try self.allocator.alloc(
+            Cell,
+            self.num_cols,
+        );
+        for (0..self.num_cols) |col| {
+            cells[col] = Cell.init(
+                if (col < texts.len) texts[col] else "",
+            );
+        }
+        self.header = cells;
+    }
+
+    /// Add a row from string slices.
+    pub fn addRow(
+        self: *DynTable,
+        texts: []const []const u8,
+    ) !void {
+        const cells = try self.allocator.alloc(
+            Cell,
+            self.num_cols,
+        );
+        for (0..self.num_cols) |col| {
+            cells[col] = Cell.init(
+                if (col < texts.len) texts[col] else "",
+            );
+        }
+        try self.rows.append(self.allocator, cells);
+    }
+
+    /// Add a row of pre-built Cells.
+    pub fn addRowCells(
+        self: *DynTable,
+        cells: []const Cell,
+    ) !void {
+        const row = try self.allocator.dupe(Cell, cells);
+        try self.rows.append(self.allocator, row);
+    }
+
+    /// Render the table to a writer.
+    pub fn render(
+        self: DynTable,
+        writer: *std.Io.Writer,
+    ) !void {
+        if (self.transpose) {
+            return self.renderTransposed(writer);
+        }
+        return self.renderNormal(writer);
+    }
+
+    fn renderTransposed(
+        self: DynTable,
+        writer: *std.Io.Writer,
+    ) !void {
+        for (self.rows.items, 0..) |row, idx| {
+            // Build a 2-column table per record: key | value.
+            var sub = DynTable.init(self.allocator, 2);
+            defer sub.deinit();
+            sub.mode = self.mode;
+            sub.padding = self.padding;
+            sub.max_width = self.max_width;
+
+            for (0..self.num_cols) |col| {
+                const key = if (self.header) |h|
+                    (if (col < h.len) h[col].text else "")
+                else
+                    "";
+                const val = if (col < row.len)
+                    row[col].text
+                else
+                    "";
+                try sub.addRow(&.{ key, val });
+            }
+
+            if (idx > 0) try writer.writeAll("\n");
+            try sub.renderNormal(writer);
+        }
+    }
+
+    fn renderNormal(
+        self: DynTable,
+        writer: *std.Io.Writer,
+    ) !void {
+        const max_cell = self.cellWidthFromTotal();
+
+        const col_widths = try self.allocator.alloc(
+            usize,
+            self.num_cols,
+        );
+        defer self.allocator.free(col_widths);
+        @memset(col_widths, 0);
+
+        if (self.header) |h| {
+            accumulateWidths(
+                h,
+                col_widths,
+                self.num_cols,
+                self.padding,
+                max_cell,
+            );
+        }
+        for (self.rows.items) |row| {
+            accumulateWidths(
+                row,
+                col_widths,
+                self.num_cols,
+                self.padding,
+                max_cell,
+            );
+        }
+
+        try writeHLine(writer, self.mode, .First, col_widths);
+        if (self.header) |h| {
+            try writeRow(
+                writer,
+                self.mode,
+                h,
+                col_widths,
+                self.num_cols,
+                self.padding,
+                max_cell,
+            );
+            try writeHLine(
+                writer,
+                self.mode,
+                .Sep,
+                col_widths,
+            );
+        }
+        for (self.rows.items) |row| {
+            try writeRow(
+                writer,
+                self.mode,
+                row,
+                col_widths,
+                self.num_cols,
+                self.padding,
+                max_cell,
+            );
+        }
+        try writeHLine(writer, self.mode, .Last, col_widths);
+    }
+
+    /// Convert total table width to per-column content width.
+    /// Returns 0 (unlimited) if columns would each get 80+ chars.
+    fn cellWidthFromTotal(self: DynTable) u16 {
+        const width = if (self.max_width > 0)
+            self.max_width
+        else
+            getTerminalWidth();
+        if (width == 0 or self.num_cols == 0) return 0;
+        // Overhead: 1 border per column + 2*padding + 1 final.
+        const overhead =
+            self.num_cols * (2 * self.padding + 1) + 1;
+        if (width <= overhead) return 1;
+        const available = @as(usize, width) - overhead;
+        const per_col = available / self.num_cols;
+        if (per_col >= 80) return 0;
+        return @intCast(@max(per_col, 3));
+    }
+
+    /// Detect terminal width via ioctl on stderr.
+    /// Returns 0 if not a TTY.
+    fn getTerminalWidth() u16 {
+        if (@hasDecl(std.posix, "T")) {
+            const fd = std.fs.File.stderr().handle;
+            var wsz: std.posix.winsize = undefined;
+            const rc = std.posix.system.ioctl(
+                fd,
+                std.posix.T.IOCGWINSZ,
+                @intFromPtr(&wsz),
+            );
+            if (std.posix.errno(rc) == .SUCCESS and
+                wsz.col > 0)
+            {
+                return wsz.col;
+            }
+        }
+        return 0;
+    }
+
+    fn accumulateWidths(
+        cells: []const Cell,
+        col_widths: []usize,
+        num_cols: usize,
+        padding: usize,
+        max_cell: u16,
+    ) void {
+        for (0..@min(cells.len, num_cols)) |col| {
+            const visual = visualLen(
+                cells[col].text,
+                max_cell,
+            );
+            col_widths[col] = @max(
+                col_widths[col],
+                visual + 2 * padding,
+            );
+        }
+    }
+
+    fn visualLen(text: []const u8, max_cell: u16) usize {
+        if (max_cell == 0 or text.len <= max_cell) {
+            return text.len;
+        }
+        return max_cell; // Truncated text + ellipsis char.
+    }
+
+    fn truncatedText(
+        text: []const u8,
+        max_cell: u16,
+    ) []const u8 {
+        if (max_cell == 0 or text.len <= max_cell) return text;
+        const limit: usize =
+            if (max_cell > 1) max_cell - 1 else 0;
+        return text[0..limit];
+    }
+
+    fn needsEllipsis(text: []const u8, max_cell: u16) bool {
+        return max_cell > 0 and text.len > max_cell;
+    }
+
+    fn writeRow(
+        writer: *std.Io.Writer,
+        mode: Separator.Mode,
+        cells: []const Cell,
+        col_widths: []const usize,
+        num_cols: usize,
+        padding: usize,
+        max_cell: u16,
+    ) !void {
+        for (0..num_cols) |col| {
+            const col_pos: Separator.Position =
+                if (col == 0) .First else .Sep;
+            try writer.writeAll(
+                Separator.get(mode, .Text, col_pos),
+            );
+            const cell = if (col < cells.len)
+                cells[col]
+            else
+                Cell.init("");
+            const text = truncatedText(
+                cell.text,
+                max_cell,
+            );
+            const ellipsis = needsEllipsis(
+                cell.text,
+                max_cell,
+            );
+            const visual = text.len +
+                @as(usize, if (ellipsis) 1 else 0);
+            const right_pad =
+                col_widths[col] -| (padding + visual);
+            for (0..padding) |_| {
+                try writer.writeByte(' ');
+            }
+            // Emit ANSI styling before text content.
+            if (cell.bold) try writer.writeAll("\x1b[1m");
+            if (cell.italic) try writer.writeAll("\x1b[3m");
+            if (cell.fg) |c| {
+                try writer.writeAll(c.toEscapeCode());
+            }
+            if (cell.bg) |c| {
+                try writer.writeAll(c.toBgEscapeCode());
+            }
+            try writer.writeAll(text);
+            if (ellipsis) try writer.writeAll("\xe2\x80\xa6");
+            if (cell.bold or cell.italic or
+                cell.fg != null or cell.bg != null)
+            {
+                try writer.writeAll(Color.reset);
+            }
+            for (0..right_pad) |_| try writer.writeByte(' ');
+        }
+        try writer.writeAll(
+            Separator.get(mode, .Text, .Last),
+        );
+        try writer.writeAll("\n");
+    }
+
+    /// Write a horizontal separator line.
+    fn writeHLine(
+        writer: *std.Io.Writer,
+        mode: Separator.Mode,
+        pos: Separator.Position,
+        col_widths: []const usize,
+    ) !void {
+        for (col_widths, 0..) |width, col| {
+            const col_pos: Separator.Position =
+                if (col == 0) .First else .Sep;
+            try writer.writeAll(
+                Separator.get(mode, pos, col_pos),
+            );
+            for (0..width) |_| {
+                try writer.writeAll(
+                    Separator.get(mode, pos, .Text),
+                );
+            }
+        }
+        try writer.writeAll(Separator.get(mode, pos, .Last));
+        try writer.writeAll("\n");
+    }
+};
 test "normal usage" {
     const t = Table(2){
         .header = [_]Cell{ Cell.init("Version"), Cell.init("Date") },

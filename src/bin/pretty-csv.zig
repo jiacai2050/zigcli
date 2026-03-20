@@ -5,9 +5,6 @@ const simargs = @import("simargs");
 const pt = @import("pretty-table");
 const util = @import("util.zig");
 const mem = std.mem;
-const posix = std.posix;
-
-const max_columns = 256;
 
 pub fn main() !void {
     var gpa = util.Allocator.instance;
@@ -45,10 +42,13 @@ pub fn main() !void {
             .style = "Border style: ascii, box, dos",
             .padding = "Cell padding",
             .@"no-header" = "Treat first row as data",
-            .@"max-width" = "Max total table width (0 = auto-fit terminal)",
+            .@"max-width" =
+            "Max total table width (0 = auto-fit terminal)",
             .transpose = "Transpose: show each record vertically",
-            .columns = "Column indices to show (1-based, comma-separated)",
-            .@"max-size" = "Max input file size in MiB",
+            .columns =
+            "Column indices to show (1-based, comma-separated)",
+            .@"max-size" =
+            "Max input file size in MiB (default: 64)",
         };
     }, .{
         .argument_prompt = "[file]",
@@ -103,95 +103,67 @@ pub fn main() !void {
     );
     defer if (col_filter) |f| allocator.free(f);
 
-    const rows = all_rows.items;
-    const display_cols = if (col_filter) |f| f.len else num_cols;
-
-    // Determine per-column max-width from total table width.
-    const max_col_width: u16 = if (opt.options.@"max-width" > 0)
-        tableWidthToColWidth(
-            opt.options.@"max-width",
-            display_cols,
-            opt.options.padding,
-        )
+    const display_cols = if (col_filter) |f|
+        f.len
     else
-        autoMaxWidth(display_cols, opt.options.padding);
+        num_cols;
 
     const stdout = std.fs.File.stdout();
     var output_buf: [8192]u8 = undefined;
     var stdout_writer = stdout.writer(&output_buf);
     const writer = &stdout_writer.interface;
 
-    if (opt.options.transpose) {
-        try renderTranspose(
-            writer,
-            rows,
-            display_cols,
-            col_filter,
-            opt.options.style,
-            opt.options.padding,
-            opt.options.@"no-header",
-            max_col_width,
-        );
-    } else {
-        try renderTable(
-            writer,
-            rows,
-            display_cols,
-            col_filter,
-            opt.options.style,
-            opt.options.padding,
-            opt.options.@"no-header",
-            max_col_width,
+    var table = pt.DynTable.init(allocator, display_cols);
+    defer table.deinit();
+    table.mode = opt.options.style;
+    table.padding = opt.options.padding;
+    table.max_width = opt.options.@"max-width";
+    table.transpose = opt.options.transpose;
+
+    // Scratch buffer for column filtering (avoids per-row alloc).
+    var filter_buf: [256][]const u8 = undefined;
+
+    const data_start: usize =
+        if (opt.options.@"no-header") 0 else 1;
+    if (!opt.options.@"no-header" and
+        all_rows.items.len > 0)
+    {
+        try table.setHeader(
+            filterRow(
+                all_rows.items[0],
+                col_filter,
+                &filter_buf,
+            ),
         );
     }
+    for (all_rows.items[data_start..]) |row| {
+        try table.addRow(
+            filterRow(row, col_filter, &filter_buf),
+        );
+    }
+    try table.render(writer);
     try writer.flush();
 }
 
-// -- Terminal width detection -----------------------------------
-
-/// Detect terminal column count via ioctl on stderr (still a TTY when
-/// stdout is piped). Returns 0 if not a TTY.
-fn getTerminalWidth() u16 {
-    const fd = std.fs.File.stderr().handle;
-    var wsz: posix.winsize = undefined;
-    const rc = posix.system.ioctl(
-        fd,
-        posix.T.IOCGWINSZ,
-        @intFromPtr(&wsz),
-    );
-    if (posix.errno(rc) == .SUCCESS and wsz.col > 0) {
-        return wsz.col;
-    }
-    return 0;
-}
-
-/// Compute per-column max-width so the table fits the terminal.
-/// Returns 0 (unlimited) if not a TTY or columns are few enough.
-fn autoMaxWidth(display_cols: usize, padding: u8) u16 {
-    const term_width = getTerminalWidth();
-    if (term_width == 0 or display_cols == 0) return 0;
-    return tableWidthToColWidth(term_width, display_cols, padding);
-}
-
-/// Convert a total table width to per-column content width.
-fn tableWidthToColWidth(
-    total: u16,
-    display_cols: usize,
-    padding: u8,
-) u16 {
-    // Overhead per column: 1 border char + 2 * padding.
-    // Plus 1 for the rightmost border.
-    const overhead =
-        display_cols * (2 * @as(usize, padding) + 1) + 1;
-    if (total <= overhead) return 1;
-    const available = @as(usize, total) - overhead;
-    const per_col = available / display_cols;
-    // No truncation needed if each column gets 80+ chars.
-    if (per_col >= 80) return 0;
-    return @intCast(@max(per_col, 3));
-}
-
 // -- Column filter ----------------------------------------------
+
+/// Return filtered view of a row. If no filter, returns as-is.
+/// Uses caller-provided buffer to avoid allocation.
+fn filterRow(
+    fields: []const []const u8,
+    col_filter: ?[]const usize,
+    buf: [][]const u8,
+) []const []const u8 {
+    const filter = col_filter orelse return fields;
+    const n = @min(filter.len, buf.len);
+    for (0..n) |i| {
+        buf[i] = if (filter[i] < fields.len)
+            fields[filter[i]]
+        else
+            "";
+    }
+    return buf[0..n];
+}
 
 /// Parse "1,3,5" into 0-based indices. Returns null if empty.
 fn parseColFilter(
@@ -210,282 +182,27 @@ fn parseColFilter(
             &std.ascii.whitespace,
         );
         if (trimmed.len == 0) continue;
-        const n = std.fmt.parseInt(
-            usize,
-            trimmed,
-            10,
-        ) catch continue;
-        if (n >= 1 and n <= num_cols) {
-            try indices.append(allocator, n - 1);
+        const n = std.fmt.parseInt(usize, trimmed, 10) catch {
+            std.log.err(
+                "invalid column index: '{s}'",
+                .{trimmed},
+            );
+            return error.InvalidColumnIndex;
+        };
+        if (n < 1 or n > num_cols) {
+            std.log.err(
+                "column index {d} out of range 1..{d}",
+                .{ n, num_cols },
+            );
+            return error.InvalidColumnIndex;
         }
+        try indices.append(allocator, n - 1);
     }
     if (indices.items.len == 0) return null;
     return try allocator.dupe(usize, indices.items);
 }
 
-/// Get the field at a display column, respecting the filter.
-fn getField(
-    fields: []const []const u8,
-    display_col: usize,
-    col_filter: ?[]const usize,
-) []const u8 {
-    const src_col = if (col_filter) |f| blk: {
-        break :blk if (display_col < f.len) f[display_col] else return "";
-    } else display_col;
-    if (src_col < fields.len) return fields[src_col];
-    return "";
-}
-
-// -- Truncation --------------------------------------------------
-
-/// Return text truncated to max chars. 0 means no limit.
-fn truncate(text: []const u8, max: u16) []const u8 {
-    if (max == 0 or text.len <= max) return text;
-    // Reserve 1 char for the ellipsis.
-    const limit: usize = if (max > 1) max - 1 else 0;
-    return text[0..limit];
-}
-
-fn needsEllipsis(text: []const u8, max: u16) bool {
-    return max > 0 and text.len > max;
-}
-
-// -- Table rendering ---------------------------------------------
-
-fn renderTable(
-    writer: *std.Io.Writer,
-    rows: []const []const []const u8,
-    display_cols: usize,
-    col_filter: ?[]const usize,
-    mode: pt.Separator.Mode,
-    padding: u8,
-    no_header: bool,
-    max_cell_width: u16,
-) !void {
-    std.debug.assert(display_cols <= max_columns);
-    const pad: usize = padding;
-
-    // Calculate column widths.
-    var col_widths_buf: [max_columns]usize = undefined;
-    const col_widths = col_widths_buf[0..display_cols];
-    @memset(col_widths, 0);
-    for (rows) |row| {
-        for (0..display_cols) |col| {
-            const raw = getField(row, col, col_filter);
-            const text = truncate(raw, max_cell_width);
-            const visual_len = text.len +
-                @as(usize, if (needsEllipsis(raw, max_cell_width))
-                    1
-                else
-                    0);
-            col_widths[col] = @max(
-                col_widths[col],
-                visual_len + 2 * pad,
-            );
-        }
-    }
-
-    try writeHLine(writer, mode, .First, col_widths);
-    if (!no_header and rows.len > 0) {
-        try writeDataRow(
-            writer,
-            mode,
-            rows[0],
-            col_widths,
-            pad,
-            display_cols,
-            col_filter,
-            max_cell_width,
-        );
-        try writeHLine(writer, mode, .Sep, col_widths);
-    }
-    const data_start: usize = if (no_header) 0 else 1;
-    for (rows[data_start..]) |row| {
-        try writeDataRow(
-            writer,
-            mode,
-            row,
-            col_widths,
-            pad,
-            display_cols,
-            col_filter,
-            max_cell_width,
-        );
-    }
-    try writeHLine(writer, mode, .Last, col_widths);
-}
-
-fn writeHLine(
-    writer: *std.Io.Writer,
-    mode: pt.Separator.Mode,
-    pos: pt.Separator.Position,
-    col_widths: []const usize,
-) !void {
-    for (col_widths, 0..) |width, col| {
-        const col_pos: pt.Separator.Position =
-            if (col == 0) .First else .Sep;
-        try writer.writeAll(pt.Separator.get(mode, pos, col_pos));
-        for (0..width) |_| {
-            try writer.writeAll(pt.Separator.get(mode, pos, .Text));
-        }
-    }
-    try writer.writeAll(pt.Separator.get(mode, pos, .Last));
-    try writer.writeAll("\n");
-}
-
-fn writeDataRow(
-    writer: *std.Io.Writer,
-    mode: pt.Separator.Mode,
-    fields: []const []const u8,
-    col_widths: []const usize,
-    pad: usize,
-    display_cols: usize,
-    col_filter: ?[]const usize,
-    max_cell_width: u16,
-) !void {
-    for (0..display_cols) |col| {
-        const col_pos: pt.Separator.Position =
-            if (col == 0) .First else .Sep;
-        try writer.writeAll(
-            pt.Separator.get(mode, .Text, col_pos),
-        );
-        const raw = getField(fields, col, col_filter);
-        const text = truncate(raw, max_cell_width);
-        const ellipsis = needsEllipsis(raw, max_cell_width);
-        const visual_len = text.len +
-            @as(usize, if (ellipsis) 1 else 0);
-        const right_pad = col_widths[col] -| (pad + visual_len);
-        for (0..pad) |_| try writer.writeByte(' ');
-        try writer.writeAll(text);
-        // "…" is U+2026, 3 bytes in UTF-8.
-        if (ellipsis) try writer.writeAll("\xe2\x80\xa6");
-        for (0..right_pad) |_| try writer.writeByte(' ');
-    }
-    try writer.writeAll(pt.Separator.get(mode, .Text, .Last));
-    try writer.writeAll("\n");
-}
-
-// -- Transpose rendering ----------------------------------------
-
-fn renderTranspose(
-    writer: *std.Io.Writer,
-    rows: []const []const []const u8,
-    display_cols: usize,
-    col_filter: ?[]const usize,
-    mode: pt.Separator.Mode,
-    padding: u8,
-    no_header: bool,
-    max_cell_width: u16,
-) !void {
-    const pad: usize = padding;
-    const header = if (!no_header and rows.len > 0)
-        rows[0]
-    else
-        null;
-    const data_start: usize = if (no_header) 0 else 1;
-
-    for (rows[data_start..], 0..) |row, record_idx| {
-        // Key width = max header name or column index length.
-        var key_width: usize = 0;
-        for (0..display_cols) |col| {
-            const key = if (header) |h|
-                getField(h, col, col_filter)
-            else
-                "";
-            const key_len = if (key.len > 0)
-                key.len
-            else
-                numDigits(col + 1);
-            key_width = @max(key_width, key_len);
-        }
-
-        // Value width = max truncated value length.
-        var val_width: usize = 0;
-        for (0..display_cols) |col| {
-            const raw = getField(row, col, col_filter);
-            const text = truncate(raw, max_cell_width);
-            const visual_len = text.len +
-                @as(usize, if (needsEllipsis(raw, max_cell_width))
-                    1
-                else
-                    0);
-            val_width = @max(val_width, visual_len);
-        }
-
-        const col_widths = [2]usize{
-            key_width + 2 * pad,
-            val_width + 2 * pad,
-        };
-
-        // Blank line between records.
-        if (record_idx > 0) try writer.writeAll("\n");
-        try writeHLine(writer, mode, .First, &col_widths);
-
-        for (0..display_cols) |col| {
-            try writer.writeAll(
-                pt.Separator.get(mode, .Text, .First),
-            );
-
-            // Key column.
-            const key = if (header) |h|
-                getField(h, col, col_filter)
-            else
-                "";
-            for (0..pad) |_| try writer.writeByte(' ');
-            if (key.len > 0) {
-                try writer.writeAll(key);
-                for (0..key_width -| key.len) |_| {
-                    try writer.writeByte(' ');
-                }
-            } else {
-                var idx_buf: [20]u8 = undefined;
-                const idx_str = std.fmt.bufPrint(
-                    &idx_buf,
-                    "{d}",
-                    .{col + 1},
-                ) catch "";
-                try writer.writeAll(idx_str);
-                for (0..key_width -| idx_str.len) |_| {
-                    try writer.writeByte(' ');
-                }
-            }
-            for (0..pad) |_| try writer.writeByte(' ');
-
-            try writer.writeAll(
-                pt.Separator.get(mode, .Text, .Sep),
-            );
-
-            // Value column.
-            const raw = getField(row, col, col_filter);
-            const text = truncate(raw, max_cell_width);
-            const ellipsis = needsEllipsis(raw, max_cell_width);
-            const visual_len = text.len +
-                @as(usize, if (ellipsis) 1 else 0);
-            for (0..pad) |_| try writer.writeByte(' ');
-            try writer.writeAll(text);
-            if (ellipsis) try writer.writeAll("\xe2\x80\xa6");
-            for (0..val_width -| visual_len + pad) |_| {
-                try writer.writeByte(' ');
-            }
-
-            try writer.writeAll(
-                pt.Separator.get(mode, .Text, .Last),
-            );
-            try writer.writeAll("\n");
-        }
-        try writeHLine(writer, mode, .Last, &col_widths);
-    }
-}
-
-fn numDigits(n: usize) usize {
-    if (n == 0) return 1;
-    var val = n;
-    var digits: usize = 0;
-    while (val > 0) : (val /= 10) digits += 1;
-    return digits;
-}
-
-// -- CSV parsing -------------------------------------------------
+// -- CSV parsing ------------------------------------------------
 
 fn parseLine(
     allocator: mem.Allocator,
@@ -507,6 +224,7 @@ fn parseLine(
     var col: usize = 0;
     var pos: usize = 0;
 
+    // Bounded by line.len and num_fields.
     while (pos < line.len and col < num_fields) {
         if (line[pos] == '"') {
             // Quoted field: skip opening quote.
@@ -515,7 +233,9 @@ fn parseLine(
             while (pos < line.len) {
                 if (line[pos] == '"') {
                     // Escaped quote ("") — skip both.
-                    if (pos + 1 < line.len and line[pos + 1] == '"') {
+                    if (pos + 1 < line.len and
+                        line[pos + 1] == '"')
+                    {
                         pos += 2;
                     } else {
                         break;
@@ -526,8 +246,12 @@ fn parseLine(
             }
             fields[col] = line[field_start..pos];
             // Skip closing quote and delimiter.
-            if (pos < line.len and line[pos] == '"') pos += 1;
-            if (pos < line.len and line[pos] == delim) pos += 1;
+            if (pos < line.len and line[pos] == '"') {
+                pos += 1;
+            }
+            if (pos < line.len and line[pos] == delim) {
+                pos += 1;
+            }
         } else {
             // Unquoted field.
             const field_start = pos;

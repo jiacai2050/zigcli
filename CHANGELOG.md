@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+### New Programs
+- **pretty-csv**: Pretty-print CSV/TSV files as aligned tables
+  - Auto-fits table width to terminal, truncates with `…`
+  - Three border styles: `ascii`, `box`, `dos`
+  - Transpose mode (`-t`): show each record as vertical key-value block
+  - Column selection (`-c 1,3,5`): display only specific columns
+  - Configurable delimiter, padding, and max input size
+
+### Improvements
+- **pretty-table**: `TableBuilder(N)` runtime row builder with string shorthand and Cell-level control
+  - `DynTable`: runtime column count with optional cell truncation
+- **zfetch**: Android property detection via `dlsym` with `dlopen("libc.so")` fallback
+
+### Documentation
+- Added `gitignore` package docs
+- Updated `pretty-table` and `simargs` docs for Zig 0.15 API
+
 ## v0.4.0 (2026-03-18)
 
 ### New Programs
