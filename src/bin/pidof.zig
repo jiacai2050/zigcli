@@ -3,7 +3,8 @@
 //! https://man7.org/linux/man-pages/man1/pidof.1.html
 
 const std = @import("std");
-const simargs = @import("simargs");
+const zigcli = @import("zigcli");
+const structargs = zigcli.structargs;
 const util = @import("util.zig");
 const c = @cImport({
     @cInclude("sys/sysctl.h");
@@ -93,7 +94,7 @@ pub fn main() !void {
     defer gpa.deinit();
     const allocator = gpa.allocator();
 
-    const opt = try simargs.parse(allocator, Options, .{
+    const opt = try structargs.parse(allocator, Options, .{
         .argument_prompt = "[program]",
         .version_string = util.get_build_info(),
     });

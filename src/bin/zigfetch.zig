@@ -1,6 +1,7 @@
 const std = @import("std");
 const curl = @import("curl");
-const simargs = @import("simargs");
+const zigcli = @import("zigcli");
+const structargs = zigcli.structargs;
 const util = @import("util.zig");
 const Manifest = @import("./pkg/Manifest.zig");
 const package = @import("./pkg/package.zig");
@@ -52,7 +53,7 @@ var easy: curl.Easy = undefined;
 
 pub fn main() !void {
     const allocator = std.heap.page_allocator;
-    const opt = try simargs.parse(
+    const opt = try structargs.parse(
         allocator,
         Args,
         .{

@@ -2,7 +2,8 @@
 //!
 const std = @import("std");
 const Writer = std.Io.Writer;
-const simargs = @import("simargs");
+const zigcli = @import("zigcli");
+const structargs = zigcli.structargs;
 const util = @import("util.zig");
 const c = @cImport({
     @cInclude("objc/objc.h");
@@ -201,7 +202,7 @@ pub fn main() !void {
     defer gpa.deinit();
     const allocator = gpa.allocator();
 
-    const opt = try simargs.parse(allocator, struct {
+    const opt = try structargs.parse(allocator, struct {
         version: bool = false,
         help: bool = false,
 

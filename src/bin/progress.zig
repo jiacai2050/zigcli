@@ -4,7 +4,8 @@
 //! Supported platforms: Linux (via /proc), macOS (via libproc).
 
 const std = @import("std");
-const simargs = @import("simargs");
+const zigcli = @import("zigcli");
+const structargs = zigcli.structargs;
 const util = @import("util.zig");
 const builtin = @import("builtin");
 const fs = std.fs;
@@ -113,7 +114,7 @@ pub fn main() !void {
     defer gpa.deinit();
     const allocator = gpa.allocator();
 
-    const opt = try simargs.parse(allocator, Options, .{
+    const opt = try structargs.parse(allocator, Options, .{
         .argument_prompt = "",
         .version_string = util.get_build_info(),
     });

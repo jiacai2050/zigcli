@@ -1,5 +1,6 @@
 const std = @import("std");
-const simargs = @import("simargs");
+const zigcli = @import("zigcli");
+const structargs = zigcli.structargs;
 const util = @import("util.zig");
 const debugPrint = util.debugPrint;
 const net = std.net;
@@ -11,7 +12,7 @@ const isWindows = util.isWindows();
 pub fn main() !void {
     const allocator = std.heap.page_allocator;
 
-    const opt = try simargs.parse(allocator, struct {
+    const opt = try structargs.parse(allocator, struct {
         bind_host: []const u8 = "0.0.0.0",
         local_port: u16 = 8081,
         remote_host: []const u8,

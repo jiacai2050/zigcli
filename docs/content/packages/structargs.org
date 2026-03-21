@@ -1,0 +1,114 @@
+#+TITLE: structargs
+#+DATE: 2023-10-21T12:04:40+0800
+#+LASTMOD: 2026-03-21T20:38:37+0800
+#+TYPE: docs
+#+WEIGHT: 10
+#+DESCRIPTION: Struct-based CLI parsing in Zig with comptime-generated help and subcommands
+
+=structargs= turns a Zig struct into a command-line interface.
+
+Instead of building a parser through chained builder calls, you declare one options struct, and
+=structargs= derives the flags, defaults, enums, subcommands, and help output from that type at
+comptime.
+
+* Features
+- The CLI schema lives in one Zig struct:
+  - normal fields become options
+  - optional fields and default values become optional flags
+  - =__shorts__= declares short aliases
+  - =__messages__= declares help text
+- Nested subcommands are declared with =__commands__: union(enum)=
+- Help and usage text are generated from the same type definition
+- =--version= support is enabled through =version_string=
+- =print_help_on_error= can print stderr help before returning parse errors
+- Supported option value types include:
+  - All [[https://ziglang.org/documentation/0.15.2/#Primitive-Types][primitive types]], such as =i8=, =u16=, =f32=, =bool=
+  - =[]const u8=
+  - =Enum=
+* Usage
+See [[https://github.com/jiacai2050/zigcli/blob/main/examples/structargs-demo.zig][structargs-demo.zig]].
+
+#+begin_src zig
+const std = @import("std");
+const zigcli = @import("zigcli");
+const structargs = zigcli.structargs;
+
+var opt = try structargs.parse(allocator, struct {
+    verbose: ?bool,
+    @"user-agent": enum { Chrome, Firefox, Safari } = .Firefox,
+    timeout: ?u16 = 30,
+    output: []const u8,
+    help: bool = false,
+    version: bool = false,
+
+    __commands__: union(enum) {
+        sub1: struct {
+            a: u64,
+            help: bool = false,
+        },
+        sub2: struct { name: []const u8 },
+
+        pub const __messages__ = .{
+            .sub1 = "Subcommand 1",
+            .sub2 = "Subcommand 2",
+        };
+    },
+
+    pub const __shorts__ = .{
+        .verbose = .v,
+        .output = .o,
+        .@"user-agent" = .A,
+        .help = .h,
+    };
+
+    pub const __messages__ = .{
+        .verbose = "Make the operation more talkative",
+        .output = "Write to file instead of stdout",
+        .timeout = "Max time this request can cost",
+    };
+}, .{
+    .argument_prompt = "[file]",
+    .version_string = "0.1.0",
+});
+defer opt.deinit();
+
+// Access parsed options.
+const output_path = opt.options.output;
+const timeout = opt.options.timeout;
+
+// Print help to stdout.
+const stdout = std.fs.File.stdout();
+var buffer: [1024]u8 = undefined;
+var writer = stdout.writer(&buffer);
+try opt.printHelp(&writer.interface);
+try writer.interface.flush();
+#+end_src
+
+The parse result keeps the structured values on =opt.options= and also carries:
+
+- =opt.program_name=
+- =opt.positional_arguments=
+- =opt.raw_arguments=
+- =opt.printHelp(writer)=
+
+* Parse options
+
+=structargs.parse(..., .{ ... })= accepts these metadata options:
+
+- =argument_prompt=: Appended to the top-level usage line, for example =[file]= or =[--] paths...=
+- =version_string=: Printed when =--version= is present
+- =print_help_and_exit=: When =true=, =--help= and =--version= print and exit immediately
+- =print_help_on_error=: When =true=, parse errors print help to stderr before the error is returned
+
+For subcommands, =print_help_on_error= prints the help for the current subcommand context instead of
+always falling back to the top-level command.
+
+
+* Acknowledgment
+Blog post explaining how =structargs= is implemented: [[https://en.liujiacai.net/2022/12/14/argparser-in-zig/][What I learn by implementing argparser in Zig]].
+
+When implement =structargs=, I refer following projects to learn how to write
+idiomatic Zig code. Big Thanks!
+- [[https://github.com/MasterQ32/zig-args/][MasterQ32/zig-args]]
+- [[https://github.com/Hejsil/zig-clap][Hejsil/zig-clap]]
+- [[https://github.com/evangrayk/zig-argparse][evangrayk/zig-argparse]]

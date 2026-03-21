@@ -48,13 +48,14 @@ fn addModules(
     optimize: std.builtin.OptimizeMode,
     all_tests: *Step,
 ) !void {
-    inline for (.{ "pretty-table", "simargs", "gitignore" }) |name| {
-        _ = b.addModule(name, .{
-            .root_source_file = b.path("src/mod/" ++ name ++ ".zig"),
-            .target = target,
-            .optimize = optimize,
-        });
+    _ = b.addModule("zigcli", .{
+        .root_source_file = b.path("lib.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
 
+    all_tests.dependOn(buildRootTestStep(b, target));
+    inline for (.{ "pretty-table", "structargs", "gitignore" }) |name| {
         all_tests.dependOn(buildTestStep(b, .{ .mod = name }, target));
     }
 
@@ -94,7 +95,7 @@ fn buildExamples(
     all_tests: *Step,
 ) !void {
     inline for (.{
-        "simargs-demo",
+        "structargs-demo",
         "pretty-table-demo",
     }) |name| {
         try buildBinary(b, .{ .ex = name }, optimize, target, all_tests);
@@ -183,8 +184,29 @@ fn buildTestStep(
     const exe_tests = b.addTest(.{
         .root_module = module,
     });
+    if (b.modules.get("zigcli")) |zigcli_module| {
+        exe_tests.root_module.addImport("zigcli", zigcli_module);
+    }
+    if (b.modules.get("build_info")) |build_info_module| {
+        exe_tests.root_module.addImport("build_info", build_info_module);
+    }
     const test_step = b.step("test-" ++ name, "Run " ++ name ++ " tests");
     // https://github.com/ziglang/zig/issues/15009#issuecomment-1475350701
+    test_step.dependOn(&b.addRunArtifact(exe_tests).step);
+    return test_step;
+}
+
+fn buildRootTestStep(
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+) *Step {
+    const exe_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("lib.zig"),
+            .target = target,
+        }),
+    });
+    const test_step = b.step("test-zigcli", "Run zigcli module tests");
     test_step.dependOn(&b.addRunArtifact(exe_tests).step);
     return test_step;
 }

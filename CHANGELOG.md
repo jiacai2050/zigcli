@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Breaking Changes
+- **build**: package consumers must now import the single `zigcli` root module instead of adding
+  separate `simargs`, `pretty-table`, and `gitignore` modules, and the struct-based argument parser
+  is now named `structargs`
+  - Old:
+    - `exe.root_module.addImport("simargs", zigcli.module("simargs"));`
+    - `exe.root_module.addImport("pretty-table", zigcli.module("pretty-table"));`
+    - `exe.root_module.addImport("gitignore", zigcli.module("gitignore"));`
+  - New:
+    - `exe.root_module.addImport("zigcli", zigcli.module("zigcli"));`
+    - Use `zigcli.structargs` instead of `zigcli.simargs`
+
 ### New Programs
 - **pretty-csv**: Pretty-print CSV/TSV files as aligned tables
   - Auto-fits table width to terminal, truncates with `…`
@@ -12,15 +24,18 @@
   - Configurable delimiter, padding, and max input size
 
 ### Improvements
+- **build**: consolidate exported packages behind a single `zigcli` root module in `lib.zig`
+- **zigcli**: add shared `term` module for ANSI colors and terminal capability helpers
+- **zigcli**: add shared `term.Style` for reusable ANSI-styled text output
+- **structargs**: `print_help_on_error` now prints the subcommand-specific help context for subcommand parse failures
 - **pretty-table**: `Table(N).Owned` runtime row helper with string shorthand and Cell-level control
   - `Table(N)` and `Table(N).Owned`: optional transpose mode
   - `RuntimeTable`: runtime column count with footer rows, header/footer cell setters, row separators, per-column alignment, `"{f}"` formatting, optional cell truncation, and UTF-8-safe truncation boundaries
   - Windows targets skip POSIX terminal-width probing during cross-compilation
-- **pretty-csv**: column filtering no longer truncates silently when CSV inputs exceed 256 columns
 
 ### Documentation
 - Added `gitignore` package docs
-- Updated `pretty-table` and `simargs` docs for Zig 0.15 API
+- Updated `pretty-table` and `structargs` docs for Zig 0.15 API
 
 ## v0.4.0 (2026-03-18)
 
@@ -42,6 +57,7 @@
   - Recursive `.gitignore` filtering support in `tree` and `loc`
 
 ### Improvements
+- **build**: consolidate exported packages behind a single `zigcli` root module in `lib.zig`
 - **pretty-table**: `Cell` struct with per-cell styling and horizontal span
 - **simargs**: Improved naming consistency for internal types
 - **zigfetch**: Increased zstd decompression buffer size

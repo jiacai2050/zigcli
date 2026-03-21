@@ -1,10 +1,12 @@
 const std = @import("std");
-
-const Table = @import("pretty-table").Table;
-const Separator = @import("pretty-table").Separator;
-const Cell = @import("pretty-table").Cell;
-const Align = @import("pretty-table").Align;
-const Color = @import("pretty-table").Color;
+const zigcli = @import("zigcli");
+const pt = zigcli.pretty_table;
+const term = zigcli.term;
+const Table = pt.Table;
+const Separator = pt.Separator;
+const Cell = pt.Cell;
+const Align = pt.Align;
+const Color = term.Style.Color;
 
 pub fn main() !void {
     const out = std.fs.File.stdout();

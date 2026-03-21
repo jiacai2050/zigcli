@@ -1,5 +1,5 @@
-const builtin = @import("builtin");
 const std = @import("std");
+const term = @import("term.zig");
 const Writer = std.io.Writer;
 
 pub const String = []const u8;
@@ -10,9 +10,9 @@ pub const Cell = struct {
     bold: bool = false,
     italic: bool = false,
     /// Foreground (text) color.
-    fg: ?Color = null,
+    fg: ?term.Style.Color = null,
     /// Background color.
-    bg: ?Color = null,
+    bg: ?term.Style.Color = null,
     /// Number of columns this cell spans (must be ≥ 1).
     hspan: usize = 1,
 
@@ -41,14 +41,14 @@ pub const Cell = struct {
     }
 
     /// Returns a copy of this cell with the given foreground color.
-    pub fn withFg(self: Cell, fg_color: Color) Cell {
+    pub fn withFg(self: Cell, fg_color: term.Style.Color) Cell {
         var cell = self;
         cell.fg = fg_color;
         return cell;
     }
 
     /// Returns a copy of this cell with the given background color.
-    pub fn withBg(self: Cell, bg_color: Color) Cell {
+    pub fn withBg(self: Cell, bg_color: term.Style.Color) Cell {
         var cell = self;
         cell.bg = bg_color;
         return cell;
@@ -90,74 +90,6 @@ pub const Align = enum {
     left,
     center,
     right,
-};
-
-/// ANSI terminal foreground color for a table cell.
-pub const Color = enum {
-    black,
-    red,
-    green,
-    yellow,
-    blue,
-    magenta,
-    cyan,
-    white,
-    // Bright (high-intensity) variants.
-    bright_black,
-    bright_red,
-    bright_green,
-    bright_yellow,
-    bright_blue,
-    bright_magenta,
-    bright_cyan,
-    bright_white,
-
-    /// The ANSI SGR reset sequence that cancels all styling.
-    pub const reset = "\x1b[0m";
-
-    /// Returns the ANSI escape sequence that activates this foreground color.
-    pub fn toEscapeCode(self: Color) []const u8 {
-        return switch (self) {
-            .black => "\x1b[30m",
-            .red => "\x1b[31m",
-            .green => "\x1b[32m",
-            .yellow => "\x1b[33m",
-            .blue => "\x1b[34m",
-            .magenta => "\x1b[35m",
-            .cyan => "\x1b[36m",
-            .white => "\x1b[37m",
-            .bright_black => "\x1b[90m",
-            .bright_red => "\x1b[91m",
-            .bright_green => "\x1b[92m",
-            .bright_yellow => "\x1b[93m",
-            .bright_blue => "\x1b[94m",
-            .bright_magenta => "\x1b[95m",
-            .bright_cyan => "\x1b[96m",
-            .bright_white => "\x1b[97m",
-        };
-    }
-
-    /// Returns the ANSI escape sequence that activates this background color.
-    pub fn toBgEscapeCode(self: Color) []const u8 {
-        return switch (self) {
-            .black => "\x1b[40m",
-            .red => "\x1b[41m",
-            .green => "\x1b[42m",
-            .yellow => "\x1b[43m",
-            .blue => "\x1b[44m",
-            .magenta => "\x1b[45m",
-            .cyan => "\x1b[46m",
-            .white => "\x1b[47m",
-            .bright_black => "\x1b[100m",
-            .bright_red => "\x1b[101m",
-            .bright_green => "\x1b[102m",
-            .bright_yellow => "\x1b[103m",
-            .bright_blue => "\x1b[104m",
-            .bright_magenta => "\x1b[105m",
-            .bright_cyan => "\x1b[106m",
-            .bright_white => "\x1b[107m",
-        };
-    }
 };
 
 pub const Separator = struct {
@@ -374,15 +306,15 @@ pub fn Table(comptime len: usize) type {
 
                 for (0..left_spaces) |_| try writer.writeAll(" ");
 
-                // Emit ANSI styling codes before the text content.
-                if (cell.bold) try writer.writeAll("\x1b[1m");
-                if (cell.italic) try writer.writeAll("\x1b[3m");
-                if (cell.fg) |fg_color| try writer.writeAll(fg_color.toEscapeCode());
-                if (cell.bg) |bg_color| try writer.writeAll(bg_color.toBgEscapeCode());
+                const style: term.Style = .{
+                    .bold = cell.bold,
+                    .italic = cell.italic,
+                    .fg = cell.fg,
+                    .bg = cell.bg,
+                };
+                try style.writePrefix(writer);
                 try writer.writeAll(text);
-                if (cell.bold or cell.italic or cell.fg != null or cell.bg != null) {
-                    try writer.writeAll(Color.reset);
-                }
+                try style.writeSuffix(writer);
 
                 for (0..right_spaces) |_| try writer.writeAll(" ");
             }
@@ -929,25 +861,8 @@ pub const RuntimeTable = struct {
     /// Detect terminal width via ioctl on stderr.
     /// Returns 0 if not a TTY.
     fn getTerminalWidth() u16 {
-        if (builtin.os.tag == .windows) {
-            return 0;
-        }
-
-        if (!@hasDecl(std.posix, "T")) {
-            return 0;
-        }
-
-        const fd = std.fs.File.stderr().handle;
-        var wsz: std.posix.winsize = undefined;
-        const rc = std.posix.system.ioctl(
-            fd,
-            std.posix.T.IOCGWINSZ,
-            @intFromPtr(&wsz),
-        );
-        if (std.posix.errno(rc) == .SUCCESS and
-            wsz.col > 0)
-        {
-            return wsz.col;
+        if (term.terminalWidth(std.fs.File.stderr())) |width| {
+            return width;
         }
         return 0;
     }
@@ -1092,22 +1007,16 @@ pub const RuntimeTable = struct {
             for (0..left_pad) |_| {
                 try writer.writeByte(' ');
             }
-            // Emit ANSI styling before text content.
-            if (cell.bold) try writer.writeAll("\x1b[1m");
-            if (cell.italic) try writer.writeAll("\x1b[3m");
-            if (cell.fg) |c| {
-                try writer.writeAll(c.toEscapeCode());
-            }
-            if (cell.bg) |c| {
-                try writer.writeAll(c.toBgEscapeCode());
-            }
+            const style: term.Style = .{
+                .bold = cell.bold,
+                .italic = cell.italic,
+                .fg = cell.fg,
+                .bg = cell.bg,
+            };
+            try style.writePrefix(writer);
             try writer.writeAll(display.text);
             if (display.ellipsis) try writer.writeAll("\xe2\x80\xa6");
-            if (cell.bold or cell.italic or
-                cell.fg != null or cell.bg != null)
-            {
-                try writer.writeAll(Color.reset);
-            }
+            try style.writeSuffix(writer);
             for (0..right_pad) |_| try writer.writeByte(' ');
         }
         try writer.writeAll(

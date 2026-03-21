@@ -2,7 +2,9 @@
 //! Inspired by https://github.com/fastfetch-cli/fastfetch
 
 const std = @import("std");
-const simargs = @import("simargs");
+const zigcli = @import("zigcli");
+const structargs = zigcli.structargs;
+const term = zigcli.term;
 const util = @import("util.zig");
 const builtin = @import("builtin");
 const mem = std.mem;
@@ -23,7 +25,7 @@ pub fn main() !void {
     defer gpa.deinit();
     const allocator = gpa.allocator();
 
-    const opt = try simargs.parse(allocator, struct {
+    const opt = try structargs.parse(allocator, struct {
         help: bool = false,
         version: bool = false,
         all: bool = false,
@@ -52,7 +54,7 @@ pub fn main() !void {
     const arena_alloc = arena.allocator();
 
     const stdout = std.fs.File.stdout();
-    const is_tty = stdout.isTty();
+    const is_tty = term.isTty(stdout);
     var output_buf: [8192]u8 = undefined;
     var writer = stdout.writer(&output_buf);
 

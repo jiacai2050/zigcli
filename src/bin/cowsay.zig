@@ -2,7 +2,8 @@
 //! https://en.wikipedia.org/wiki/Cowsay
 
 const std = @import("std");
-const simargs = @import("simargs");
+const zigcli = @import("zigcli");
+const structargs = zigcli.structargs;
 const util = @import("util.zig");
 const Writer = std.Io.Writer;
 const mem = std.mem;
@@ -42,7 +43,7 @@ pub fn main() !void {
     defer gpa.deinit();
     const allocator = gpa.allocator();
 
-    const opt = try simargs.parse(allocator, struct {
+    const opt = try structargs.parse(allocator, struct {
         face: CowFace = .cow,
         help: bool = false,
         version: bool = false,

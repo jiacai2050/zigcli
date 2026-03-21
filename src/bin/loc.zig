@@ -1,10 +1,12 @@
 const std = @import("std");
-const Table = @import("pretty-table").Table;
-const Cell = @import("pretty-table").Cell;
-const Separator = @import("pretty-table").Separator;
-const simargs = @import("simargs");
+const zigcli = @import("zigcli");
+const pt = zigcli.pretty_table;
+const Table = pt.Table;
+const Cell = pt.Cell;
+const Separator = pt.Separator;
+const structargs = zigcli.structargs;
 const util = @import("util.zig");
-const gitignore = @import("gitignore");
+const gitignore = zigcli.gitignore;
 const StringUtil = util.StringUtil;
 const fs = std.fs;
 
@@ -179,7 +181,7 @@ pub fn main() !void {
     defer gpa.deinit();
     const allocator = gpa.allocator();
 
-    const opt = try simargs.parse(allocator, struct {
+    const opt = try structargs.parse(allocator, struct {
         sort: Column = .line,
         mode: Separator.Mode = .box,
         padding: usize = 3,
