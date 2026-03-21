@@ -59,7 +59,6 @@
   - Recursive `.gitignore` filtering support in `tree` and `loc`
 
 ### Improvements
-- **build**: consolidate exported packages behind a single `zigcli` root module in `lib.zig`
 - **pretty-table**: `Cell` struct with per-cell styling and horizontal span
 - **simargs**: Improved naming consistency for internal types
 - **zigfetch**: Increased zstd decompression buffer size
