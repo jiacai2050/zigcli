@@ -6,9 +6,10 @@
 //! - Asc
 
 const std = @import("std");
-const simargs = @import("simargs");
+const zigcli = @import("zigcli");
+const structargs = zigcli.structargs;
 const util = @import("util.zig");
-const gitignore = @import("gitignore");
+const gitignore = zigcli.gitignore;
 const StringUtil = util.StringUtil;
 const process = std.process;
 const fs = std.fs;
@@ -79,7 +80,7 @@ pub fn main() anyerror!void {
     defer gpa.deinit();
     const allocator = gpa.allocator();
 
-    const opt = try simargs.parse(
+    const opt = try structargs.parse(
         allocator,
         WalkOptions,
         .{

@@ -1,7 +1,8 @@
 //! Dark mode status, built for macOS.
 //!
 const std = @import("std");
-const simargs = @import("simargs");
+const zigcli = @import("zigcli");
+const structargs = zigcli.structargs;
 const util = @import("util.zig");
 
 // https://saagarjha.com/blog/2018/12/01/scheduling-dark-mode/
@@ -13,7 +14,7 @@ pub fn main() !void {
     defer gpa.deinit();
     const allocator = gpa.allocator();
 
-    const opt = try simargs.parse(allocator, struct {
+    const opt = try structargs.parse(allocator, struct {
         version: bool = false,
         help: bool = false,
 

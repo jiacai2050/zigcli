@@ -37,7 +37,7 @@ src
 │  └──yes.zig
 └──mod
    ├──pretty-table.zig
-   └──simargs.zig
+   └──structargs.zig
 
 1 directories, 4 files
 #+end_src

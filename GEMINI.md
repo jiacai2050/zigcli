@@ -17,7 +17,7 @@ This file provides a comprehensive overview of the `zigcli` project, its structu
 
 The project is structured into two main parts:
 
-*   **`src/mod`:** Contains reusable Zig modules (`pretty-table`, `simargs`).
+*   **`src/mod`:** Contains reusable Zig modules (`pretty-table`, `structargs`).
 *   **`src/bin`:** Contains a collection of standalone command-line programs.
 
 ## Building and Running

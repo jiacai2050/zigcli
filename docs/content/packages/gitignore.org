@@ -17,7 +17,8 @@
 Parse a single =.gitignore= file and match paths against it.
 
 #+begin_src zig
-const gitignore = @import("gitignore");
+const zigcli = @import("zigcli");
+const gitignore = zigcli.gitignore;
 
 var gi = try gitignore.Gitignore.init(allocator, content);
 defer gi.deinit();
@@ -33,7 +34,8 @@ Each layer is anchored to its directory, and patterns are evaluated with
 correct relative paths.
 
 #+begin_src zig
-const gitignore = @import("gitignore");
+const zigcli = @import("zigcli");
+const gitignore = zigcli.gitignore;
 
 var stack = gitignore.GitignoreStack.init();
 defer stack.deinit(allocator);

@@ -39,8 +39,10 @@ See [[https://github.com/jiacai2050/zigcli/blob/main/examples/pretty-table-demo.
 ** Basic table
 
 #+begin_src zig
-const Table = @import("pretty-table").Table;
-const Cell = @import("pretty-table").Cell;
+const zigcli = @import("zigcli");
+const pt = zigcli.pretty_table;
+const Table = pt.Table;
+const Cell = pt.Cell;
 
 const t = Table(2){
     .header = [_]Cell{ Cell.init("Language"), Cell.init("Files") },
@@ -142,7 +144,7 @@ const t = Table(2){
 };
 #+end_src
 
-=Color= supports the standard ANSI colors plus bright variants:
+=term.Style.Color= supports the standard ANSI colors plus bright variants:
 =black=, =red=, =green=, =yellow=, =blue=, =magenta=, =cyan=, =white=,
 and =bright_*= variants such as =bright_cyan= and =bright_white=.
 
@@ -186,7 +188,8 @@ Column count is still comptime-fixed for type safety, but rows are stored intern
 =ArrayList= and rendered through the same =Table(N)= logic.
 
 #+begin_src zig
-const pt = @import("pretty-table");
+const zigcli = @import("zigcli");
+const pt = zigcli.pretty_table;
 
 var table = pt.Table(3).Owned.init(.{
     .mode = .box,
@@ -225,7 +228,8 @@ It provides a builder API with =setHeader()= / =setFooter()= (string slices),
 and =addRowCells()= (=Cell= values, including styling).
 
 #+begin_src zig
-const pt = @import("pretty-table");
+const zigcli = @import("zigcli");
+const pt = zigcli.pretty_table;
 
 var table = try pt.RuntimeTable.init(allocator, 3);
 defer table.deinit();

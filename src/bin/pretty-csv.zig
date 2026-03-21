@@ -1,8 +1,9 @@
 //! pretty-csv: Pretty-print CSV files as aligned tables.
 
 const std = @import("std");
-const simargs = @import("simargs");
-const pt = @import("pretty-table");
+const zigcli = @import("zigcli");
+const structargs = zigcli.structargs;
+const pt = zigcli.pretty_table;
 const util = @import("util.zig");
 const mem = std.mem;
 
@@ -11,7 +12,7 @@ pub fn main() !void {
     defer gpa.deinit();
     const allocator = gpa.allocator();
 
-    const opt = try simargs.parse(allocator, struct {
+    const opt = try structargs.parse(allocator, struct {
         delimiter: []const u8 = ",",
         style: pt.Separator.Mode = .box,
         padding: u8 = 1,

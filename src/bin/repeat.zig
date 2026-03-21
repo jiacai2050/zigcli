@@ -1,7 +1,8 @@
 //! Repeat a command until it succeeds.
 
 const std = @import("std");
-const simargs = @import("simargs");
+const zigcli = @import("zigcli");
+const structargs = zigcli.structargs;
 const util = @import("util.zig");
 const os = std.os;
 const process = std.process;
@@ -13,7 +14,7 @@ pub fn main() !void {
     defer gpa.deinit();
     const allocator = gpa.allocator();
 
-    const opt = try simargs.parse(allocator, struct {
+    const opt = try structargs.parse(allocator, struct {
         max: ?usize,
         interval: ?usize,
         version: bool = false,

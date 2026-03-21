@@ -1,5 +1,6 @@
 const std = @import("std");
-const simargs = @import("simargs");
+const zigcli = @import("zigcli");
+const structargs = zigcli.structargs;
 
 pub const std_options: std.Options = .{
     .log_level = .info,
@@ -10,7 +11,7 @@ pub fn main() !void {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var opt = try simargs.parse(allocator, struct {
+    var opt = try structargs.parse(allocator, struct {
         // Those fields declare arguments options
         // only `output` is required, others are all optional
         verbose: ?bool,

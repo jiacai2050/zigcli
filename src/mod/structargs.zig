@@ -254,7 +254,7 @@ const MessageHelper = struct {
 
         const header_template =
             \\ USAGE:
-            \\     {s} [OPTIONS] {s}
+            \\     {s} [OPTIONS]{s}
             \\
             \\ OPTIONS:
             \\
@@ -290,9 +290,14 @@ const MessageHelper = struct {
             }
         } else "";
 
+        const command_usage_suffix = if (command_usage_string.len > 0)
+            try std.fmt.allocPrint(arena, " {s}", .{command_usage_string})
+        else
+            "";
+
         const header_string = try std.fmt.allocPrint(arena, header_template, .{
             program_usage_string,
-            command_usage_string,
+            command_usage_suffix,
         });
 
         try writer.writeAll(header_string);
@@ -588,6 +593,42 @@ fn OptionParser(
             comptime CurrentOptions: type,
             input_arguments: [][:0]u8,
             argument_index: *usize,
+            help_was_printed: *bool,
+            message_helper: MessageHelper,
+            sub_command_name: ?[]const u8,
+            comptime options: ParseOptions,
+        ) !CurrentOptions {
+            return parseCommandImpl(
+                CurrentOptions,
+                input_arguments,
+                argument_index,
+                help_was_printed,
+                message_helper,
+                sub_command_name,
+                options,
+            ) catch |err| {
+                if (!help_was_printed.*) {
+                    if (!is_test and options.print_help_on_error) {
+                        var stderr_buffer: [4096]u8 = undefined;
+                        var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
+                        message_helper.printHelp(
+                            CurrentOptions,
+                            sub_command_name,
+                            &stderr_writer.interface,
+                        ) catch {};
+                        stderr_writer.interface.flush() catch {};
+                        help_was_printed.* = true;
+                    }
+                }
+                return err;
+            };
+        }
+
+        fn parseCommandImpl(
+            comptime CurrentOptions: type,
+            input_arguments: [][:0]u8,
+            argument_index: *usize,
+            help_was_printed: *bool,
             message_helper: MessageHelper,
             sub_command_name: ?[]const u8,
             comptime options: ParseOptions,
@@ -721,6 +762,7 @@ fn OptionParser(
                                                 union_field.type,
                                                 input_arguments,
                                                 argument_index,
+                                                help_was_printed,
                                                 message_helper,
                                                 field.name,
                                                 options,
@@ -786,22 +828,16 @@ fn OptionParser(
                 options.version_string,
                 options.argument_prompt,
             );
-            const parsed_options = Self.parseCommand(
+            var help_was_printed = false;
+            const parsed_options = try Self.parseCommand(
                 Options,
                 arguments_to_parse,
                 &argument_index,
+                &help_was_printed,
                 message_helper,
                 null,
                 options,
-            ) catch |err| {
-                if (!is_test and options.print_help_on_error) {
-                    var stderr_buffer: [4096]u8 = undefined;
-                    var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
-                    message_helper.printHelp(Options, null, &stderr_writer.interface) catch {};
-                    stderr_writer.interface.flush() catch {};
-                }
-                return err;
-            };
+            );
             var result = ParseResult(Options, options.version_string, options.argument_prompt){
                 .program_name = input_arguments[0],
                 .allocator = self.allocator,
@@ -1271,6 +1307,32 @@ test "parse/sub commands" {
         \\
         \\ OPTIONS:
         \\      --a INTEGER                  (default: 1)
+        \\
+    , aw.written());
+}
+
+test "print help uses sub command context" {
+    const gpa = std.testing.allocator;
+    const CommandOptions = struct {
+        aa: u8,
+    };
+
+    var aw: std.Io.Writer.Allocating = .init(gpa);
+    defer aw.deinit();
+
+    try MessageHelper.init(
+        gpa,
+        "awesome-cli",
+        null,
+        null,
+    ).printHelp(CommandOptions, "cmd1", &aw.writer);
+
+    try std.testing.expectEqualStrings(
+        \\ USAGE:
+        \\     awesome-cli cmd1 [OPTIONS]
+        \\
+        \\ OPTIONS:
+        \\      --aa INTEGER                 (required)
         \\
     , aw.written());
 }
