@@ -28,6 +28,8 @@ pub const ParseOptions = struct {
     argument_prompt: ?[]const u8 = null,
     version_string: ?[]const u8 = null,
     print_help_and_exit: bool = true,
+    /// When true, print the help text to stderr before returning any parse error.
+    print_help_on_error: bool = true,
 };
 
 /// Parses arguments according to the given structure.
@@ -784,14 +786,22 @@ fn OptionParser(
                 options.version_string,
                 options.argument_prompt,
             );
-            const parsed_options = try Self.parseCommand(
+            const parsed_options = Self.parseCommand(
                 Options,
                 arguments_to_parse,
                 &argument_index,
                 message_helper,
                 null,
                 options,
-            );
+            ) catch |err| {
+                if (!is_test and options.print_help_on_error) {
+                    var stderr_buffer: [4096]u8 = undefined;
+                    var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
+                    message_helper.printHelp(Options, null, &stderr_writer.interface) catch {};
+                    stderr_writer.interface.flush() catch {};
+                }
+                return err;
+            };
             var result = ParseResult(Options, options.version_string, options.argument_prompt){
                 .program_name = input_arguments[0],
                 .allocator = self.allocator,
@@ -1180,6 +1190,36 @@ test "parse/print_help_and_exit false" {
 
     try std.testing.expect(result.options.help);
     try std.testing.expectEqual(result.positional_arguments.len, 0);
+}
+
+test "parse/print_help_on_error" {
+    // Verify that parse errors are propagated correctly regardless of print_help_on_error.
+    // The actual stderr printing is guarded by !is_test, so only the error return is tested here.
+    const gpa = std.testing.allocator;
+    var input_arguments = [_][:0]u8{
+        try gpa.dupeZ(u8, "awesome-cli"),
+        try gpa.dupeZ(u8, "--help"),
+    };
+    defer for (input_arguments) |argument| {
+        gpa.free(argument);
+    };
+
+    // With print_help_on_error: true (default), errors are still propagated.
+    {
+        var parser = OptionParser(TestArguments).init(gpa);
+        try std.testing.expectError(
+            error.MissingRequiredOption,
+            parser.parse(&input_arguments, .{ .print_help_on_error = true }),
+        );
+    }
+    // With print_help_on_error: false, errors are also propagated (no other change in test mode).
+    {
+        var parser = OptionParser(TestArguments).init(gpa);
+        try std.testing.expectError(
+            error.MissingRequiredOption,
+            parser.parse(&input_arguments, .{ .print_help_on_error = false }),
+        );
+    }
 }
 
 test "parse/sub commands" {
