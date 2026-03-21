@@ -51,7 +51,8 @@ Then in your =build.zig=, import the module like this:
 #+begin_src zig
 const zigcli = b.dependency("zigcli", .{});
 
-// Currently zigcli provide two packages.
+// Currently zigcli provides three packages.
 exe.root_module.addImport("simargs", zigcli.module("simargs"));
 exe.root_module.addImport("pretty-table", zigcli.module("pretty-table"));
+exe.root_module.addImport("gitignore", zigcli.module("gitignore"));
 #+end_src

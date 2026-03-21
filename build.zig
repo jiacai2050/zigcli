@@ -119,6 +119,7 @@ fn buildBinaries(
         "tcp-proxy",
         "timeout",
         "cowsay",
+        "pretty-csv",
         "zfetch",
         "progress",
     }) |name| {
