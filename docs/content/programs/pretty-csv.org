@@ -12,7 +12,8 @@
 - Column selection: display only specific columns.
 - Optional row separators between data rows.
 - Right-align selected original columns (useful for numeric CSV fields).
-- Supports quoted fields (RFC 4180).
+- Supports single-line quoted fields, including delimiters inside quotes.
+- Does not currently support embedded newlines or unescaping doubled quotes.
 
 ** Demo
 

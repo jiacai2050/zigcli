@@ -13,8 +13,10 @@
 
 ### Improvements
 - **pretty-table**: `Table(N).Owned` runtime row helper with string shorthand and Cell-level control
-  - `RuntimeTable`: runtime column count with footer rows, header/footer cell setters, row separators, per-column alignment, `"{f}"` formatting, and optional cell truncation
-- **zfetch**: Android property detection via `dlsym` with `dlopen("libc.so")` fallback
+  - `Table(N)` and `Table(N).Owned`: optional transpose mode
+  - `RuntimeTable`: runtime column count with footer rows, header/footer cell setters, row separators, per-column alignment, `"{f}"` formatting, optional cell truncation, and UTF-8-safe truncation boundaries
+  - Windows targets skip POSIX terminal-width probing during cross-compilation
+- **pretty-csv**: column filtering no longer truncates silently when CSV inputs exceed 256 columns
 
 ### Documentation
 - Added `gitignore` package docs

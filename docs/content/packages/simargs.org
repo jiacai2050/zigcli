@@ -1,6 +1,6 @@
 #+TITLE: simargs
 #+DATE: 2023-10-21T12:04:40+0800
-#+LASTMOD: 2026-03-20T08:50:00+0800
+#+LASTMOD: 2026-03-21T12:50:18+0800
 #+TYPE: docs
 #+WEIGHT: 10
 #+DESCRIPTION: A simple, opinionated, struct-based argument parser in Zig, taking full advantage of [[https://kristoff.it/blog/what-is-zig-comptime/][comptime]].
@@ -73,7 +73,7 @@ try writer.interface.flush();
 #+end_src
 
 #+begin_src bash :results verbatim :exports results :wrap example
-cd /Users/jiacai/gh/zigcli && zig build run-simargs-demo -- -o /tmp/a.out --user-agent Firefox sub1 --a 123 hello world 2>&1
+zig build run-simargs-demo -- -o /tmp/a.out --user-agent Firefox sub1 --a 123 hello world 2>&1
 #+end_src
 
 #+RESULTS:

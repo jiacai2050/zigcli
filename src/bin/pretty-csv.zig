@@ -138,8 +138,12 @@ pub fn main() !void {
     defer allocator.free(alignments);
     table.column_align = alignments;
 
-    // Scratch buffer for column filtering (avoids per-row alloc).
-    var filter_buf: [256][]const u8 = undefined;
+    var empty_filter_buf = [_][]const u8{};
+    const filter_buf: [][]const u8 = if (col_filter) |filter|
+        try allocator.alloc([]const u8, filter.len)
+    else
+        empty_filter_buf[0..];
+    defer if (col_filter != null) allocator.free(filter_buf);
 
     const data_start: usize =
         if (opt.options.@"no-header") 0 else 1;
@@ -150,13 +154,13 @@ pub fn main() !void {
             filterRow(
                 all_rows.items[0],
                 col_filter,
-                &filter_buf,
+                filter_buf,
             ),
         );
     }
     for (all_rows.items[data_start..]) |row| {
         try table.addRow(
-            filterRow(row, col_filter, &filter_buf),
+            filterRow(row, col_filter, filter_buf),
         );
     }
     try table.render(writer);
@@ -201,14 +205,14 @@ fn filterRow(
     buf: [][]const u8,
 ) []const []const u8 {
     const filter = col_filter orelse return fields;
-    const n = @min(filter.len, buf.len);
-    for (0..n) |i| {
-        buf[i] = if (filter[i] < fields.len)
-            fields[filter[i]]
+    std.debug.assert(filter.len <= buf.len);
+    for (filter, 0..) |field_index, index| {
+        buf[index] = if (field_index < fields.len)
+            fields[field_index]
         else
             "";
     }
-    return buf[0..n];
+    return buf[0..filter.len];
 }
 
 /// Parse "1,3,5" into 0-based indices. Returns null if empty.
@@ -250,6 +254,8 @@ fn parseColFilter(
 
 // -- CSV parsing ------------------------------------------------
 
+// TODO: Extend this parser to support full RFC 4180 quoted-field semantics, including embedded
+// newlines and unescaping doubled quotes.
 fn parseLine(
     allocator: mem.Allocator,
     line: []const u8,
@@ -313,4 +319,27 @@ fn parseLine(
     // Fill remaining columns with empty strings.
     while (col < num_fields) : (col += 1) fields[col] = "";
     return fields;
+}
+
+test "filterRow handles more than 256 filtered columns" {
+    const allocator = std.testing.allocator;
+    const column_count = 300;
+
+    const fields = try allocator.alloc([]const u8, column_count);
+    defer allocator.free(fields);
+    @memset(fields, "x");
+    fields[column_count - 1] = "last";
+
+    const filter = try allocator.alloc(usize, column_count);
+    defer allocator.free(filter);
+    for (0..column_count) |index| {
+        filter[index] = index;
+    }
+
+    const scratch = try allocator.alloc([]const u8, column_count);
+    defer allocator.free(scratch);
+
+    const filtered = filterRow(fields, filter, scratch);
+    try std.testing.expectEqual(column_count, filtered.len);
+    try std.testing.expectEqualStrings("last", filtered[column_count - 1]);
 }

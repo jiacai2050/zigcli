@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("std");
 const Writer = std.io.Writer;
 
@@ -641,8 +642,9 @@ pub const RuntimeTable = struct {
         self: *RuntimeTable,
         texts: []const []const u8,
     ) !void {
-        if (self.header) |header| self.allocator.free(header);
-        self.header = try self.duplicateTextCells(texts);
+        const new_header = try self.duplicateTextCells(texts);
+        if (self.header) |old_header| self.allocator.free(old_header);
+        self.header = new_header;
     }
 
     /// Set header from pre-built Cells.
@@ -650,8 +652,9 @@ pub const RuntimeTable = struct {
         self: *RuntimeTable,
         cells: []const Cell,
     ) !void {
-        if (self.header) |header| self.allocator.free(header);
-        self.header = try self.duplicateCells(cells);
+        const new_header = try self.duplicateCells(cells);
+        if (self.header) |old_header| self.allocator.free(old_header);
+        self.header = new_header;
     }
 
     /// Set footer from string slices.
@@ -659,8 +662,9 @@ pub const RuntimeTable = struct {
         self: *RuntimeTable,
         texts: []const []const u8,
     ) !void {
-        if (self.footer) |footer| self.allocator.free(footer);
-        self.footer = try self.duplicateTextCells(texts);
+        const new_footer = try self.duplicateTextCells(texts);
+        if (self.footer) |old_footer| self.allocator.free(old_footer);
+        self.footer = new_footer;
     }
 
     /// Set footer from pre-built Cells.
@@ -668,8 +672,9 @@ pub const RuntimeTable = struct {
         self: *RuntimeTable,
         cells: []const Cell,
     ) !void {
-        if (self.footer) |footer| self.allocator.free(footer);
-        self.footer = try self.duplicateCells(cells);
+        const new_footer = try self.duplicateCells(cells);
+        if (self.footer) |old_footer| self.allocator.free(old_footer);
+        self.footer = new_footer;
     }
 
     /// Add a row from string slices.
@@ -681,6 +686,7 @@ pub const RuntimeTable = struct {
             Cell,
             self.num_cols,
         );
+        errdefer self.allocator.free(cells);
         for (0..self.num_cols) |col| {
             cells[col] = Cell.init(
                 if (col < texts.len) texts[col] else "",
@@ -695,6 +701,7 @@ pub const RuntimeTable = struct {
         cells: []const Cell,
     ) !void {
         const row = try self.allocator.dupe(Cell, cells);
+        errdefer self.allocator.free(row);
         try self.rows.append(self.allocator, row);
     }
 
@@ -871,14 +878,16 @@ pub const RuntimeTable = struct {
                 record[col]
             else
                 Cell.init("");
+            const key_display = textDisplayInfo(key, max_cell);
+            const value_display = textDisplayInfo(value.text, max_cell);
 
             col_widths[0] = @max(
                 col_widths[0],
-                visualLen(key, max_cell) + 2 * self.padding,
+                key_display.visual_len + 2 * self.padding,
             );
             col_widths[1] = @max(
                 col_widths[1],
-                visualLen(value.text, max_cell) + 2 * self.padding,
+                value_display.visual_len + 2 * self.padding,
             );
         }
 
@@ -920,19 +929,25 @@ pub const RuntimeTable = struct {
     /// Detect terminal width via ioctl on stderr.
     /// Returns 0 if not a TTY.
     fn getTerminalWidth() u16 {
-        if (@hasDecl(std.posix, "T")) {
-            const fd = std.fs.File.stderr().handle;
-            var wsz: std.posix.winsize = undefined;
-            const rc = std.posix.system.ioctl(
-                fd,
-                std.posix.T.IOCGWINSZ,
-                @intFromPtr(&wsz),
-            );
-            if (std.posix.errno(rc) == .SUCCESS and
-                wsz.col > 0)
-            {
-                return wsz.col;
-            }
+        if (builtin.os.tag == .windows) {
+            return 0;
+        }
+
+        if (!@hasDecl(std.posix, "T")) {
+            return 0;
+        }
+
+        const fd = std.fs.File.stderr().handle;
+        var wsz: std.posix.winsize = undefined;
+        const rc = std.posix.system.ioctl(
+            fd,
+            std.posix.T.IOCGWINSZ,
+            @intFromPtr(&wsz),
+        );
+        if (std.posix.errno(rc) == .SUCCESS and
+            wsz.col > 0)
+        {
+            return wsz.col;
         }
         return 0;
     }
@@ -945,36 +960,96 @@ pub const RuntimeTable = struct {
         max_cell: u16,
     ) void {
         for (0..@min(cells.len, num_cols)) |col| {
-            const visual = visualLen(
+            const display = textDisplayInfo(
                 cells[col].text,
                 max_cell,
             );
             col_widths[col] = @max(
                 col_widths[col],
-                visual + 2 * padding,
+                display.visual_len + 2 * padding,
             );
         }
     }
 
-    fn visualLen(text: []const u8, max_cell: u16) usize {
-        if (max_cell == 0 or text.len <= max_cell) {
-            return text.len;
-        }
-        return max_cell; // Truncated text + ellipsis char.
-    }
+    const TextDisplayInfo = struct {
+        text: []const u8,
+        visual_len: usize,
+        ellipsis: bool,
+    };
 
-    fn truncatedText(
+    fn textDisplayInfoBytes(
         text: []const u8,
         max_cell: u16,
-    ) []const u8 {
-        if (max_cell == 0 or text.len <= max_cell) return text;
+    ) TextDisplayInfo {
+        if (max_cell == 0) {
+            return .{
+                .text = text,
+                .visual_len = text.len,
+                .ellipsis = false,
+            };
+        }
+
+        if (text.len <= max_cell) {
+            return .{
+                .text = text,
+                .visual_len = text.len,
+                .ellipsis = false,
+            };
+        }
+
         const limit: usize =
             if (max_cell > 1) max_cell - 1 else 0;
-        return text[0..limit];
+        return .{
+            .text = text[0..limit],
+            .visual_len = max_cell,
+            .ellipsis = true,
+        };
     }
 
-    fn needsEllipsis(text: []const u8, max_cell: u16) bool {
-        return max_cell > 0 and text.len > max_cell;
+    // TODO: Measure terminal display width instead of Unicode scalar count for wide and combining
+    // characters.
+    fn textDisplayInfo(
+        text: []const u8,
+        max_cell: u16,
+    ) TextDisplayInfo {
+        const utf8_view = std.unicode.Utf8View.init(text) catch {
+            return textDisplayInfoBytes(text, max_cell);
+        };
+
+        if (max_cell == 0) {
+            var visual_len: usize = 0;
+            var iterator = utf8_view.iterator();
+            while (iterator.nextCodepointSlice()) |_| {
+                visual_len += 1;
+            }
+            return .{
+                .text = text,
+                .visual_len = visual_len,
+                .ellipsis = false,
+            };
+        }
+
+        const limit: usize =
+            if (max_cell > 1) max_cell - 1 else 0;
+        var visual_len: usize = 0;
+        var byte_len: usize = 0;
+        var iterator = utf8_view.iterator();
+        while (iterator.nextCodepointSlice()) |codepoint_slice| {
+            if (visual_len == limit) {
+                return .{
+                    .text = text[0..byte_len],
+                    .visual_len = max_cell,
+                    .ellipsis = true,
+                };
+            }
+            visual_len += 1;
+            byte_len += codepoint_slice.len;
+        }
+        return .{
+            .text = text,
+            .visual_len = visual_len,
+            .ellipsis = false,
+        };
     }
 
     fn writeRow(
@@ -997,16 +1072,11 @@ pub const RuntimeTable = struct {
                 cells[col]
             else
                 Cell.init("");
-            const text = truncatedText(
+            const display = textDisplayInfo(
                 cell.text,
                 max_cell,
             );
-            const ellipsis = needsEllipsis(
-                cell.text,
-                max_cell,
-            );
-            const visual = text.len +
-                @as(usize, if (ellipsis) 1 else 0);
+            const visual = display.visual_len;
             const content_space = col_widths[col] -| (2 * padding);
             const remaining = content_space -| visual;
             const alignment = if (col < column_align.len)
@@ -1031,8 +1101,8 @@ pub const RuntimeTable = struct {
             if (cell.bg) |c| {
                 try writer.writeAll(c.toBgEscapeCode());
             }
-            try writer.writeAll(text);
-            if (ellipsis) try writer.writeAll("\xe2\x80\xa6");
+            try writer.writeAll(display.text);
+            if (display.ellipsis) try writer.writeAll("\xe2\x80\xa6");
             if (cell.bold or cell.italic or
                 cell.fg != null or cell.bg != null)
             {
@@ -1475,6 +1545,22 @@ test "runtime table footer and format" {
         \\└──────────┴───────┘
         \\
     , out.items);
+}
+
+test "runtime table truncation keeps utf8 boundaries" {
+    const display = RuntimeTable.textDisplayInfo("ééé", 2);
+
+    try std.testing.expectEqualStrings("é", display.text);
+    try std.testing.expectEqual(@as(usize, 2), display.visual_len);
+    try std.testing.expect(display.ellipsis);
+}
+
+test "runtime table width counts utf8 code points" {
+    const display = RuntimeTable.textDisplayInfo("你好", 0);
+
+    try std.testing.expectEqualStrings("你好", display.text);
+    try std.testing.expectEqual(@as(usize, 2), display.visual_len);
+    try std.testing.expect(!display.ellipsis);
 }
 
 test "runtime table column alignment" {
