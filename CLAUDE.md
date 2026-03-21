@@ -11,7 +11,8 @@ Zigcli is a toolkit for building command-line programs in Zig (currently targeti
 ```bash
 zig build                          # Debug build
 zig build test --summary all       # Run all tests
-zig build test-<name> --summary all  # Run tests for a single module/binary (e.g., test-loc, test-structargs)
+zig build test-zigcli --summary all  # Run all reusable module tests via the root module
+zig build test-<name> --summary all  # Run tests for a single binary/helper (e.g., test-loc, test-util)
 zig fmt --check .                  # Check formatting
 zig build run-<name> -- <args>     # Run a specific binary (e.g., run-tree, run-loc)
 make build                         # Release build with version/date/commit metadata
@@ -46,7 +47,9 @@ Shared utilities live in `src/bin/util.zig` (build info, string helpers). All bi
 The build file uses `comptime inline for` to register all binaries and modules. For each binary it creates:
 - `zig build run-<name>` — run step
 - `zig build install-<name>` — install step
-- `zig build test-<name>` — test step (binaries and modules only, not examples)
+- `zig build test-<name>` — test step for binaries/helpers
+
+Reusable modules are covered by `zig build test-zigcli`, which exercises the unified root module.
 
 Platform-specific binaries return `null` from `makeCompileStep` when the target OS doesn't match, so they are silently skipped.
 

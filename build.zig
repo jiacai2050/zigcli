@@ -83,9 +83,6 @@ fn addModules(
     try b.modules.put("build_info", opt.createModule());
 
     all_tests.dependOn(buildRootTestStep(b, target));
-    inline for (.{ "pretty-table", "structargs", "gitignore" }) |name| {
-        all_tests.dependOn(buildTestStep(b, .{ .mod = name }, target));
-    }
 }
 
 fn buildExamples(
