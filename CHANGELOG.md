@@ -8,11 +8,12 @@
   - Three border styles: `ascii`, `box`, `dos`
   - Transpose mode (`-t`): show each record as vertical key-value block
   - Column selection (`-c 1,3,5`): display only specific columns
+  - Row separators (`--row-separator`) and right-aligned selected columns (`-r 2,4`)
   - Configurable delimiter, padding, and max input size
 
 ### Improvements
-- **pretty-table**: `TableBuilder(N)` runtime row builder with string shorthand and Cell-level control
-  - `DynTable`: runtime column count with optional cell truncation
+- **pretty-table**: `Table(N).Owned` runtime row helper with string shorthand and Cell-level control
+  - `RuntimeTable`: runtime column count with footer rows, header/footer cell setters, row separators, per-column alignment, `"{f}"` formatting, and optional cell truncation
 - **zfetch**: Android property detection via `dlsym` with `dlopen("libc.so")` fallback
 
 ### Documentation

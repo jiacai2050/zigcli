@@ -67,6 +67,23 @@ pub fn Row(comptime num: usize) type {
     return [num]Cell;
 }
 
+fn rowFromValues(comptime len: usize, values: anytype) Row(len) {
+    return switch (@TypeOf(values)) {
+        Row(len) => values,
+        else => {
+            var row: Row(len) = undefined;
+            inline for (0..len) |index| {
+                const value = values[index];
+                row[index] = switch (@TypeOf(value)) {
+                    Cell => value,
+                    else => Cell.init(value),
+                };
+            }
+            return row;
+        },
+    };
+}
+
 /// Text alignment within a table column.
 pub const Align = enum {
     left,
@@ -195,8 +212,94 @@ pub fn Table(comptime len: usize) type {
         column_align: [len]Align = [_]Align{.left} ** len,
         /// When true, a separator line is printed between every pair of adjacent data rows.
         row_separator: bool = false,
+        /// Render each data row as a vertical key-value block.
+        transpose: bool = false,
 
         const Self = @This();
+
+        pub const Owned = struct {
+            table: Self = .{ .rows = &.{} },
+            rows: std.ArrayList(Row(len)) = .empty,
+
+            const OwnedTable = @This();
+
+            pub const Options = struct {
+                mode: Separator.Mode = .ascii,
+                padding: usize = 0,
+                column_align: [len]Align = [_]Align{.left} ** len,
+                row_separator: bool = false,
+                transpose: bool = false,
+            };
+
+            pub fn init(options: Options) OwnedTable {
+                return .{
+                    .table = .{
+                        .rows = &.{},
+                        .mode = options.mode,
+                        .padding = options.padding,
+                        .column_align = options.column_align,
+                        .row_separator = options.row_separator,
+                        .transpose = options.transpose,
+                    },
+                };
+            }
+
+            pub fn deinit(
+                self: *OwnedTable,
+                gpa: std.mem.Allocator,
+            ) void {
+                self.rows.deinit(gpa);
+                self.* = undefined;
+            }
+
+            pub fn setHeader(
+                self: *OwnedTable,
+                values: anytype,
+            ) void {
+                self.table.header = rowFromValues(len, values);
+            }
+
+            pub fn setFooter(
+                self: *OwnedTable,
+                values: anytype,
+            ) void {
+                self.table.footer = rowFromValues(len, values);
+            }
+
+            pub fn addRow(
+                self: *OwnedTable,
+                gpa: std.mem.Allocator,
+                values: anytype,
+            ) !void {
+                try self.rows.append(
+                    gpa,
+                    rowFromValues(len, values),
+                );
+            }
+
+            pub fn addRowCells(
+                self: *OwnedTable,
+                gpa: std.mem.Allocator,
+                cells: Row(len),
+            ) !void {
+                try self.rows.append(gpa, cells);
+            }
+
+            pub fn clearRetainingCapacity(
+                self: *OwnedTable,
+            ) void {
+                self.rows.clearRetainingCapacity();
+            }
+
+            pub fn format(
+                self: OwnedTable,
+                writer: *std.Io.Writer,
+            ) !void {
+                var table = self.table;
+                table.rows = self.rows.items;
+                try table.format(writer);
+            }
+        };
 
         fn writeRowDelimiter(
             self: Self,
@@ -342,10 +445,96 @@ pub fn Table(comptime len: usize) type {
             return lens;
         }
 
+        fn transposedCell(cell: Cell) Cell {
+            var copy = cell;
+            copy.hspan = 1;
+            return copy;
+        }
+
+        fn writeTransposedRecord(
+            self: Self,
+            writer: *std.Io.Writer,
+            record: []const Cell,
+        ) !void {
+            var column_lens = [_]usize{ 2 * self.padding, 2 * self.padding };
+            const transposed = Table(2){
+                .rows = &.{},
+                .mode = self.mode,
+                .padding = self.padding,
+                .column_align = .{ .left, .left },
+            };
+
+            inline for (0..len) |column_index| {
+                const key_cell = if (self.header) |header|
+                    transposedCell(header[column_index])
+                else
+                    Cell.init("");
+                const value_cell = if (column_index < record.len)
+                    transposedCell(record[column_index])
+                else
+                    Cell.init("");
+                column_lens[0] = @max(
+                    column_lens[0],
+                    key_cell.text.len + 2 * self.padding,
+                );
+                column_lens[1] = @max(
+                    column_lens[1],
+                    value_cell.text.len + 2 * self.padding,
+                );
+            }
+
+            try transposed.writeRowDelimiter(writer, .First, column_lens);
+            inline for (0..len) |column_index| {
+                const key_cell = if (self.header) |header|
+                    transposedCell(header[column_index])
+                else
+                    Cell.init("");
+                const value_cell = if (column_index < record.len)
+                    transposedCell(record[column_index])
+                else
+                    Cell.init("");
+                const row = [2]Cell{ key_cell, value_cell };
+                const row_table = Table(2){
+                    .rows = &.{},
+                    .mode = self.mode,
+                    .padding = self.padding,
+                    .column_align = .{ .left, self.column_align[column_index] },
+                };
+                try row_table.writeRow(writer, &row, column_lens);
+                if (self.row_separator and column_index + 1 < len) {
+                    try transposed.writeRowDelimiter(writer, .Sep, column_lens);
+                }
+            }
+            try transposed.writeRowDelimiter(writer, .Last, column_lens);
+        }
+
+        fn renderTransposed(
+            self: Self,
+            writer: *std.Io.Writer,
+        ) !void {
+            for (self.rows, 0..) |row, row_index| {
+                if (row_index > 0) {
+                    try writer.writeAll("\n");
+                }
+                try self.writeTransposedRecord(writer, &row);
+            }
+
+            if (self.footer) |footer| {
+                if (self.rows.len > 0) {
+                    try writer.writeAll("\n");
+                }
+                try self.writeTransposedRecord(writer, &footer);
+            }
+        }
+
         pub fn format(
             self: Self,
             writer: *std.Io.Writer,
         ) !void {
+            if (self.transpose) {
+                return self.renderTransposed(writer);
+            }
+
             const column_lens = self.calculateColumnLens();
 
             try self.writeRowDelimiter(writer, .First, column_lens);
@@ -371,101 +560,18 @@ pub fn Table(comptime len: usize) type {
     };
 }
 
-/// Runtime table builder with dynamic rows. Column count is still comptime-fixed
-/// for type safety. Renders by delegating to `Table(len)`.
-pub fn TableBuilder(comptime len: usize) type {
-    return struct {
-        rows: std.ArrayList(Row(len)),
-        allocator: std.mem.Allocator,
-        header: ?Row(len) = null,
-        footer: ?Row(len) = null,
-        mode: Separator.Mode,
-        padding: usize,
-        column_align: [len]Align,
-        row_separator: bool,
-
-        const Self = @This();
-
-        pub const Options = struct {
-            mode: Separator.Mode = .ascii,
-            padding: usize = 0,
-            column_align: [len]Align = [_]Align{.left} ** len,
-            row_separator: bool = false,
-        };
-
-        pub fn init(allocator: std.mem.Allocator, opts: Options) Self {
-            return .{
-                .rows = .empty,
-                .allocator = allocator,
-                .mode = opts.mode,
-                .padding = opts.padding,
-                .column_align = opts.column_align,
-                .row_separator = opts.row_separator,
-            };
-        }
-
-        pub fn deinit(self: *Self) void {
-            self.rows.deinit(self.allocator);
-        }
-
-        /// Set header from string literals or Cell values.
-        pub fn setHeader(self: *Self, texts: anytype) void {
-            self.header = toCells(texts);
-        }
-
-        /// Set footer from string literals or Cell values.
-        pub fn setFooter(self: *Self, texts: anytype) void {
-            self.footer = toCells(texts);
-        }
-
-        /// Add a row from string literals. Each element is wrapped in Cell.init().
-        pub fn addRow(self: *Self, texts: anytype) !void {
-            try self.rows.append(self.allocator, toCells(texts));
-        }
-
-        /// Add a row of pre-built Cell values for full styling control.
-        pub fn addRowCells(self: *Self, cells: Row(len)) !void {
-            try self.rows.append(self.allocator, cells);
-        }
-
-        /// Convert a tuple of strings or Cells into a Row.
-        fn toCells(tuple: anytype) Row(len) {
-            var row: Row(len) = undefined;
-            inline for (0..len) |i| {
-                const val = tuple[i];
-                row[i] = switch (@TypeOf(val)) {
-                    Cell => val,
-                    else => Cell.init(val),
-                };
-            }
-            return row;
-        }
-
-        /// Render the table to a writer.
-        pub fn format(self: Self, writer: *std.Io.Writer) !void {
-            const t = Table(len){
-                .header = self.header,
-                .footer = self.footer,
-                .rows = self.rows.items,
-                .mode = self.mode,
-                .padding = self.padding,
-                .column_align = self.column_align,
-                .row_separator = self.row_separator,
-            };
-            try t.format(writer);
-        }
-    };
-}
-
 /// Runtime table with dynamic column count and optional truncation.
 /// Unlike `Table(N)`, column count is determined at runtime. Rows are
 /// slices of string slices.
-pub const DynTable = struct {
+pub const RuntimeTable = struct {
     header: ?[]const Cell = null,
+    footer: ?[]const Cell = null,
     rows: std.ArrayList([]const Cell) = .empty,
     num_cols: usize,
     mode: Separator.Mode = .ascii,
     padding: usize = 0,
+    column_align: []const Align = &.{},
+    row_separator: bool = false,
     /// Max total table width. 0 means auto-detect terminal width.
     /// Internally converted to per-column max width.
     max_width: u16 = 0,
@@ -473,42 +579,102 @@ pub const DynTable = struct {
     /// using the header (if set) as keys.
     transpose: bool = false,
     allocator: std.mem.Allocator,
+    col_widths: []usize,
 
     pub fn init(
         allocator: std.mem.Allocator,
         num_cols: usize,
-    ) DynTable {
+    ) std.mem.Allocator.Error!RuntimeTable {
         std.debug.assert(num_cols > 0);
-        return .{ .allocator = allocator, .num_cols = num_cols };
+        return .{
+            .allocator = allocator,
+            .num_cols = num_cols,
+            .col_widths = try allocator.alloc(usize, num_cols),
+        };
     }
 
-    pub fn deinit(self: *DynTable) void {
+    pub fn deinit(self: *RuntimeTable) void {
         if (self.header) |h| self.allocator.free(h);
+        if (self.footer) |f| self.allocator.free(f);
         for (self.rows.items) |row| self.allocator.free(row);
         self.rows.deinit(self.allocator);
+        self.allocator.free(self.col_widths);
     }
 
-    /// Set header from string slices.
-    pub fn setHeader(
-        self: *DynTable,
+    fn duplicateTextCells(
+        self: *RuntimeTable,
         texts: []const []const u8,
-    ) !void {
-        if (self.header) |h| self.allocator.free(h);
-        const cells = try self.allocator.alloc(
+    ) ![]const Cell {
+        var cells = try self.allocator.alloc(
             Cell,
             self.num_cols,
         );
+        errdefer self.allocator.free(cells);
         for (0..self.num_cols) |col| {
             cells[col] = Cell.init(
                 if (col < texts.len) texts[col] else "",
             );
         }
-        self.header = cells;
+        return cells;
+    }
+
+    fn duplicateCells(
+        self: *RuntimeTable,
+        source: []const Cell,
+    ) ![]const Cell {
+        var cells = try self.allocator.alloc(
+            Cell,
+            self.num_cols,
+        );
+        errdefer self.allocator.free(cells);
+        for (0..self.num_cols) |col| {
+            cells[col] = if (col < source.len)
+                source[col]
+            else
+                Cell.init("");
+        }
+        return cells;
+    }
+
+    /// Set header from string slices.
+    pub fn setHeader(
+        self: *RuntimeTable,
+        texts: []const []const u8,
+    ) !void {
+        if (self.header) |header| self.allocator.free(header);
+        self.header = try self.duplicateTextCells(texts);
+    }
+
+    /// Set header from pre-built Cells.
+    pub fn setHeaderCells(
+        self: *RuntimeTable,
+        cells: []const Cell,
+    ) !void {
+        if (self.header) |header| self.allocator.free(header);
+        self.header = try self.duplicateCells(cells);
+    }
+
+    /// Set footer from string slices.
+    pub fn setFooter(
+        self: *RuntimeTable,
+        texts: []const []const u8,
+    ) !void {
+        if (self.footer) |footer| self.allocator.free(footer);
+        self.footer = try self.duplicateTextCells(texts);
+    }
+
+    /// Set footer from pre-built Cells.
+    pub fn setFooterCells(
+        self: *RuntimeTable,
+        cells: []const Cell,
+    ) !void {
+        if (self.footer) |footer| self.allocator.free(footer);
+        self.footer = try self.duplicateCells(cells);
     }
 
     /// Add a row from string slices.
     pub fn addRow(
-        self: *DynTable,
+        self: *RuntimeTable,
         texts: []const []const u8,
     ) !void {
         const cells = try self.allocator.alloc(
@@ -525,16 +691,24 @@ pub const DynTable = struct {
 
     /// Add a row of pre-built Cells.
     pub fn addRowCells(
-        self: *DynTable,
+        self: *RuntimeTable,
         cells: []const Cell,
     ) !void {
         const row = try self.allocator.dupe(Cell, cells);
         try self.rows.append(self.allocator, row);
     }
 
+    /// Format the table with `"{f}"`.
+    pub fn format(
+        self: RuntimeTable,
+        writer: *std.Io.Writer,
+    ) !void {
+        try self.render(writer);
+    }
+
     /// Render the table to a writer.
     pub fn render(
-        self: DynTable,
+        self: RuntimeTable,
         writer: *std.Io.Writer,
     ) !void {
         if (self.transpose) {
@@ -544,45 +718,38 @@ pub const DynTable = struct {
     }
 
     fn renderTransposed(
-        self: DynTable,
+        self: RuntimeTable,
         writer: *std.Io.Writer,
     ) !void {
-        for (self.rows.items, 0..) |row, idx| {
-            // Build a 2-column table per record: key | value.
-            var sub = DynTable.init(self.allocator, 2);
-            defer sub.deinit();
-            sub.mode = self.mode;
-            sub.padding = self.padding;
-            sub.max_width = self.max_width;
+        var record_index: usize = 0;
+        const max_cell = self.cellWidthFromTotalForColumns(2);
 
-            for (0..self.num_cols) |col| {
-                const key = if (self.header) |h|
-                    (if (col < h.len) h[col].text else "")
-                else
-                    "";
-                const val = if (col < row.len)
-                    row[col].text
-                else
-                    "";
-                try sub.addRow(&.{ key, val });
-            }
+        for (self.rows.items) |row| {
+            if (record_index > 0) try writer.writeAll("\n");
+            try self.writeTransposedRecord(
+                writer,
+                row,
+                max_cell,
+            );
+            record_index += 1;
+        }
 
-            if (idx > 0) try writer.writeAll("\n");
-            try sub.renderNormal(writer);
+        if (self.footer) |footer| {
+            if (record_index > 0) try writer.writeAll("\n");
+            try self.writeTransposedRecord(
+                writer,
+                footer,
+                max_cell,
+            );
         }
     }
 
     fn renderNormal(
-        self: DynTable,
+        self: RuntimeTable,
         writer: *std.Io.Writer,
     ) !void {
         const max_cell = self.cellWidthFromTotal();
-
-        const col_widths = try self.allocator.alloc(
-            usize,
-            self.num_cols,
-        );
-        defer self.allocator.free(col_widths);
+        const col_widths = self.col_widths;
         @memset(col_widths, 0);
 
         if (self.header) |h| {
@@ -603,6 +770,15 @@ pub const DynTable = struct {
                 max_cell,
             );
         }
+        if (self.footer) |footer| {
+            accumulateWidths(
+                footer,
+                col_widths,
+                self.num_cols,
+                self.padding,
+                max_cell,
+            );
+        }
 
         try writeHLine(writer, self.mode, .First, col_widths);
         if (self.header) |h| {
@@ -613,6 +789,7 @@ pub const DynTable = struct {
                 col_widths,
                 self.num_cols,
                 self.padding,
+                self.column_align,
                 max_cell,
             );
             try writeHLine(
@@ -622,7 +799,7 @@ pub const DynTable = struct {
                 col_widths,
             );
         }
-        for (self.rows.items) |row| {
+        for (self.rows.items, 0..) |row, index| {
             try writeRow(
                 writer,
                 self.mode,
@@ -630,6 +807,23 @@ pub const DynTable = struct {
                 col_widths,
                 self.num_cols,
                 self.padding,
+                self.column_align,
+                max_cell,
+            );
+            if (self.row_separator and index + 1 < self.rows.items.len) {
+                try writeHLine(writer, self.mode, .Sep, col_widths);
+            }
+        }
+        if (self.footer) |footer| {
+            try writeHLine(writer, self.mode, .Sep, col_widths);
+            try writeRow(
+                writer,
+                self.mode,
+                footer,
+                col_widths,
+                self.num_cols,
+                self.padding,
+                self.column_align,
                 max_cell,
             );
         }
@@ -638,20 +832,89 @@ pub const DynTable = struct {
 
     /// Convert total table width to per-column content width.
     /// Returns 0 (unlimited) if columns would each get 80+ chars.
-    fn cellWidthFromTotal(self: DynTable) u16 {
+    fn cellWidthFromTotal(self: RuntimeTable) u16 {
+        return self.cellWidthFromTotalForColumns(self.num_cols);
+    }
+
+    fn cellWidthFromTotalForColumns(
+        self: RuntimeTable,
+        column_count: usize,
+    ) u16 {
         const width = if (self.max_width > 0)
             self.max_width
         else
             getTerminalWidth();
-        if (width == 0 or self.num_cols == 0) return 0;
+        if (width == 0 or column_count == 0) return 0;
         // Overhead: 1 border per column + 2*padding + 1 final.
         const overhead =
-            self.num_cols * (2 * self.padding + 1) + 1;
+            column_count * (2 * self.padding + 1) + 1;
         if (width <= overhead) return 1;
         const available = @as(usize, width) - overhead;
-        const per_col = available / self.num_cols;
+        const per_col = available / column_count;
         if (per_col >= 80) return 0;
         return @intCast(@max(per_col, 3));
+    }
+
+    fn writeTransposedRecord(
+        self: RuntimeTable,
+        writer: *std.Io.Writer,
+        record: []const Cell,
+        max_cell: u16,
+    ) !void {
+        var col_widths = [_]usize{ 0, 0 };
+        for (0..self.num_cols) |col| {
+            const key = if (self.header) |header|
+                (if (col < header.len) header[col].text else "")
+            else
+                "";
+            const value = if (col < record.len)
+                record[col]
+            else
+                Cell.init("");
+
+            col_widths[0] = @max(
+                col_widths[0],
+                visualLen(key, max_cell) + 2 * self.padding,
+            );
+            col_widths[1] = @max(
+                col_widths[1],
+                visualLen(value.text, max_cell) + 2 * self.padding,
+            );
+        }
+
+        try writeHLine(writer, self.mode, .First, &col_widths);
+        for (0..self.num_cols) |col| {
+            const key = if (self.header) |header|
+                (if (col < header.len) header[col].text else "")
+            else
+                "";
+            const value = if (col < record.len)
+                record[col]
+            else
+                Cell.init("");
+            const row = [_]Cell{ Cell.init(key), value };
+            const alignments = [_]Align{
+                .left,
+                if (col < self.column_align.len)
+                    self.column_align[col]
+                else
+                    .left,
+            };
+            try writeRow(
+                writer,
+                self.mode,
+                &row,
+                &col_widths,
+                2,
+                self.padding,
+                &alignments,
+                max_cell,
+            );
+            if (self.row_separator and col + 1 < self.num_cols) {
+                try writeHLine(writer, self.mode, .Sep, &col_widths);
+            }
+        }
+        try writeHLine(writer, self.mode, .Last, &col_widths);
     }
 
     /// Detect terminal width via ioctl on stderr.
@@ -721,6 +984,7 @@ pub const DynTable = struct {
         col_widths: []const usize,
         num_cols: usize,
         padding: usize,
+        column_align: []const Align,
         max_cell: u16,
     ) !void {
         for (0..num_cols) |col| {
@@ -743,9 +1007,19 @@ pub const DynTable = struct {
             );
             const visual = text.len +
                 @as(usize, if (ellipsis) 1 else 0);
-            const right_pad =
-                col_widths[col] -| (padding + visual);
-            for (0..padding) |_| {
+            const content_space = col_widths[col] -| (2 * padding);
+            const remaining = content_space -| visual;
+            const alignment = if (col < column_align.len)
+                column_align[col]
+            else
+                .left;
+            const left_pad: usize = switch (alignment) {
+                .left => padding,
+                .right => padding + remaining,
+                .center => padding + @divFloor(remaining, 2),
+            };
+            const right_pad = col_widths[col] -| (left_pad + visual);
+            for (0..left_pad) |_| {
                 try writer.writeByte(' ');
             }
             // Emit ANSI styling before text content.
@@ -795,6 +1069,7 @@ pub const DynTable = struct {
         try writer.writeAll("\n");
     }
 };
+
 test "normal usage" {
     const t = Table(2){
         .header = [_]Cell{ Cell.init("Version"), Cell.init("Date") },
@@ -1077,19 +1352,19 @@ test "hspan of 3 columns" {
     try std.testing.expectEqual(@as(usize, 3), pipe_count);
 }
 
-test "builder basic" {
+test "owned basic" {
     const allocator = std.testing.allocator;
-    var t = TableBuilder(2).init(allocator, .{ .mode = .box, .padding = 1 });
-    defer t.deinit();
+    var table = Table(2).Owned.init(.{ .mode = .box, .padding = 1 });
+    defer table.deinit(allocator);
 
-    t.setHeader(.{ "Name", "Score" });
-    try t.addRow(.{ "Alice", "100" });
-    try t.addRow(.{ "Bob", "200" });
-    t.setFooter(.{ "Total", "300" });
+    table.setHeader(.{ "Name", "Score" });
+    try table.addRow(allocator, .{ "Alice", "100" });
+    try table.addRow(allocator, .{ "Bob", "200" });
+    table.setFooter(.{ "Total", "300" });
 
     var out: std.ArrayList(u8) = .empty;
     defer out.deinit(allocator);
-    try out.writer(allocator).print("{f}", .{t});
+    try out.writer(allocator).print("{f}", .{table});
 
     try std.testing.expectEqualStrings(
         \\┌───────┬───────┐
@@ -1104,17 +1379,198 @@ test "builder basic" {
     , out.items);
 }
 
-test "builder with styled cells" {
+test "owned with styled cells" {
     const allocator = std.testing.allocator;
-    var t = TableBuilder(2).init(allocator, .{});
-    defer t.deinit();
+    var table = Table(2).Owned.init(.{});
+    defer table.deinit(allocator);
 
-    t.setHeader(.{ "K", "V" });
-    try t.addRowCells(.{ Cell.init("ok").withFg(.green), Cell.init("1") });
+    table.setHeader(.{ "K", "V" });
+    try table.addRowCells(
+        allocator,
+        .{ Cell.init("ok").withFg(.green), Cell.init("1") },
+    );
 
     var out: std.ArrayList(u8) = .empty;
     defer out.deinit(allocator);
-    try out.writer(allocator).print("{f}", .{t});
+    try out.writer(allocator).print("{f}", .{table});
 
     try std.testing.expect(std.mem.indexOf(u8, out.items, "\x1b[32mok\x1b[0m") != null);
+}
+
+test "table transpose" {
+    const table = Table(2){
+        .header = [_]Cell{ Cell.init("Name"), Cell.init("Score") },
+        .rows = &[_][2]Cell{
+            .{ Cell.init("Alice"), Cell.init("10") },
+            .{ Cell.init("Bob"), Cell.init("200") },
+        },
+        .mode = .box,
+        .padding = 1,
+        .column_align = .{ .left, .right },
+        .transpose = true,
+    };
+
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(std.testing.allocator);
+    try out.writer(std.testing.allocator).print("{f}", .{table});
+
+    try std.testing.expectEqualStrings(
+        \\┌───────┬───────┐
+        \\│ Name  │ Alice │
+        \\│ Score │    10 │
+        \\└───────┴───────┘
+        \\
+        \\┌───────┬─────┐
+        \\│ Name  │ Bob │
+        \\│ Score │ 200 │
+        \\└───────┴─────┘
+        \\
+    , out.items);
+}
+
+test "owned transpose" {
+    const allocator = std.testing.allocator;
+    var table = Table(2).Owned.init(.{
+        .mode = .box,
+        .padding = 1,
+        .column_align = .{ .left, .right },
+        .transpose = true,
+    });
+    defer table.deinit(allocator);
+
+    table.setHeader(.{ "Name", "Score" });
+    try table.addRow(allocator, .{ "Alice", "10" });
+
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(allocator);
+    try out.writer(allocator).print("{f}", .{table});
+
+    try std.testing.expect(std.mem.indexOf(u8, out.items, "│ Score │    10 │") != null);
+}
+
+test "runtime table footer and format" {
+    const allocator = std.testing.allocator;
+    var table = try RuntimeTable.init(allocator, 2);
+    defer table.deinit();
+    table.mode = .box;
+    table.padding = 1;
+
+    try table.setHeader(&.{ "Language", "Files" });
+    try table.addRow(&.{ "Zig", "3" });
+    try table.addRow(&.{ "Python", "2" });
+    try table.setFooter(&.{ "Total", "5" });
+
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(allocator);
+    try out.writer(allocator).print("{f}", .{table});
+
+    try std.testing.expectEqualStrings(
+        \\┌──────────┬───────┐
+        \\│ Language │ Files │
+        \\├──────────┼───────┤
+        \\│ Zig      │ 3     │
+        \\│ Python   │ 2     │
+        \\├──────────┼───────┤
+        \\│ Total    │ 5     │
+        \\└──────────┴───────┘
+        \\
+    , out.items);
+}
+
+test "runtime table column alignment" {
+    const allocator = std.testing.allocator;
+    var table = try RuntimeTable.init(allocator, 2);
+    defer table.deinit();
+    table.padding = 1;
+    table.column_align = &.{ .left, .right };
+
+    try table.setHeader(&.{ "Name", "Score" });
+    try table.addRow(&.{ "Alice", "10" });
+    try table.addRow(&.{ "Bob", "200" });
+
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(allocator);
+    try out.writer(allocator).print("{f}", .{table});
+
+    try std.testing.expectEqualStrings(
+        \\+-------+-------+
+        \\| Name  | Score |
+        \\+-------+-------+
+        \\| Alice |    10 |
+        \\| Bob   |   200 |
+        \\+-------+-------+
+        \\
+    , out.items);
+}
+
+test "runtime table transpose includes footer" {
+    const allocator = std.testing.allocator;
+    var table = try RuntimeTable.init(allocator, 2);
+    defer table.deinit();
+    table.mode = .box;
+    table.padding = 1;
+    table.transpose = true;
+
+    try table.setHeader(&.{ "Key", "Value" });
+    try table.addRow(&.{ "A", "1" });
+    try table.setFooter(&.{ "Total", "1" });
+
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(allocator);
+    try out.writer(allocator).print("{f}", .{table});
+
+    try std.testing.expect(std.mem.indexOf(u8, out.items, "│ Key   │ Total │") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.items, "│ Value │ 1     │") != null);
+}
+
+test "runtime table row separator" {
+    const allocator = std.testing.allocator;
+    var table = try RuntimeTable.init(allocator, 2);
+    defer table.deinit();
+    table.row_separator = true;
+
+    try table.setHeader(&.{ "K", "V" });
+    try table.addRow(&.{ "a", "1" });
+    try table.addRow(&.{ "b", "2" });
+    try table.addRow(&.{ "c", "3" });
+
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(allocator);
+    try out.writer(allocator).print("{f}", .{table});
+
+    try std.testing.expectEqualStrings(
+        \\+-+-+
+        \\|K|V|
+        \\+-+-+
+        \\|a|1|
+        \\+-+-+
+        \\|b|2|
+        \\+-+-+
+        \\|c|3|
+        \\+-+-+
+        \\
+    , out.items);
+}
+
+test "runtime table header footer cell setters" {
+    const allocator = std.testing.allocator;
+    var table = try RuntimeTable.init(allocator, 2);
+    defer table.deinit();
+
+    try table.setHeaderCells(&.{
+        Cell.init("Name").withFg(.bright_cyan),
+        Cell.init("Score").withFg(.bright_cyan),
+    });
+    try table.addRow(&.{ "Alice", "95" });
+    try table.setFooterCells(&.{
+        Cell.init("Total").withFg(.yellow),
+        Cell.init("95").withFg(.yellow),
+    });
+
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(allocator);
+    try out.writer(allocator).print("{f}", .{table});
+
+    try std.testing.expect(std.mem.indexOf(u8, out.items, "\x1b[96mName\x1b[0m") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.items, "\x1b[33mTotal\x1b[0m") != null);
 }

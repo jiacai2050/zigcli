@@ -1,39 +1,37 @@
 #+TITLE: pretty-table
 #+DATE: 2024-08-17T17:48:29+0800
-#+LASTMOD: 2026-03-20T16:26:00+0800
+#+LASTMOD: 2026-03-21T12:18:00+0800
 #+TYPE: docs
 #+WEIGHT: 20
 #+DESCRIPTION: Print aligned and formatted tables
 
-=pretty-table= provides two table implementations:
+=pretty-table= provides two table types plus one owning helper:
 
-- =Table(N)= / =TableBuilder(N)= — column count known at *comptime*. Supports per-cell styling (color, bold, italic), column alignment, and column spanning.
-- =DynTable= — column count known at *runtime*. Plain text only, with built-in cell truncation and =max_width= support.
-
-** Which one to choose?
-
-| Scenario | Use |
-|---|---|
-| Column count is a literal (e.g. always 3 columns) | =Table(N)= |
-| Rows are built dynamically but columns are fixed | =TableBuilder(N)= |
-| Column count depends on input data (CSV, DB query) | =DynTable= |
-| Need per-cell color, bold, alignment, hspan | =Table(N)= / =TableBuilder(N)= |
-| Need auto-truncation to fit terminal width | =DynTable= |
+- =Table(N)= — fixed-size rows and fixed column count, both known at *comptime*.
+- =Table(N).Owned= — runtime row collection for =Table(N)=, while keeping the same fixed column count.
+- =RuntimeTable= — both row count and column count are driven at runtime.
 
 The key constraint is Zig's comptime generics: =Table(N)= requires =N= to be a compile-time constant.
-If the column count comes from runtime data (e.g. parsing a CSV header), =DynTable= is the only option.
+If the column count comes from runtime data (e.g. parsing a CSV header), =RuntimeTable= is the only option.
 
-* Features (Table / TableBuilder)
-- Box-drawing character sets: =ascii=, =box=, =dos=.
-- Per-cell styling: foreground/background color, bold, italic.
-- Column spanning (=hspan=): a cell can span multiple columns.
-- Per-column text alignment: =left=, =right=, =center=.
-- Configurable cell padding and row separators.
+* Features
+- Shared across all three APIs: =ascii= / =box= / =dos= borders, optional header/footer rows,
+  per-column alignment, row separators, optional =transpose= mode, and both =render(writer)= /
+  ="{f}"= formatting support.
+- All three APIs can also render styled =Cell= values.
+- =RuntimeTable= also supports runtime column counts and terminal-width truncation via =max_width=.
 
-* Features (DynTable)
-- Same border styles: =ascii=, =box=, =dos=.
-- Configurable padding.
-- Auto-detects terminal width; cells are truncated with =…= ellipsis to fit. Override with =max_width=.
+* Cell API
+
+=Cell= is the shared building block for all three APIs.
+
+- =Cell.init(text)= creates a normal cell.
+- =Cell.span()= creates a placeholder cell consumed by a spanning cell.
+- =cell.withBold()=, =cell.withItalic()=, =cell.withFg(color)=, =cell.withBg(color)= return modified copies.
+- =cell.withHspan(n)= marks the cell as spanning =n= columns.
+
+When using =withHspan(n)= in =Table(N)= or =Table(N).Owned=, you must fill the following =n - 1=
+positions in the row with =Cell.span()= placeholders.
 
 * Usage
 See [[https://github.com/jiacai2050/zigcli/blob/main/examples/pretty-table-demo.zig][pretty-table-demo.zig]].
@@ -97,6 +95,36 @@ const t = Table(3){
 └───────┴───────┴──────┘
 #+end_example
 
+** Row separators
+
+#+begin_src zig
+const t = Table(2){
+    .header = [_]Cell{ Cell.init("Step"), Cell.init("Status") },
+    .rows = &[_][2]Cell{
+        .{ Cell.init("Build"), Cell.init("OK") },
+        .{ Cell.init("Test"), Cell.init("OK") },
+        .{ Cell.init("Deploy"), Cell.init("PENDING") },
+    },
+    .padding = 1,
+    .row_separator = true,
+};
+#+end_src
+
+** Transpose mode
+
+#+begin_src zig
+const t = Table(2){
+    .header = [_]Cell{ Cell.init("Name"), Cell.init("Score") },
+    .rows = &[_][2]Cell{
+        .{ Cell.init("Alice"), Cell.init("10") },
+        .{ Cell.init("Bob"), Cell.init("200") },
+    },
+    .padding = 1,
+    .column_align = .{ .left, .right },
+    .transpose = true,
+};
+#+end_src
+
 ** Per-cell styling
 
 #+begin_src zig
@@ -113,6 +141,10 @@ const t = Table(2){
     .padding = 1,
 };
 #+end_src
+
+=Color= supports the standard ANSI colors plus bright variants:
+=black=, =red=, =green=, =yellow=, =blue=, =magenta=, =cyan=, =white=,
+and =bright_*= variants such as =bright_cyan= and =bright_white=.
 
 ** Column spanning
 
@@ -144,56 +176,70 @@ const t = Table(4){
 └───────┴────┴────┴──────┘
 #+end_example
 
-** TableBuilder (runtime rows)
+The key rule is that only the first cell in the span carries text and =withHspan(...)=.
+The remaining covered columns must be explicit =Cell.span()= placeholders.
 
-When the number of rows is not known at comptime, use =TableBuilder(N)=.
-Column count is still comptime-fixed for type safety.
+** Table.Owned (runtime rows)
+
+When the number of rows is not known at comptime, use =Table(N).Owned=.
+Column count is still comptime-fixed for type safety, but rows are stored internally in an
+=ArrayList= and rendered through the same =Table(N)= logic.
 
 #+begin_src zig
 const pt = @import("pretty-table");
 
-var t = pt.TableBuilder(3).init(allocator, .{
+var table = pt.Table(3).Owned.init(.{
     .mode = .box,
     .padding = 1,
     .column_align = .{ .left, .right, .right },
+    .row_separator = false,
 });
-defer t.deinit();
+defer table.deinit(allocator);
 
-t.setHeader(.{ "Name", "Score", "Rank" });
-t.setFooter(.{ "Total", "", "—" });
+table.setHeader(.{ "Name", "Score", "Rank" });
+table.setFooter(.{ "Total", "", "—" });
 
 // String literals are auto-wrapped in Cell.init().
-try t.addRow(.{ "Alice", "9800", "1" });
-try t.addRow(.{ "Bob", "7500", "2" });
+try table.addRow(allocator, .{ "Alice", "9800", "1" });
+try table.addRow(allocator, .{ "Bob", "7500", "2" });
 
 // Use addRowCells for per-cell styling.
-try t.addRowCells(.{
+try table.addRowCells(allocator, .{
     pt.Cell.init("Charlie").withBold(),
     pt.Cell.init("9900").withFg(.green),
     pt.Cell.init("1").withFg(.green),
 });
 
-try writer.interface.print("{f}", .{t});
+try writer.interface.print("{f}", .{table});
 try writer.interface.flush();
 #+end_src
 
-** DynTable (runtime columns)
+=Table(N).Owned= converts plain string tuples to =Cell.init(...)= automatically in
+=setHeader()=, =setFooter()=, and =addRow()=. Use =addRowCells()= when you need styling or spanning.
 
-When the column count is only known at runtime, use =DynTable=.
-It provides a builder API with =addRow= (string slices) and =addRowCells= (=Cell= values for styling).
+** RuntimeTable (runtime columns)
+
+When the column count is only known at runtime, use =RuntimeTable=.
+It provides a builder API with =setHeader()= / =setFooter()= (string slices),
+=setHeaderCells()= / =setFooterCells()= (=Cell= values), =addRow()= (string slices),
+and =addRowCells()= (=Cell= values, including styling).
 
 #+begin_src zig
 const pt = @import("pretty-table");
 
-var table = pt.DynTable.init(allocator, 3);
+var table = try pt.RuntimeTable.init(allocator, 3);
 defer table.deinit();
 table.mode = .box;
 table.padding = 1;
+table.column_align = &.{ .left, .right, .left };
+table.row_separator = true;
+table.transpose = false;
 
 try table.setHeader(&.{ "Name", "Age", "City" });
 try table.addRow(&.{ "Alice", "30", "Beijing" });
 try table.addRow(&.{ "Bob", "25", "New York" });
-try table.render(writer);
+try table.setFooter(&.{ "Total", "2", "" });
+try writer.print("{f}", .{table});
 #+end_src
 
 #+begin_example
@@ -205,23 +251,88 @@ try table.render(writer);
 └───────┴─────┴──────────┘
 #+end_example
 
-Use =addRowCells= for per-cell styling:
+Use =setHeaderCells= / =setFooterCells= and =addRowCells= for per-cell styling:
 
 #+begin_src zig
+try table.setHeaderCells(&.{
+    pt.Cell.init("Name").withBold(),
+    pt.Cell.init("Age").withBold(),
+    pt.Cell.init("City").withBold(),
+});
+
 try table.addRowCells(&.{
     pt.Cell.init("Charlie").withBold(),
     pt.Cell.init("35"),
     pt.Cell.init("London").withFg(.green),
 });
+
+try table.setFooterCells(&.{
+    pt.Cell.init("Total").withFg(.yellow),
+    pt.Cell.init("3").withFg(.yellow),
+    pt.Cell.init("").withFg(.yellow),
+});
 #+end_src
+
+=RuntimeTable= now supports header/footer rows, header/footer cell setters, per-column alignment,
+row separators, and ="{f}"= formatting.
+Unlike =Table(N)=, it still does *not* support =hspan=.
 
 *** Truncation with max_width
 
-=DynTable= auto-detects the terminal width and truncates cells to fit.
+=RuntimeTable= auto-detects the terminal width and truncates cells to fit.
 In most cases no configuration is needed — just leave =max_width= at its default (0).
 
 To override, set =max_width= explicitly:
 
 #+begin_src zig
 table.max_width = 80; // 0 (default) = auto-detect terminal.
+#+end_src
+
+*** Transpose mode
+
+Set =table.transpose = true;= to render each row as a vertical key-value block.
+If a header is present, header cells are used as the left-hand keys.
+
+#+begin_src zig
+var table = try pt.RuntimeTable.init(allocator, 3);
+defer table.deinit();
+
+table.mode = .box;
+table.padding = 1;
+table.transpose = true;
+
+try table.setHeader(&.{ "Name", "Age", "City" });
+try table.addRow(&.{ "Alice", "30", "Beijing" });
+try table.addRow(&.{ "Bob", "25", "New York" });
+try table.render(writer);
+#+end_src
+
+#+begin_example
+┌──────┬─────────┐
+│ Name │ Alice   │
+│ Age  │ 30      │
+│ City │ Beijing │
+└──────┴─────────┘
+
+┌──────┬──────────┐
+│ Name │ Bob      │
+│ Age  │ 25       │
+│ City │ New York │
+└──────┴──────────┘
+#+end_example
+
+* Output APIs
+
+- =Table(N)=, =Table(N).Owned=, and =RuntimeTable= all implement =format=, so you can print them with ="{f}"=.
+- =RuntimeTable= also keeps an explicit =render(writer)= method.
+
+For Zig 0.15's new I/O API, a common pattern is:
+
+#+begin_src zig
+const out = std.fs.File.stdout();
+var buf: [4096]u8 = undefined;
+var writer = out.writer(&buf);
+
+try writer.interface.print("{f}", .{table});
+try writer.interface.flush();
 #+end_src

@@ -15,7 +15,10 @@ pub fn main() !void {
         delimiter: []const u8 = ",",
         style: pt.Separator.Mode = .box,
         padding: u8 = 1,
+        @"row-separator": bool = false,
         @"no-header": bool = false,
+        /// Comma-separated original column indices (1-based) to right-align.
+        @"right-columns": []const u8 = "",
         /// Maximum total table width (0 = auto-fit terminal).
         @"max-width": u16 = 0,
         /// Show each record as a vertical key-value block.
@@ -31,6 +34,7 @@ pub fn main() !void {
             .delimiter = .d,
             .style = .s,
             .padding = .p,
+            .@"right-columns" = .r,
             .help = .h,
             .@"max-width" = .w,
             .transpose = .t,
@@ -41,7 +45,9 @@ pub fn main() !void {
             .delimiter = "Field delimiter (default: ',')",
             .style = "Border style: ascii, box, dos",
             .padding = "Cell padding",
+            .@"row-separator" = "Insert separator lines between data rows",
             .@"no-header" = "Treat first row as data",
+            .@"right-columns" = "Original column indices to right-align (1-based, comma-separated)",
             .@"max-width" = "Max total table width (0 = auto-fit terminal)",
             .transpose = "Transpose: show each record vertically",
             .columns = "Column indices to show (1-based, comma-separated)",
@@ -99,6 +105,12 @@ pub fn main() !void {
         num_cols,
     );
     defer if (col_filter) |f| allocator.free(f);
+    const right_filter = try parseColFilter(
+        allocator,
+        opt.options.@"right-columns",
+        num_cols,
+    );
+    defer if (right_filter) |f| allocator.free(f);
 
     const display_cols = if (col_filter) |f|
         f.len
@@ -110,12 +122,21 @@ pub fn main() !void {
     var stdout_writer = stdout.writer(&output_buf);
     const writer = &stdout_writer.interface;
 
-    var table = pt.DynTable.init(allocator, display_cols);
+    var table = try pt.RuntimeTable.init(allocator, display_cols);
     defer table.deinit();
     table.mode = opt.options.style;
     table.padding = opt.options.padding;
+    table.row_separator = opt.options.@"row-separator";
     table.max_width = opt.options.@"max-width";
     table.transpose = opt.options.transpose;
+    const alignments = try buildColumnAlignments(
+        allocator,
+        display_cols,
+        col_filter,
+        right_filter,
+    );
+    defer allocator.free(alignments);
+    table.column_align = alignments;
 
     // Scratch buffer for column filtering (avoids per-row alloc).
     var filter_buf: [256][]const u8 = undefined;
@@ -140,6 +161,34 @@ pub fn main() !void {
     }
     try table.render(writer);
     try writer.flush();
+}
+
+fn buildColumnAlignments(
+    allocator: mem.Allocator,
+    display_cols: usize,
+    col_filter: ?[]const usize,
+    right_filter: ?[]const usize,
+) ![]pt.Align {
+    const alignments = try allocator.alloc(
+        pt.Align,
+        display_cols,
+    );
+    @memset(alignments, .left);
+
+    const right_columns = right_filter orelse return alignments;
+    for (0..display_cols) |display_col| {
+        const source_col = if (col_filter) |filter|
+            filter[display_col]
+        else
+            display_col;
+        for (right_columns) |right_col| {
+            if (source_col == right_col) {
+                alignments[display_col] = .right;
+                break;
+            }
+        }
+    }
+    return alignments;
 }
 
 // -- Column filter ----------------------------------------------
