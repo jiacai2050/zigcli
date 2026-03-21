@@ -107,8 +107,8 @@ always falling back to the top-level command.
 * Acknowledgment
 Blog post explaining how =structargs= is implemented: [[https://en.liujiacai.net/2022/12/14/argparser-in-zig/][What I learn by implementing argparser in Zig]].
 
-When implement =structargs=, I refer following projects to learn how to write
-idiomatic Zig code. Big Thanks!
+When implementing =structargs=, I referred to the following projects to learn how to write
+idiomatic Zig code. Many thanks!
 - [[https://github.com/MasterQ32/zig-args/][MasterQ32/zig-args]]
 - [[https://github.com/Hejsil/zig-clap][Hejsil/zig-clap]]
 - [[https://github.com/evangrayk/zig-argparse][evangrayk/zig-argparse]]
