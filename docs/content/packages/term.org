@@ -1,0 +1,120 @@
+#+TITLE: term
+#+DATE: 2026-03-21T21:05:00+0800
+#+LASTMOD: 2026-03-21T21:05:00+0800
+#+TYPE: docs
+#+WEIGHT: 40
+#+DESCRIPTION: Shared terminal styling and capability helpers for Zig CLI programs
+
+=term= provides the small terminal-focused building blocks shared by =zigcli= packages and
+programs.
+
+Use it when you want reusable ANSI styling, a shared color type, or lightweight terminal
+capability checks without pulling table rendering into your own code.
+
+* Features
+- =Style.Color= defines the standard ANSI foreground/background colors, including bright variants
+- =Style= combines bold, italic, foreground color, and background color into one reusable value
+- =isTty(file)= reports whether a file is attached to an interactive terminal
+- =terminalWidth(file)= returns the terminal width when it can be detected, otherwise =null=
+- =stdoutWidth()= is a convenience wrapper for the common stdout case
+
+* Usage
+
+#+begin_src zig
+const std = @import("std");
+const zigcli = @import("zigcli");
+const term = zigcli.term;
+
+const stdout = std.fs.File.stdout();
+var buffer: [1024]u8 = undefined;
+var writer = stdout.writer(&buffer);
+
+const style: term.Style = .{
+    .bold = true,
+    .fg = .bright_green,
+};
+
+try style.writeString(&writer.interface, "OK");
+try writer.interface.writeByte('\n');
+try writer.interface.flush();
+#+end_src
+
+* =Style.Color=
+
+=Style.Color= is the shared ANSI color enum used by =pretty-table= cell styling and by any program
+that wants plain colored output.
+
+Available colors:
+
+- =black=, =red=, =green=, =yellow=
+- =blue=, =magenta=, =cyan=, =white=
+- bright variants such as =bright_red= and =bright_cyan=
+
+Useful helpers:
+
+- =toEscapeCode()=: foreground color escape sequence
+- =toBgEscapeCode()=: background color escape sequence
+- =writeString(writer, text)=: write colored text and reset afterward
+- =reset=: the ANSI reset sequence
+
+#+begin_src zig
+try term.Style.Color.yellow.writeString(&writer.interface, "warning");
+#+end_src
+
+* =Style=
+
+=Style= groups multiple text attributes into one value:
+
+- =bold=
+- =italic=
+- =fg: ?Style.Color=
+- =bg: ?Style.Color=
+
+Useful helpers:
+
+- =isPlain()=: whether the style would emit any ANSI escape sequences
+- =writePrefix(writer)=: emit only the leading ANSI sequence(s)
+- =writeSuffix(writer)=: emit the trailing reset when needed
+- =writeString(writer, text)=: wrap the text with the full style
+
+#+begin_src zig
+const error_style: term.Style = .{
+    .bold = true,
+    .fg = .bright_white,
+    .bg = .red,
+};
+
+try error_style.writeString(&writer.interface, "ERROR");
+#+end_src
+
+* Terminal capability helpers
+
+** =isTty(file)=
+
+Use =isTty()= when color or formatting should only be enabled for interactive terminals.
+
+#+begin_src zig
+if (term.isTty(std.fs.File.stdout())) {
+    try term.Style.Color.cyan.writeString(&writer.interface, "interactive");
+}
+#+end_src
+
+** =terminalWidth(file)=
+
+=terminalWidth()= returns =?u16=. It yields =null= when width detection is unavailable, including
+non-terminal files and platforms where the current implementation does not probe terminal size.
+
+#+begin_src zig
+const width = term.terminalWidth(std.fs.File.stderr()) orelse 80;
+#+end_src
+
+This makes it easy to keep behavior-safe fallbacks in callers such as table renderers.
+
+** =stdoutWidth()=
+
+Use =stdoutWidth()= when stdout is the intended output stream and you do not need to choose a
+different file handle explicitly.
+
+#+begin_src zig
+const width = term.stdoutWidth() orelse 80;
+#+end_src

@@ -782,7 +782,7 @@ pub const RuntimeTable = struct {
         const width = if (self.max_width > 0)
             self.max_width
         else
-            getTerminalWidth();
+            term.stdoutWidth() orelse 0;
         if (width == 0 or column_count == 0) return 0;
         // Overhead: 1 border per column + 2*padding + 1 final.
         const overhead =
@@ -856,15 +856,6 @@ pub const RuntimeTable = struct {
             }
         }
         try writeHLine(writer, self.mode, .Last, &col_widths);
-    }
-
-    /// Detect terminal width via ioctl on stderr.
-    /// Returns 0 if not a TTY.
-    fn getTerminalWidth() u16 {
-        if (term.terminalWidth(std.fs.File.stderr())) |width| {
-            return width;
-        }
-        return 0;
     }
 
     fn accumulateWidths(

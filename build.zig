@@ -54,11 +54,6 @@ fn addModules(
         .optimize = optimize,
     });
 
-    all_tests.dependOn(buildRootTestStep(b, target));
-    inline for (.{ "pretty-table", "structargs", "gitignore" }) |name| {
-        all_tests.dependOn(buildTestStep(b, .{ .mod = name }, target));
-    }
-
     const opt = b.addOptions();
     opt.addOption(
         []const u8,
@@ -86,6 +81,11 @@ fn addModules(
         .ReleaseSafe => "ReleaseSafe",
     });
     try b.modules.put("build_info", opt.createModule());
+
+    all_tests.dependOn(buildRootTestStep(b, target));
+    inline for (.{ "pretty-table", "structargs", "gitignore" }) |name| {
+        all_tests.dependOn(buildTestStep(b, .{ .mod = name }, target));
+    }
 }
 
 fn buildExamples(
@@ -184,12 +184,8 @@ fn buildTestStep(
     const exe_tests = b.addTest(.{
         .root_module = module,
     });
-    if (b.modules.get("zigcli")) |zigcli_module| {
-        exe_tests.root_module.addImport("zigcli", zigcli_module);
-    }
-    if (b.modules.get("build_info")) |build_info_module| {
-        exe_tests.root_module.addImport("build_info", build_info_module);
-    }
+    exe_tests.root_module.addImport("zigcli", b.modules.get("zigcli").?);
+    exe_tests.root_module.addImport("build_info", b.modules.get("build_info").?);
     const test_step = b.step("test-" ++ name, "Run " ++ name ++ " tests");
     // https://github.com/ziglang/zig/issues/15009#issuecomment-1475350701
     test_step.dependOn(&b.addRunArtifact(exe_tests).step);

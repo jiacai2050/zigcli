@@ -27,6 +27,7 @@
 - **build**: consolidate exported packages behind a single `zigcli` root module in `lib.zig`
 - **zigcli**: add shared `term` module for ANSI colors and terminal capability helpers
 - **zigcli**: add shared `term.Style` for reusable ANSI-styled text output
+- **zigcli**: add `term.stdoutWidth()` as a convenience wrapper for stdout terminal-width detection
 - **structargs**: `print_help_on_error` now prints the subcommand-specific help context for subcommand parse failures
 - **pretty-table**: `Table(N).Owned` runtime row helper with string shorthand and Cell-level control
   - `Table(N)` and `Table(N).Owned`: optional transpose mode
@@ -35,6 +36,7 @@
 
 ### Documentation
 - Added `gitignore` package docs
+- Added `term` package docs
 - Updated `pretty-table` and `structargs` docs for Zig 0.15 API
 
 ## v0.4.0 (2026-03-18)

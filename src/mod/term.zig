@@ -169,6 +169,11 @@ pub fn terminalWidth(file: std.fs.File) ?u16 {
     }
 }
 
+/// Returns the detected terminal width for stdout, or `null` when unavailable.
+pub fn stdoutWidth() ?u16 {
+    return terminalWidth(std.fs.File.stdout());
+}
+
 test "term color escape codes" {
     try std.testing.expectEqualStrings("\x1b[31m", Style.Color.red.toEscapeCode());
     try std.testing.expectEqualStrings("\x1b[106m", Style.Color.bright_cyan.toBgEscapeCode());
