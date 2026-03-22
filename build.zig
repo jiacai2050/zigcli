@@ -50,12 +50,26 @@ fn addModules(
     optimize: std.builtin.OptimizeMode,
     all_tests: *Step,
 ) !void {
-    _ = b.addModule("zigcli", .{
+    // 1. Add zigcli module.
+    const zigcli = b.addModule("zigcli", .{
         .root_source_file = b.path("src/lib.zig"),
         .target = target,
         .optimize = optimize,
     });
 
+    const doc_obj = b.addObject(.{
+        .name = "docs",
+        .root_module = zigcli,
+    });
+    const install_docs = b.addInstallDirectory(.{
+        .source_dir = doc_obj.getEmittedDocs(),
+        .install_dir = .prefix,
+        .install_subdir = "docs",
+    });
+    const docs_step = b.step("docs", "Generate documentation");
+    docs_step.dependOn(&install_docs.step);
+
+    // 2. Add build_info private module.
     const build_info_options = b.addOptions();
     build_info_options.addOption(
         []const u8,
@@ -322,10 +336,16 @@ fn configureCompileStep(
     }
 
     if (std.mem.eql(u8, source_name, "zfetch")) {
-        if (target.result.os.tag == .macos) {
-            compile_step.linkFramework("CoreGraphics");
-            compile_step.linkFramework("Foundation");
-            compile_step.linkFramework("IOKit");
+        switch (target.result.os.tag) {
+            .macos => {
+                compile_step.linkFramework("CoreGraphics");
+                compile_step.linkFramework("Foundation");
+                compile_step.linkFramework("IOKit");
+            },
+            .linux => {
+                compile_step.linkLibC();
+            },
+            else => {},
         }
         return;
     }
