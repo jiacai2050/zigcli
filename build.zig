@@ -143,6 +143,7 @@ fn buildBinaries(
         "pretty-csv",
         "zfetch",
         "progress",
+        "2fa",
     }) |name| {
         try buildBinary(
             b,
