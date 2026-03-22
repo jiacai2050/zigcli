@@ -134,7 +134,6 @@ fn buildBinaries(
         "tree",
         "loc",
         "pidof",
-        "yes",
         "night-shift",
         "dark-mode",
         "repeat",

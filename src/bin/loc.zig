@@ -359,7 +359,7 @@ fn populateLoc(allocator: std.mem.Allocator, loc_map: *LocMap, dir: fs.Dir, base
         return;
     }
 
-    // Why no `getOrPutValue` in EnumMap?
+    // Initialize counters lazily because EnumMap does not expose getOrPutValue.
     var loc_entry = loc_map.getPtr(lang) orelse blk: {
         loc_map.put(lang, .{
             .codes = 0,

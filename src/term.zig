@@ -1,4 +1,4 @@
-//! Shared terminal primitives for CLI programs.
+//! term provides terminal styling and capability helpers.
 
 const builtin = @import("builtin");
 const std = @import("std");

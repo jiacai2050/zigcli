@@ -1,3 +1,5 @@
+//! pretty-table prints aligned and formatted tables.
+
 const std = @import("std");
 const term = @import("term.zig");
 const Writer = std.io.Writer;
