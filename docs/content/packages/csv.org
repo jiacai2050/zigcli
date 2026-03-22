@@ -30,7 +30,7 @@ The package also keeps a few explicit extensions for CLI use cases:
 - =parseLine()= parses a single delimited line into fields
 - =parseDocument()= parses a full input buffer into rows
 - Configurable delimiter through =ParseOptions.delimiter=
-- Optional empty-line skipping and CR trimming
+- Optional empty-line skipping
 - For standard CSV input, fully implements RFC 4180 record and quoted-field parsing
 - Supports quoted fields, including delimiters inside quotes
 - Supports embedded newlines inside quoted fields when parsing a whole document

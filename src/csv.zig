@@ -6,7 +6,6 @@ const mem = std.mem;
 pub const ParseOptions = struct {
     delimiter: u8 = ',',
     skip_empty_lines: bool = false,
-    trim_trailing_cr: bool = true,
 };
 
 pub const Document = struct {
@@ -178,9 +177,7 @@ fn parseInput(
                         continue;
                     }
 
-                    if (options.trim_trailing_cr) {
-                        return ParseError.InvalidRecordTerminator;
-                    }
+                    return ParseError.InvalidRecordTerminator;
                 }
 
                 if (byte == '\n') {
@@ -230,9 +227,7 @@ fn parseInput(
                         continue;
                     }
 
-                    if (options.trim_trailing_cr) {
-                        return ParseError.InvalidRecordTerminator;
-                    }
+                    return ParseError.InvalidRecordTerminator;
                 }
 
                 if (byte == '\n') {
@@ -399,7 +394,7 @@ test "parseLine keeps delimiters inside quoted fields" {
     try std.testing.expectEqualStrings("d", fields[2]);
 }
 
-test "parseDocument skips empty lines and trims trailing CR" {
+test "parseDocument skips empty lines" {
     const allocator = std.testing.allocator;
     var document = try parseDocument(allocator, "a,b\r\n\r\n1,2\r\n", .{
         .skip_empty_lines = true,
@@ -410,6 +405,15 @@ test "parseDocument skips empty lines and trims trailing CR" {
     try std.testing.expectEqual(@as(usize, 2), document.num_cols);
     try std.testing.expectEqualStrings("a", document.rows[0][0]);
     try std.testing.expectEqualStrings("2", document.rows[1][1]);
+}
+
+test "parseDocument rejects a bare carriage return" {
+    const allocator = std.testing.allocator;
+
+    try std.testing.expectError(
+        ParseError.InvalidRecordTerminator,
+        parseDocument(allocator, "a,b\rc,d\r\n", .{}),
+    );
 }
 
 test "parseDocument keeps empty RFC 4180 records by default" {
