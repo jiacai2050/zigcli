@@ -1,6 +1,6 @@
 #+TITLE: pretty-csv
 #+DATE: 2026-03-20T10:00:00+0800
-#+LASTMOD: 2026-03-21T12:29:00+0800
+#+LASTMOD: 2026-03-22T17:20:00+0800
 #+TYPE: docs
 #+DESCRIPTION: Pretty-print CSV files as aligned tables
 
@@ -12,8 +12,11 @@
 - Column selection: display only specific columns.
 - Optional row separators between data rows.
 - Right-align selected original columns (useful for numeric CSV fields).
-- Supports single-line quoted fields, including delimiters inside quotes.
-- Does not currently support embedded newlines or unescaping doubled quotes.
+- For standard comma-separated CSV input, parsing now fully implements RFC 4180.
+- Supports quoted fields, including delimiters inside quotes.
+- Supports embedded CRLF inside quoted fields.
+- Unescapes doubled quotes in quoted fields.
+- Rejects malformed quoted fields and rows with inconsistent column counts.
 
 ** Demo
 

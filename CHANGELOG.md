@@ -27,6 +27,10 @@
 - **build**: consolidate exported packages behind a single `zigcli` root module in `lib.zig`
 - **build**: run `.github/build-release.sh` target builds in parallel with per-target logs
 - **install**: make `docs/static/install.sh` install all packaged binaries by default
+- **zigcli**: add `csv` package for parsing delimited text into rows and fields
+  - Standard comma-separated parsing now follows RFC 4180 record and quoted-field rules
+  - Supports embedded newlines and doubled-quote unescaping in quoted fields
+  - Returns `error.UnclosedQuotedField` for unterminated quoted records
 - **zigcli**: add shared `term` module for ANSI colors and terminal capability helpers
 - **zigcli**: add shared `term.Style` for reusable ANSI-styled text output
 - **zigcli**: add `term.stdoutWidth()` as a convenience wrapper for stdout terminal-width detection

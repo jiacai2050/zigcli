@@ -1,0 +1,58 @@
+#+TITLE: csv
+#+DATE: 2026-03-22T16:20:00+0800
+#+LASTMOD: 2026-03-22T20:56:33+0800
+#+TYPE: docs
+#+WEIGHT: 25
+#+DESCRIPTION: Parse CSV and TSV text into rows and fields
+
+=csv= parses CSV-style delimited text into rows and fields.
+
+With the default comma delimiter, =parseDocument()= implements RFC 4180 record and quoted-field
+parsing, including embedded CRLF, doubled-quote escaping, consistent field counts, and explicit
+parse errors for malformed input.
+
+It also supports a few explicit extensions: alternate delimiters, optional empty-line skipping, and
+LF-only line endings.
+
+* Usage
+
+#+begin_src zig
+const std = @import("std");
+const zigcli = @import("zigcli");
+const csv = zigcli.csv;
+
+const allocator = std.heap.page_allocator;
+const input =
+    "name,age,city\r\n" ++
+    "alice,30,beijing\r\n" ++
+    "bob,25,\"new york\"\r\n";
+
+var document = try csv.parseDocument(allocator, input, .{
+    .delimiter = ',',
+});
+defer document.deinit(allocator);
+
+for (document.rows) |row| {
+    std.debug.print("{s}\n", .{row[0]});
+}
+#+end_src
+
+* API
+
+** =parseLine(allocator, line, delimiter)=
+
+Parse one line and return a newly allocated slice of fields.
+
+** =parseDocument(allocator, input, options)=
+
+Parse a whole input buffer and return a =Document=:
+
+- =rows=: parsed rows
+- =num_cols=: column count inferred from the first parsed row
+
+Malformed input returns a parse error such as =error.InvalidQuotedField=,
+=error.InvalidRecordTerminator=, =error.InconsistentFieldCount=, or
+=error.UnclosedQuotedField=.
+
+=Document= owns the row and field storage. Call =document.deinit(allocator)= when you are done with
+it.
