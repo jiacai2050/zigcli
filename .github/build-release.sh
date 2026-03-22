@@ -53,7 +53,7 @@ zig_cpu() {
       printf 'cortex_a76\n'
       ;;
     aarch64-*)
-      printf 'native\n'
+      printf 'generic\n'
       ;;
     x86_64-*)
       printf 'haswell\n'

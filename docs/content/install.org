@@ -42,7 +42,7 @@ machines:
 - =x86_64= release binaries are built with =haswell=
 - =aarch64-macos= release binaries are built with =apple_m1=
 - =aarch64-windows= release binaries are built with =cortex_a76=
-- other =aarch64= targets currently use =native=
+- other =aarch64= targets currently use =generic=
 
 If those defaults do not match your deployment needs, build from source and choose your own
 =-Dcpu= target.
@@ -70,3 +70,6 @@ const zigcli = b.dependency("zigcli", .{});
 // zigcli exposes one root module with four submodules.
 exe.root_module.addImport("zigcli", zigcli.module("zigcli"));
 #+end_src
+
+Generated API documentation for the exported packages is available at
+[[https://zigcli.liujiacai.net/apidocs/][apidocs]].

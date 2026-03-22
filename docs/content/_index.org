@@ -1,6 +1,6 @@
 #+TITLE: Introduction
 #+DATE: 2023-10-21T12:09:48+0800
-#+LASTMOD: 2026-03-22T12:58:03+0800
+#+LASTMOD: 2026-03-22T13:51:50+0800
 #+TYPE: docs
 #+author: Jiacai Liu
 
@@ -45,6 +45,8 @@ const structargs = zigcli.structargs;
 const pt = zigcli.pretty_table;
 #+end_src
 
+Generated API documentation for the exported packages is available at
+[[https://zigcli.liujiacai.net/apidocs/][apidocs]].
 * Programs
 
 The standalone tools are documented under [[https://zigcli.liujiacai.net/programs/][Programs]].
