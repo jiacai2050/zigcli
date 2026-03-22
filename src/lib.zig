@@ -7,16 +7,16 @@
 const std = @import("std");
 
 /// The table rendering package.
-pub const pretty_table = @import("src/mod/pretty-table.zig");
+pub const pretty_table = @import("pretty-table.zig");
 
 /// The struct-driven command-line argument parsing package.
-pub const structargs = @import("src/mod/structargs.zig");
+pub const structargs = @import("structargs.zig");
 
 /// The `.gitignore` pattern matching package.
-pub const gitignore = @import("src/mod/gitignore.zig");
+pub const gitignore = @import("gitignore.zig");
 
 /// Shared terminal helpers and ANSI color definitions.
-pub const term = @import("src/mod/term.zig");
+pub const term = @import("term.zig");
 
 test {
     std.testing.refAllDecls(@This());

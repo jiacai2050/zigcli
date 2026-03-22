@@ -1,4 +1,4 @@
-//! A simple, opinionated, struct-based argument parser in Zig
+//! structargs turns a Zig struct into a command-line interface.
 
 const std = @import("std");
 const assert = std.debug.assert;

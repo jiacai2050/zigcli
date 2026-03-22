@@ -4,5 +4,6 @@
 *lock
 docs/resources
 docs/public
+docs/static/apidocs/
 README.md
 /.kiro

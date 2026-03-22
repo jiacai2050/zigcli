@@ -25,6 +25,8 @@
 
 ### Improvements
 - **build**: consolidate exported packages behind a single `zigcli` root module in `lib.zig`
+- **build**: run `.github/build-release.sh` target builds in parallel with per-target logs
+- **install**: make `docs/static/install.sh` install all packaged binaries by default
 - **zigcli**: add shared `term` module for ANSI colors and terminal capability helpers
 - **zigcli**: add shared `term.Style` for reusable ANSI-styled text output
 - **zigcli**: add `term.stdoutWidth()` as a convenience wrapper for stdout terminal-width detection

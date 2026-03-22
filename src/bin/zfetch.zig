@@ -223,6 +223,19 @@ const logo_colors: []const []const u8 = switch (builtin.os.tag) {
     else => &.{},
 };
 
+fn isLogoColorMarker(line: []const u8, index: usize) bool {
+    if (line[index] != '$') {
+        return false;
+    }
+    if (index + 1 >= line.len) {
+        return false;
+    }
+    if (line[index + 1] < '1') {
+        return false;
+    }
+    return line[index + 1] <= '9';
+}
+
 /// Writes a logo line, expanding $N color markers.
 fn writeLogo(
     writer: *std.Io.Writer,
@@ -237,9 +250,7 @@ fn writeLogo(
         try writer.writeAll(logo_colors[0]);
     }
     while (i < line.len) {
-        if (line[i] == '$' and i + 1 < line.len and
-            line[i + 1] >= '1' and line[i + 1] <= '9')
-        {
+        if (isLogoColorMarker(line, i)) {
             const idx = line[i + 1] - '1';
             if (color and idx < logo_colors.len) {
                 try writer.writeAll(logo_colors[idx]);
@@ -263,9 +274,7 @@ fn logoVisualWidth(line: []const u8) usize {
     var w: usize = 0;
     var i: usize = 0;
     while (i < line.len) {
-        if (line[i] == '$' and i + 1 < line.len and
-            line[i + 1] >= '1' and line[i + 1] <= '9')
-        {
+        if (isLogoColorMarker(line, i)) {
             i += 2;
         } else {
             w += 1;

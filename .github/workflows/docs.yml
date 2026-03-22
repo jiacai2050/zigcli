@@ -27,7 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           submodules: recursive
       - name: Setup Pages
@@ -38,6 +38,10 @@ jobs:
         with:
           hugo-version: 'latest'
           extended: true
+      - name: Build apidocs
+        run: |
+          zig build docs
+          mv zig-out/docs docs/static/apidocs
       - name: Build with Hugo
         working-directory: docs
         env:
