@@ -42,6 +42,8 @@ pub fn parse(
     comptime options: ParseOptions,
 ) OptionError!ParseResult(Options, options.version_string, options.argument_prompt) {
     const raw_arguments = try std.process.argsAlloc(allocator);
+    errdefer std.process.argsFree(allocator, raw_arguments);
+
     var parser = OptionParser(Options).init(allocator);
     return parser.parse(raw_arguments, options);
 }

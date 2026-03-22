@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.5.0 (2026-03-22)
+
 ### Breaking Changes
 - **build**: package consumers must now import the single `zigcli` root module instead of adding
   separate `simargs`, `pretty-table`, and `gitignore` modules, and the struct-based argument parser
@@ -39,6 +41,9 @@
   - `Table(N)` and `Table(N).Owned`: optional transpose mode
   - `RuntimeTable`: runtime column count with footer rows, header/footer cell setters, row separators, per-column alignment, `"{f}"` formatting, optional cell truncation, and UTF-8-safe truncation boundaries
   - Windows targets skip POSIX terminal-width probing during cross-compilation
+
+### Bug Fixes
+- **structargs**: Fixed memory leak when parse failed
 
 ### Documentation
 - Added `gitignore` package docs

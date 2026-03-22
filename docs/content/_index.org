@@ -1,6 +1,6 @@
 #+TITLE: Introduction
 #+DATE: 2023-10-21T12:09:48+0800
-#+LASTMOD: 2026-03-22T13:51:50+0800
+#+LASTMOD: 2026-03-22T21:35:38+0800
 #+TYPE: docs
 #+author: Jiacai Liu
 
@@ -48,6 +48,7 @@ const pt = zigcli.pretty_table;
 
 Generated API documentation for the exported packages is available at
 [[https://zigcli.liujiacai.net/apidocs/][apidocs]].
+
 * Programs
 
 The standalone tools are documented under [[https://zigcli.liujiacai.net/programs/][Programs]].
@@ -57,7 +58,6 @@ Some highlights:
 - =loc= counts lines of code across languages
 - =tree= prints directory trees with optional filtering
 - =pretty-csv= renders CSV and TSV files as aligned tables
-- =zigfetch= fetches remote content
 - =zfetch= prints system information
 - =cowsay=, =repeat=, and other small terminal utilities round out the collection
 
