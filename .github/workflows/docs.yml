@@ -38,6 +38,7 @@ jobs:
         with:
           hugo-version: 'latest'
           extended: true
+      - uses: mlugg/setup-zig@v2
       - name: Build apidocs
         run: |
           zig build docs
