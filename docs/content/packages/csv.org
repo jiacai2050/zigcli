@@ -1,40 +1,18 @@
 #+TITLE: csv
 #+DATE: 2026-03-22T16:20:00+0800
-#+LASTMOD: 2026-03-22T17:20:00+0800
+#+LASTMOD: 2026-03-22T20:56:33+0800
 #+TYPE: docs
 #+WEIGHT: 25
 #+DESCRIPTION: Parse CSV and TSV text into rows and fields
 
-=csv= parses delimited text into rows and fields.
+=csv= parses CSV-style delimited text into rows and fields.
 
-The current package is intentionally small. It focuses on the parsing layer that is already useful
-for CLI programs such as =pretty-csv=.
+With the default comma delimiter, =parseDocument()= implements RFC 4180 record and quoted-field
+parsing, including embedded CRLF, doubled-quote escaping, consistent field counts, and explicit
+parse errors for malformed input.
 
-With the default options and the standard comma delimiter, =parseDocument()= now implements the
-full RFC 4180 record and quoted-field rules:
-
-- CRLF record terminators
-- Embedded CRLF inside quoted fields
-- Doubled-quote escaping inside quoted fields
-- Consistent field counts across records
-- Explicit parse errors for malformed quoted fields and bad record terminators
-
-The package also keeps a few explicit extensions for CLI use cases:
-
-- Alternate delimiters such as TSV via =ParseOptions.delimiter=
-- Optional empty-line skipping via =ParseOptions.skip_empty_lines=
-- Acceptance of LF-only line endings in addition to RFC 4180 CRLF
-
-* Features
-
-- =parseLine()= parses a single delimited line into fields
-- =parseDocument()= parses a full input buffer into rows
-- Configurable delimiter through =ParseOptions.delimiter=
-- Optional empty-line skipping
-- For standard CSV input, fully implements RFC 4180 record and quoted-field parsing
-- Supports quoted fields, including delimiters inside quotes
-- Supports embedded newlines inside quoted fields when parsing a whole document
-- Unescapes doubled quotes (= "" = -> = " =)
+It also supports a few explicit extensions: alternate delimiters, optional empty-line skipping, and
+LF-only line endings.
 
 * Usage
 

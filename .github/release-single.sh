@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
+set -e
 OUT_DIR=${OUT_DIR:-/tmp/zigcli}
 VERSION=${RELEASE_VERSION:-unknown}
 MAX_JOBS=${MAX_JOBS:-}
@@ -12,6 +13,7 @@ if [ x"$TARGET" = x ];then
 fi
 
 echo "Building zigcli ${VERSION} to ${OUT_DIR}..."
+mkdir -p "${OUT_DIR}" || true
 
 # https://github.com/oven-sh/bun/blob/db2156e46204e43497c9dc4c49744beed91421b2/scripts/build/zig.ts#L83-L98
 zig_cpu() {
@@ -42,31 +44,23 @@ build_target() {
   local cpu
   local filename
   local dst_dir
-  local log_file
-  local failure_file
   cpu=$(zig_cpu "${target}")
   filename=zigcli-${VERSION}-${target}
   dst_dir=zig-out/${filename}
-  log_file=${OUT_DIR}/${filename}.log
-  failure_file=${OUT_DIR}/${filename}.failed
 
-  rm -f "${failure_file}"
   echo "Building for ${target}..."
 
-  if ! (
-    zig build -Doptimize=ReleaseSafe -Dtarget="${target}" -p "${dst_dir}" \
+  zig build -Doptimize=ReleaseSafe -Dtarget="${target}" -p "${dst_dir}" \
         -Dcpu="${cpu}" -Dversion="${VERSION}" -Dgit_commit="${GIT_COMMIT}" -Dbuild_date="${BUILD_DATE}"
 
-    rm -f "${dst_dir}"/bin/*demo
-    cp LICENSE README.org "${dst_dir}"
+  rm -f "${dst_dir}"/bin/*demo
+  cp LICENSE README.org "${dst_dir}"
 
-    pushd zig-out >/dev/null
-    zip -r "${OUT_DIR}/${filename}.zip" "${filename}"
-    popd >/dev/null
-  ) >"${log_file}" 2>&1; then
-    : > "${failure_file}"
-    return 1
-  fi
+  find zig-out
+
+  pushd zig-out
+  zip -r "${OUT_DIR}/${filename}.zip" "${filename}"
+  popd
 }
 
 build_target "$TARGET"
