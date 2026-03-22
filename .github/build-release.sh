@@ -83,7 +83,7 @@ build_target() {
 
   if ! (
     zig build -Doptimize=ReleaseSafe -Dtarget="${target}" -p "${dst_dir}" \
-        -Dcpu="${cpu}" -Dgit_commit="${GIT_COMMIT}" -Dbuild_date="${BUILD_DATE}"
+        -Dcpu="${cpu}" -Dversion="${VERSION}" -Dgit_commit="${GIT_COMMIT}" -Dbuild_date="${BUILD_DATE}"
 
     rm -f "${dst_dir}"/bin/*demo
     cp LICENSE README.org "${dst_dir}"

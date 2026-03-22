@@ -67,7 +67,7 @@ Then in your =build.zig=, import the module like this:
 #+begin_src zig
 const zigcli = b.dependency("zigcli", .{});
 
-// zigcli exposes one root module with four submodules.
+// zigcli exposes one root module with five submodules.
 exe.root_module.addImport("zigcli", zigcli.module("zigcli"));
 #+end_src
 

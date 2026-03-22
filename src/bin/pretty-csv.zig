@@ -2,6 +2,7 @@
 
 const std = @import("std");
 const zigcli = @import("zigcli");
+const csv = zigcli.csv;
 const structargs = zigcli.structargs;
 const pt = zigcli.pretty_table;
 const util = @import("util.zig");
@@ -81,42 +82,30 @@ pub fn main() !void {
         );
     defer allocator.free(input);
 
-    // Parse all rows.
-    var all_rows: std.ArrayList([]const []const u8) = .empty;
-    defer {
-        for (all_rows.items) |row| allocator.free(row);
-        all_rows.deinit(allocator);
-    }
-
-    var num_cols: usize = 0;
-    var lines = mem.splitScalar(u8, input, '\n');
-    while (lines.next()) |line| {
-        const trimmed = mem.trimRight(u8, line, "\r");
-        if (trimmed.len == 0) continue;
-        const fields = try parseLine(allocator, trimmed, delim);
-        if (num_cols == 0) num_cols = fields.len;
-        try all_rows.append(allocator, fields);
-    }
-    if (all_rows.items.len == 0 or num_cols == 0) return;
+    var document = try csv.parseDocument(allocator, input, .{
+        .delimiter = delim,
+    });
+    defer document.deinit(allocator);
+    if (document.rows.len == 0 or document.num_cols == 0) return;
 
     // Parse --columns filter.
     const col_filter = try parseColFilter(
         allocator,
         opt.options.columns,
-        num_cols,
+        document.num_cols,
     );
     defer if (col_filter) |f| allocator.free(f);
     const right_filter = try parseColFilter(
         allocator,
         opt.options.@"right-columns",
-        num_cols,
+        document.num_cols,
     );
     defer if (right_filter) |f| allocator.free(f);
 
     const display_cols = if (col_filter) |f|
         f.len
     else
-        num_cols;
+        document.num_cols;
 
     const stdout = std.fs.File.stdout();
     var output_buf: [8192]u8 = undefined;
@@ -149,17 +138,17 @@ pub fn main() !void {
     const data_start: usize =
         if (opt.options.@"no-header") 0 else 1;
     if (!opt.options.@"no-header" and
-        all_rows.items.len > 0)
+        document.rows.len > 0)
     {
         try table.setHeader(
             filterRow(
-                all_rows.items[0],
+                document.rows[0],
                 col_filter,
                 filter_buf,
             ),
         );
     }
-    for (all_rows.items[data_start..]) |row| {
+    for (document.rows[data_start..]) |row| {
         try table.addRow(
             filterRow(row, col_filter, filter_buf),
         );
@@ -251,75 +240,6 @@ fn parseColFilter(
     }
     if (indices.items.len == 0) return null;
     return try allocator.dupe(usize, indices.items);
-}
-
-// -- CSV parsing ------------------------------------------------
-
-// TODO: Extend this parser to support full RFC 4180 quoted-field semantics, including embedded
-// newlines and unescaping doubled quotes.
-fn parseLine(
-    allocator: mem.Allocator,
-    line: []const u8,
-    delim: u8,
-) ![]const []const u8 {
-    // Count fields by scanning for unquoted delimiters.
-    var num_fields: usize = 1;
-    var in_quotes = false;
-    for (line) |ch| {
-        if (ch == '"') {
-            in_quotes = !in_quotes;
-        } else if (ch == delim and !in_quotes) {
-            num_fields += 1;
-        }
-    }
-
-    const fields = try allocator.alloc([]const u8, num_fields);
-    var col: usize = 0;
-    var pos: usize = 0;
-
-    // Bounded by line.len and num_fields.
-    while (pos < line.len and col < num_fields) {
-        if (line[pos] == '"') {
-            // Quoted field: skip opening quote.
-            pos += 1;
-            const field_start = pos;
-            while (pos < line.len) {
-                if (line[pos] == '"') {
-                    // Escaped quote ("") — skip both.
-                    if (pos + 1 < line.len and
-                        line[pos + 1] == '"')
-                    {
-                        pos += 2;
-                    } else {
-                        break;
-                    }
-                } else {
-                    pos += 1;
-                }
-            }
-            fields[col] = line[field_start..pos];
-            // Skip closing quote and delimiter.
-            if (pos < line.len and line[pos] == '"') {
-                pos += 1;
-            }
-            if (pos < line.len and line[pos] == delim) {
-                pos += 1;
-            }
-        } else {
-            // Unquoted field.
-            const field_start = pos;
-            while (pos < line.len and line[pos] != delim) {
-                pos += 1;
-            }
-            fields[col] = line[field_start..pos];
-            // Skip delimiter.
-            if (pos < line.len) pos += 1;
-        }
-        col += 1;
-    }
-    // Fill remaining columns with empty strings.
-    while (col < num_fields) : (col += 1) fields[col] = "";
-    return fields;
 }
 
 test "filterRow handles more than 256 filtered columns" {

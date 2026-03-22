@@ -32,6 +32,7 @@ The reusable packages are documented under [[https://zigcli.liujiacai.net/packag
 
 - =structargs= turns a Zig struct into a command-line interface, including flags, defaults,
   enums, subcommands, and help text.
+- =csv= parses delimited text into rows and fields for CSV- and TSV-style CLI workflows.
 - =pretty-table= prints aligned and formatted tables for terminal output.
 - =gitignore= parses and applies =.gitignore= rules in pure Zig.
 - =term= provides terminal styling and capability helpers such as ANSI colors and terminal width

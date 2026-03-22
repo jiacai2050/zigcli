@@ -13,6 +13,7 @@ The reusable packages are documented in two complementary forms:
 
 The generated API docs cover the =zigcli= root module and the exported packages:
 
+- =csv=
 - =structargs=
 - =pretty-table=
 - =gitignore=
