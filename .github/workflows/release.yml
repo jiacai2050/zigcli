@@ -48,12 +48,13 @@ jobs:
       - name: Build(Ubuntu)
         if: matrix.os == 'ubuntu-latest'
         run: |
+          export MAX_JOBS=2
           bash .github/build-release.sh
       - name: Build(MacOS)
         if: matrix.os == 'macos-latest'
         run: |
           mkdir -p "${OUT_DIR}"
-          zig build -Doptimize=ReleaseSafe \
+          zig build -Doptimize=ReleaseSafe -Dcpu=apple_m1 \
           -Dgit_commit=${GIT_COMMIT} -Dbuild_date=${BUILD_DATE} -Dversion=${RELEASE_VERSION}
           rm -f zig-out/bin/*demo
           cp LICENSE README.org zig-out

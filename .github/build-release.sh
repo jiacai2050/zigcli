@@ -38,82 +38,78 @@ detect_max_jobs() {
     printf '%s\n' "${MAX_JOBS}"
     return
   fi
+  printf '%s\n' "${#targets[@]}"
+}
 
-  if command -v getconf >/dev/null 2>&1; then
-    getconf _NPROCESSORS_ONLN
-    return
-  fi
+# https://github.com/oven-sh/bun/blob/db2156e46204e43497c9dc4c49744beed91421b2/scripts/build/zig.ts#L83-L98
+zig_cpu() {
+  local target=$1
 
-  if command -v sysctl >/dev/null 2>&1; then
-    sysctl -n hw.ncpu
-    return
-  fi
-
-  printf '4\n'
+  case "${target}" in
+    aarch64-macos)
+      printf 'apple_m1\n'
+      ;;
+    aarch64-windows)
+      printf 'cortex_a76\n'
+      ;;
+    aarch64-*)
+      printf 'native\n'
+      ;;
+    x86_64-*)
+      printf 'haswell\n'
+      ;;
+    *)
+      echo "Unsupported target for CPU selection: ${target}" >&2
+      return 1
+      ;;
+  esac
 }
 
 build_target() {
   local target=$1
+  local cpu
   local filename
   local dst_dir
   local log_file
+  local failure_file
+  cpu=$(zig_cpu "${target}")
   filename=zigcli-${VERSION}-${target}
   dst_dir=zig-out/${filename}
   log_file=${OUT_DIR}/${filename}.log
+  failure_file=${OUT_DIR}/${filename}.failed
 
+  rm -f "${failure_file}"
   echo "Building for ${target}..."
 
-  # 1. Build
-  # The '-Dcpu=baseline' flag ensures compatibility with a baseline CPU architecture,
-  # which is necessary for certain build targets. For more details, see:
-  # https://github.com/jiacai2050/zigcli/issues/43
-  zig build -Doptimize=ReleaseSafe -Dtarget="${target}" -p "${dst_dir}" \
-      -Dcpu=baseline -Dgit_commit="${GIT_COMMIT}" -Dbuild_date="${BUILD_DATE}" \
-      >"${log_file}" 2>&1
+  if ! (
+    zig build -Doptimize=ReleaseSafe -Dtarget="${target}" -p "${dst_dir}" \
+        -Dcpu="${cpu}" -Dgit_commit="${GIT_COMMIT}" -Dbuild_date="${BUILD_DATE}"
 
-  # 2. Prepare files
-  rm -f "${dst_dir}"/bin/*demo
-  cp LICENSE README.org "${dst_dir}"
+    rm -f "${dst_dir}"/bin/*demo
+    cp LICENSE README.org "${dst_dir}"
 
-  # 3. Zip final file
-  pushd zig-out >/dev/null
-  zip -r "${OUT_DIR}/${filename}.zip" "${filename}" >>"${log_file}" 2>&1
-  popd >/dev/null
+    pushd zig-out >/dev/null
+    zip -r "${OUT_DIR}/${filename}.zip" "${filename}"
+    popd >/dev/null
+  ) >"${log_file}" 2>&1; then
+    : > "${failure_file}"
+    return 1
+  fi
 }
 
 max_jobs=$(detect_max_jobs)
 echo "Max jobs is ${max_jobs}."
 
-declare -A pid_to_target=()
-declare -a failed_targets=()
+export OUT_DIR VERSION BUILD_DATE GIT_COMMIT
+export -f zig_cpu build_target
 
-for target in "${targets[@]}"; do
-  build_target "${target}" &
-  pid_to_target[$!]="${target}"
-
-  while (( $(jobs -pr | wc -l) >= max_jobs )); do
-    pid=$(jobs -pr | head -n 1)
-    if [[ -z "${pid}" ]]; then
-      break
-    fi
-    if ! wait "${pid}"; then
-      failed_targets+=("${pid_to_target[${pid}]}")
-    fi
-    unset 'pid_to_target[$pid]'
-  done
-done
-
-for pid in "${!pid_to_target[@]}"; do
-  if ! wait "${pid}"; then
-    failed_targets+=("${pid_to_target[${pid}]}")
-  fi
-done
-
-if (( ${#failed_targets[@]} > 0 )); then
-  for target in "${failed_targets[@]}"; do
+if ! printf '%s\n' "${targets[@]}" | xargs -P "${max_jobs}" -n 1 bash -c 'build_target "$1"' _; then
+  for target in "${targets[@]}"; do
     filename=zigcli-${VERSION}-${target}
-    echo "Build failed for ${target}. Showing ${OUT_DIR}/${filename}.log:"
-    cat "${OUT_DIR}/${filename}.log"
+    if [[ -f "${OUT_DIR}/${filename}.failed" ]]; then
+      echo "Build failed for ${target}. Showing ${OUT_DIR}/${filename}.log:"
+      cat "${OUT_DIR}/${filename}.log"
+    fi
   done
   exit 1
 fi

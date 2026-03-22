@@ -1,6 +1,6 @@
 #+TITLE: Install
 #+DATE: 2025-01-02T23:20:23+0800
-#+LASTMOD: 2026-03-19T20:18:15+0800
+#+LASTMOD: 2026-03-22T12:51:15+0800
 #+TYPE: docs
 #+WEIGHT: 10
 #+AUTHOR: Jiacai Liu
@@ -14,12 +14,15 @@ curl -fsSL https://zigcli.liujiacai.net/install.sh | sh
 
 #+RESULTS:
 
-This installs latest stable =loc=, =zfetch=, =timeout=, =tree=, and =cowsay= to =~/.local/bin= by default.
+This installs all binaries packaged in the latest release to =~/.local/bin= by default.
 
 Options:
 #+begin_src bash
 # Custom install directory
 curl -fsSL ... | sh -s -- --install-dir /usr/local/bin
+
+# Install all packaged binaries explicitly
+curl -fsSL ... | sh -s -- --bins all
 
 # Choose which binaries to install
 curl -fsSL ... | sh -s -- --bins "loc zfetch tree cowsay"
@@ -30,6 +33,19 @@ curl -fsSL ... | sh -s -- --version v0.4.0
 # Use mirror for users in China
 curl -fsSL ... | sh -s -- --china
 #+end_src
+
+*** Release binary CPU targets
+
+The prebuilt release binaries use conservative CPU targets so the same archive can run on older
+machines:
+
+- =x86_64= release binaries are built with =haswell=
+- =aarch64-macos= release binaries are built with =apple_m1=
+- =aarch64-windows= release binaries are built with =cortex_a76=
+- other =aarch64= targets currently use =native=
+
+If those defaults do not match your deployment needs, build from source and choose your own
+=-Dcpu= target.
 
 *** Build from source
 #+begin_src bash
