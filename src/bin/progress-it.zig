@@ -246,7 +246,7 @@ fn scanProc(
     } else if (builtin.os.tag == .macos) {
         return scanProcMacos(allocator, pid_filter, cmd_filter);
     } else {
-        @compileError("progress is only supported on Linux and macOS");
+        @compileError("progress-it is only supported on Linux and macOS");
     }
 }
 

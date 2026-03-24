@@ -2,7 +2,8 @@
 //!
 //! The root module bundles the repository's reusable Zig packages behind one import root.
 //! Import `zigcli` once, then access the individual packages as
-//! `zigcli.pretty_table`, `zigcli.structargs`, `zigcli.gitignore`, `zigcli.term`, and `zigcli.csv`.
+//! `zigcli.pretty_table`, `zigcli.structargs`, `zigcli.gitignore`, `zigcli.term`,
+//! `zigcli.csv`, and `zigcli.progress`.
 
 const std = @import("std");
 
@@ -20,6 +21,9 @@ pub const term = @import("term.zig");
 
 /// The delimited text parsing package.
 pub const csv = @import("csv.zig");
+
+/// Progress bars, spinners, and multi-progress rendering.
+pub const progress = @import("progress.zig");
 
 test {
     std.testing.refAllDecls(@This());
