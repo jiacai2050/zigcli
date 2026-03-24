@@ -26,7 +26,7 @@
 - Platform support is intentionally enforced in `build.zig`, not ad hoc in each command. Some binaries are skipped entirely when the host/target OS is unsupported:
   - `pidof`, `night-shift`, and `dark-mode` are macOS-only.
   - `timeout` is skipped on Windows.
-  - `progress` only builds on macOS and Linux.
+  - `progress-it` only builds on macOS and Linux.
   - `zfetch` has OS-specific behavior and linking.
   - `zigfetch` depends on the external `zig-curl` package from `build.zig.zon`.
 
