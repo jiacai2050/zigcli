@@ -196,13 +196,14 @@ pub const Progress = struct {
             total: ?u64,
         },
     ) !Progress {
-        if (kind == .bar) {
-            assert(init_options.total != null);
-        } else {
-            assert(init_options.total == null);
-        }
-        if (kind == .spinner) {
-            assert(style.spinner_frames.len > 0);
+        switch (kind) {
+            .bar => {
+                assert(init_options.total != null);
+            },
+            .spinner => {
+                assert(init_options.total == null);
+                assert(style.spinner_frames.len > 0);
+            },
         }
 
         var prefix: std.ArrayList(u8) = .empty;
