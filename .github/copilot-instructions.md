@@ -16,7 +16,7 @@
 ## High-level architecture
 
 - This repository combines two things in one codebase: reusable Zig packages and standalone CLI programs.
-- The reusable import surface is the single root module `zigcli`, defined in `src/lib.zig`. It currently re-exports `structargs`, `pretty_table`, `gitignore`, `term`, and `csv`.
+- The reusable import surface is the single root module `zigcli`, defined in `src/lib.zig`. It currently re-exports `structargs`, `pretty_table`, `gitignore`, `term`, `csv`, and `progress`.
 - The build is centralized in `build.zig`. It registers the `zigcli` root module once, injects a private `build_info` module, then uses comptime loops to auto-register binaries and examples.
 - Every standalone program in `src/bin/*.zig` gets matching `run-<name>`, `install-<name>`, and `test-<name>` build steps automatically.
 - Tests are mostly co-located inside the source files with Zig `test` blocks. `test-zigcli` exercises the reusable module root; per-binary tests come from the individual source files.
