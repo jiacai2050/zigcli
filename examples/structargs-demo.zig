@@ -12,17 +12,17 @@ pub fn main() !void {
     const allocator = arena.allocator();
 
     var opt = try structargs.parse(allocator, struct {
-        // Those fields declare arguments options
-        // only `output` is required, others are all optional
         verbose: ?bool,
         @"user-agent": enum { Chrome, Firefox, Safari } = .Firefox,
-        timeout: ?u16 = 30, // default value
-        output: []const u8,
+        timeout: ?u16 = 30,
+        output: ?[]const u8 = null,
+        file: ?[]const u8 = null,
+        image: ?[]const u8 = null,
+        env: ?[]const u8 = null,
         help: bool = false,
         version: bool = false,
+        completion: ?structargs.Shell = null,
 
-        // This special field define sub_commands,
-        // Each union item is a config struct, which is similar with top-level config struct.
         __commands__: union(enum) {
             sub1: struct {
                 a: u64,
@@ -30,26 +30,42 @@ pub fn main() !void {
             },
             sub2: struct { name: []const u8 },
 
-            // Define help message for sub commands.
             pub const __messages__ = .{
                 .sub1 = "Subcommand 1",
                 .sub2 = "Subcommand 2",
             };
         },
 
-        // This declares option's short name
         pub const __shorts__ = .{
             .verbose = .v,
             .output = .o,
+            .file = .f,
+            .image = .i,
+            .env = .e,
             .@"user-agent" = .A,
             .help = .h,
         };
 
-        // This declares option's help message
         pub const __messages__ = .{
             .verbose = "Make the operation more talkative",
             .output = "Write to file instead of stdout",
+            .file = "Input file path",
+            .image = "Input image path (filters .png, .jpg, .svg)",
+            .env = "Target environment (uses Allocator completer)",
             .timeout = "Max time this request can cost",
+            .completion = "Generate shell completion script",
+        };
+
+        pub const __completers__ = .{
+            .file = completeFile,
+            .image = completeImages,
+            .env = completeEnvs,
+            .output = &[_][]const u8{ "out.txt", "log.txt", "result.json" },
+            .@"user-agent" = struct {
+                fn run() []const []const u8 {
+                    return &.{ "Chrome", "Firefox", "Safari", "Edge", "Opera" };
+                }
+            }.run,
         };
     }, .{
         .argument_prompt = "[file]",
@@ -81,4 +97,46 @@ pub fn main() !void {
     var writer = stdout.writer(&buffer);
     try opt.printHelp(&writer.interface);
     try writer.interface.flush();
+}
+
+fn completeEnvs(allocator: std.mem.Allocator) ![]const structargs.CompletionItem {
+    var list: std.ArrayList(structargs.CompletionItem) = .empty;
+    try list.append(allocator, .{ .value = "development", .description = "Local dev environment" });
+    try list.append(allocator, .{ .value = "staging", .description = "Testing environment" });
+    try list.append(allocator, .{ .value = "production", .description = "Live system" });
+    return list.toOwnedSlice(allocator);
+}
+
+fn completeImages(ctx: structargs.CompletionContext) !void {
+    var dir = std.fs.cwd().openDir(".", .{ .iterate = true }) catch return;
+    defer dir.close();
+
+    var iter = dir.iterate();
+    while (try iter.next()) |entry| {
+        if (entry.kind != .file) continue;
+        const ext = std.fs.path.extension(entry.name);
+        const is_image = std.mem.eql(u8, ext, ".png") or
+            std.mem.eql(u8, ext, ".jpg") or
+            std.mem.eql(u8, ext, ".jpeg") or
+            std.mem.eql(u8, ext, ".svg");
+
+        if (is_image) {
+            try ctx.add(entry.name, "image file");
+        }
+    }
+}
+
+fn completeFile(ctx: structargs.CompletionContext) !void {
+    var dir = std.fs.cwd().openDir(".", .{ .iterate = true }) catch return;
+    defer dir.close();
+
+    var iter = dir.iterate();
+    while (try iter.next()) |entry| {
+        const type_str = switch (entry.kind) {
+            .directory => "directory",
+            .file => "file",
+            else => "other",
+        };
+        try ctx.add(entry.name, type_str);
+    }
 }
