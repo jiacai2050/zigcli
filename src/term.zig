@@ -2,6 +2,9 @@
 
 const builtin = @import("builtin");
 const std = @import("std");
+const windows = std.os.windows;
+
+const utf8_code_page: windows.UINT = 65001;
 
 /// ANSI text styling that can be composed from weight, emphasis, and colors.
 pub const Style = struct {
@@ -133,9 +136,98 @@ pub const Style = struct {
     }
 };
 
+/// Best-effort guard for temporarily switching a Windows console to UTF-8 output.
+pub const Utf8ConsoleOutput = struct {
+    original_code_page: ?windows.UINT = null,
+
+    pub const noop: Utf8ConsoleOutput = .{};
+
+    /// Restores the original console output code page when this process changed it.
+    pub fn deinit(self: Utf8ConsoleOutput) void {
+        if (builtin.os.tag != .windows) {
+            return;
+        }
+
+        const original_code_page = self.original_code_page orelse {
+            return;
+        };
+
+        _ = windows.kernel32.SetConsoleOutputCP(original_code_page);
+    }
+};
+
+const Utf8ConsoleDecision = struct {
+    original_code_page: ?windows.UINT = null,
+
+    fn init(
+        is_windows: bool,
+        is_tty: bool,
+        current_code_page: ?windows.UINT,
+    ) Utf8ConsoleDecision {
+        if (!is_windows) {
+            return .{};
+        }
+        if (!is_tty) {
+            return .{};
+        }
+
+        const original_code_page = current_code_page orelse {
+            return .{};
+        };
+        if (original_code_page == utf8_code_page) {
+            return .{};
+        }
+
+        return .{ .original_code_page = original_code_page };
+    }
+
+    fn shouldSet(self: Utf8ConsoleDecision) bool {
+        return self.original_code_page != null;
+    }
+
+    fn toGuard(
+        self: Utf8ConsoleDecision,
+        set_succeeded: bool,
+    ) Utf8ConsoleOutput {
+        if (!set_succeeded) {
+            return .noop;
+        }
+
+        return .{ .original_code_page = self.original_code_page };
+    }
+};
+
 /// Reports whether `file` is attached to an interactive terminal.
 pub fn isTty(file: std.fs.File) bool {
     return file.isTty();
+}
+
+fn currentConsoleOutputCodePage() ?windows.UINT {
+    if (builtin.os.tag != .windows) {
+        return null;
+    }
+
+    const code_page = windows.kernel32.GetConsoleOutputCP();
+    if (code_page == 0) {
+        return null;
+    }
+
+    return code_page;
+}
+
+/// Switches an attached Windows console to UTF-8 output and returns a restoration guard.
+pub fn enableUtf8ConsoleOutput(file: std.fs.File) Utf8ConsoleOutput {
+    const decision = Utf8ConsoleDecision.init(
+        builtin.os.tag == .windows,
+        file.isTty(),
+        currentConsoleOutputCodePage(),
+    );
+    if (!decision.shouldSet()) {
+        return .noop;
+    }
+
+    const set_succeeded = windows.kernel32.SetConsoleOutputCP(utf8_code_page) != 0;
+    return decision.toGuard(set_succeeded);
 }
 
 /// Returns the detected terminal width for `file`, or `null` when unavailable.
@@ -204,5 +296,49 @@ test "term style write string" {
     try std.testing.expectEqualStrings(
         "\x1b[1m\x1b[3m\x1b[32m\x1b[40mok\x1b[0m",
         allocating.written(),
+    );
+}
+
+test "utf8 console decision skips non-windows" {
+    const decision = Utf8ConsoleDecision.init(false, true, 437);
+
+    try std.testing.expect(!decision.shouldSet());
+}
+
+test "utf8 console decision skips non-tty windows output" {
+    const decision = Utf8ConsoleDecision.init(true, false, 437);
+
+    try std.testing.expect(!decision.shouldSet());
+}
+
+test "utf8 console decision skips when already utf8" {
+    const decision = Utf8ConsoleDecision.init(true, true, utf8_code_page);
+
+    try std.testing.expect(!decision.shouldSet());
+}
+
+test "utf8 console decision requests windows tty change" {
+    const decision = Utf8ConsoleDecision.init(true, true, 437);
+
+    try std.testing.expect(decision.shouldSet());
+    try std.testing.expectEqual(
+        @as(?windows.UINT, 437),
+        decision.original_code_page,
+    );
+}
+
+test "utf8 console guard restores only after successful change" {
+    const decision = Utf8ConsoleDecision.init(true, true, 437);
+
+    const failed_guard = decision.toGuard(false);
+    try std.testing.expectEqual(
+        @as(?windows.UINT, null),
+        failed_guard.original_code_page,
+    );
+
+    const applied_guard = decision.toGuard(true);
+    try std.testing.expectEqual(
+        @as(?windows.UINT, 437),
+        applied_guard.original_code_page,
     );
 }
