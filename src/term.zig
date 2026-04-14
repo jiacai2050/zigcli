@@ -152,6 +152,8 @@ pub const Utf8ConsoleOutput = struct {
             return;
         };
 
+        // Restoring the original code page is best-effort. If this fails, the
+        // console may remain in UTF-8 mode after the process exits.
         _ = windows.kernel32.SetConsoleOutputCP(original_code_page);
     }
 };
@@ -217,6 +219,10 @@ fn currentConsoleOutputCodePage() ?windows.UINT {
 
 /// Switches an attached Windows console to UTF-8 output and returns a restoration guard.
 pub fn enableUtf8ConsoleOutput(file: std.fs.File) Utf8ConsoleOutput {
+    if (builtin.os.tag != .windows) {
+        return .noop;
+    }
+
     const decision = Utf8ConsoleDecision.init(
         builtin.os.tag == .windows,
         file.isTty(),
