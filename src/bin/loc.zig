@@ -512,7 +512,8 @@ test "LOC Zig/Python/Ruby" {
 
     const testcases = .{
         .{
-            "tests/test.zig", .{
+            "tests/test.zig",
+            .{
                 .lang = Language.Zig,
                 .files = 1,
                 .codes = 34,
@@ -522,7 +523,8 @@ test "LOC Zig/Python/Ruby" {
             },
         },
         .{
-            "tests/test.py", .{
+            "tests/test.py",
+            .{
                 .lang = Language.Python,
                 .files = 1,
                 .codes = 7,
@@ -532,7 +534,8 @@ test "LOC Zig/Python/Ruby" {
             },
         },
         .{
-            "tests/test.rb", .{
+            "tests/test.rb",
+            .{
                 .lang = Language.Ruby,
                 .files = 1,
                 .codes = 5,
@@ -542,7 +545,8 @@ test "LOC Zig/Python/Ruby" {
             },
         },
         .{
-            "tests/test.c", .{
+            "tests/test.c",
+            .{
                 .lang = Language.C,
                 .files = 1,
                 .codes = 2,

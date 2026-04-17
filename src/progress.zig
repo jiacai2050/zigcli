@@ -557,7 +557,6 @@ pub const Progress = struct {
     }
 };
 
-
 fn nanosToSeconds(nanos: u64) f64 {
     return @as(f64, @floatFromInt(nanos)) /
         @as(f64, @floatFromInt(std.time.ns_per_s));
