@@ -1,0 +1,148 @@
+#+TITLE: progress
+#+DATE: 2026-04-17T12:00:00+0800
+#+LASTMOD: 2026-04-17T12:00:00+0800
+#+TYPE: docs
+#+WEIGHT: 50
+#+DESCRIPTION: Terminal progress bars and spinners with rate, ETA, and elapsed time
+
+=progress= renders progress bars and spinners to the terminal. It handles ANSI
+cursor control, terminal width detection, render throttling, and rate/ETA
+calculation automatically.
+
+Output is hidden when the target file is not a TTY, so piping or redirecting
+will not produce garbled escape sequences.
+
+Timing uses a monotonic clock (=std.time.Timer=), so rate and ETA calculations
+are immune to wall-clock adjustments.
+
+* Quick start
+
+** Progress bar
+
+#+begin_src zig
+const std = @import("std");
+const zigcli = @import("zigcli");
+const progress = zigcli.progress;
+
+var bar = progress.Progress.bar(allocator, .{
+    .total = 100,
+    .prefix = "download",
+    .message = "fetching data",
+});
+defer bar.deinit();
+
+for (0..100) |_| {
+    bar.inc(1);
+    try bar.render();
+}
+try bar.finish();
+#+end_src
+
+Output:
+
+#+begin_example
+download [==========>---------]  55.0% 55/100 27/s ETA 0:01 fetching data
+#+end_example
+
+** Spinner
+
+#+begin_src zig
+var spinner = progress.Progress.spinner(allocator, .{
+    .prefix = "build",
+    .message = "compiling",
+});
+defer spinner.deinit();
+
+for (0..40) |_| {
+    spinner.tick();
+    try spinner.render();
+}
+try spinner.finish();
+#+end_src
+
+Output:
+
+#+begin_example
+build | elapsed 0:05 compiling
+#+end_example
+
+* API
+
+** Constructors
+
+=Progress.bar(gpa, BarOptions)= creates a progress bar. =Progress.spinner(gpa, SpinnerOptions)=
+creates a spinner. Both return a =Progress= value directly (no allocation, no error).
+
+The =gpa= allocator is only used internally for a short-lived arena during each render call.
+
+** =BarOptions=
+
+| Field                  | Type             | Default        | Description                          |
+|------------------------+------------------+----------------+--------------------------------------|
+| =total=               | =u64=            | (required)     | Total item/byte count                |
+| =unit=                | =Unit=           | =.items=       | =.items= for counts, =.bytes= for human-readable sizes |
+| =bar_width=           | =u16=            | =20=           | Character width of the bar visual    |
+| =prefix=              | =[]const u8=     | =""=           | Label shown before the bar           |
+| =message=             | =[]const u8=     | =""=           | Text shown after the stats           |
+| =position=            | =u64=            | =0=            | Starting position                    |
+| =file=                | =?std.fs.File=   | =stderr=       | Output file                          |
+| =refresh_interval_ns= | =u64=           | =50ms=         | Minimum interval between renders     |
+
+** =SpinnerOptions=
+
+Same as =BarOptions= except there is no =total= or =bar_width= field.
+
+** Methods
+
+| Method            | Description                                                        |
+|-------------------+--------------------------------------------------------------------|
+| =inc(delta)=      | Advance position by =delta= (clamped to total for bars)           |
+| =tick()=          | Advance the spinner frame counter                                  |
+| =setPosition(n)=  | Set absolute position                                              |
+| =setMessage(text)= | Change the trailing message                                       |
+| =render()=        | Render to the terminal (throttled, skipped when hidden)            |
+| =finish()=        | Mark as finished and render a final line with a trailing newline   |
+| =finishAndClear()= | Mark as finished and clear the line from the terminal             |
+| =writeSnapshot(writer)= | Write the current state to an arbitrary writer (useful for tests) |
+| =deinit()=        | Invalidate the struct                                              |
+
+** =Unit=
+
+#+begin_src zig
+pub const Unit = enum { items, bytes };
+#+end_src
+
+When =unit= is =.bytes=, position and rate are formatted as human-readable sizes
+(e.g. =1.5 MiB=, =3.2 MiB/s=).
+
+* Bar display format
+
+The bar always shows the same fields in this order:
+
+#+begin_example
+{prefix} [{bar visual}] {percent} {position}/{total} {rate}/s ETA {eta} {message}
+#+end_example
+
+- Prefix is shown in bold.
+- The bar visual uses colored characters: filled (=cyan), head (=bright_cyan), empty (=bright_black).
+- Stats are shown in =bright_black=.
+- When position is zero or elapsed time is zero, rate and ETA are omitted.
+- The message is truncated with =...= if the line would exceed the terminal width.
+
+* Spinner display format
+
+#+begin_example
+{prefix} {frame} elapsed {duration} {message}
+#+end_example
+
+The spinner cycles through =-=, =\=, =|=, =/= on each =tick()= call. After =finish()=, the frame
+shows =*=.
+
+* Terminal behavior
+
+- Output defaults to stderr.
+- When the output file is not a TTY, rendering is completely suppressed.
+- Each =render()= call uses =\r\x1b[2K= to overwrite the current line.
+- =finish()= appends a newline so the final state is preserved in scrollback.
+- =finishAndClear()= erases the line instead.
+- Rendering is throttled to a configurable interval (default 50ms) to avoid excessive I/O.
