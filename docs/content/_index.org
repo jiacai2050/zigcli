@@ -37,6 +37,7 @@ The reusable packages are documented under [[https://zigcli.liujiacai.net/packag
 - =gitignore= parses and applies =.gitignore= rules in pure Zig.
 - =term= provides terminal styling and capability helpers such as ANSI colors and terminal width
   detection.
+- =progress= renders progress bars and spinners with rate, ETA, and elapsed time display.
 
 The root import is =zigcli=:
 

@@ -1,6 +1,6 @@
 #+TITLE: progress
-#+DATE: 2026-04-17T12:00:00+0800
-#+LASTMOD: 2026-04-17T12:00:00+0800
+#+DATE: 2026-04-17T11:55:10+0800
+#+LASTMOD: 2026-04-17T11:57:24+0800
 #+TYPE: docs
 #+WEIGHT: 50
 #+DESCRIPTION: Terminal progress bars and spinners with rate, ETA, and elapsed time

@@ -1,6 +1,6 @@
 #+TITLE: Packages
 #+DATE: 2024-08-17T17:58:01+0800
-#+LASTMOD: 2026-03-22T13:50:00+0800
+#+LASTMOD: 2026-04-17T11:57:29+0800
 #+WEIGHT: 10
 #+TYPE: docs
 
@@ -12,9 +12,3 @@ The reusable packages are documented in two complementary forms:
 - the generated API documentation at [[https://zigcli.liujiacai.net/apidocs/][apidocs]]
 
 The generated API docs cover the =zigcli= root module and the exported packages:
-
-- =csv=
-- =structargs=
-- =pretty-table=
-- =gitignore=
-- =term=
