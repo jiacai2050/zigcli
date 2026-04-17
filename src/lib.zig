@@ -22,7 +22,7 @@ pub const term = @import("term.zig");
 /// The delimited text parsing package.
 pub const csv = @import("csv.zig");
 
-/// Progress bars, spinners, and multi-progress rendering.
+/// Progress bars and spinners.
 pub const progress = @import("progress.zig");
 
 test {
