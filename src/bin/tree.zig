@@ -8,6 +8,7 @@
 const std = @import("std");
 const zigcli = @import("zigcli");
 const structargs = zigcli.structargs;
+const term = zigcli.term;
 const util = @import("util.zig");
 const gitignore = zigcli.gitignore;
 const StringUtil = util.StringUtil;
@@ -41,6 +42,13 @@ const PREFIX_ARR = [_][4][]const u8{ // mode -> position
 
 fn getPrefix(mode: Mode, pos: Position) []const u8 {
     return PREFIX_ARR[@intFromEnum(mode)][@intFromEnum(pos)];
+}
+
+fn modeNeedsUtf8Console(mode: Mode) bool {
+    return switch (mode) {
+        .ascii => false,
+        .box, .dos => true,
+    };
 }
 
 pub const WalkOptions = struct {
@@ -96,6 +104,12 @@ pub fn main() anyerror!void {
         opt.positional_arguments[0];
 
     const stdout = std.fs.File.stdout();
+    const utf8_console = if (modeNeedsUtf8Console(opt.options.mode))
+        term.enableUtf8ConsoleOutput(stdout)
+    else
+        term.Utf8ConsoleOutput.noop;
+    defer utf8_console.deinit();
+
     var buf: [1024]u8 = undefined;
     var writer = stdout.writer(&buf);
 
@@ -145,6 +159,12 @@ test "testing string lessThan" {
     inline for (testcases) |case| {
         try testing.expectEqual(case.@"2", stringLessThan(case.@"0", case.@"1"));
     }
+}
+
+test "tree mode utf8 console gating" {
+    try testing.expect(!modeNeedsUtf8Console(.ascii));
+    try testing.expect(modeNeedsUtf8Console(.box));
+    try testing.expect(modeNeedsUtf8Console(.dos));
 }
 
 const WalkResult = struct {

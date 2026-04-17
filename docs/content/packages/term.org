@@ -15,6 +15,7 @@ capability checks without pulling table rendering into your own code.
 - =Style.Color= defines the standard ANSI foreground/background colors, including bright variants
 - =Style= combines bold, italic, foreground color, and background color into one reusable value
 - =isTty(file)= reports whether a file is attached to an interactive terminal
+- =enableUtf8ConsoleOutput(file)= temporarily switches a Windows console to UTF-8 output for UTF-8 text
 - =terminalWidth(file)= returns the terminal width when it can be detected, otherwise =null=
 - =stdoutWidth()= is a convenience wrapper for the common stdout case
 
@@ -97,6 +98,27 @@ Use =isTty()= when color or formatting should only be enabled for interactive te
 if (term.isTty(std.fs.File.stdout())) {
     try term.Style.Color.cyan.writeString(&writer.interface, "interactive");
 }
+#+end_src
+
+** =enableUtf8ConsoleOutput(file)=
+
+Use =enableUtf8ConsoleOutput()= when a Windows CLI will emit UTF-8 line-drawing or other non-ASCII
+text directly to an interactive console. The helper is best-effort:
+
+- non-Windows platforms return a no-op guard
+- redirected or piped output stays unchanged
+- the original Windows console output code page is restored in =defer=
+
+#+begin_src zig
+const stdout = std.fs.File.stdout();
+const utf8_console = term.enableUtf8ConsoleOutput(stdout);
+defer utf8_console.deinit();
+
+var buffer: [1024]u8 = undefined;
+var writer = stdout.writer(&buffer);
+
+try writer.interface.writeAll("├── example\n");
+try writer.interface.flush();
 #+end_src
 
 ** =terminalWidth(file)=

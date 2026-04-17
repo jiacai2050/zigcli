@@ -1,6 +1,7 @@
 const std = @import("std");
 const zigcli = @import("zigcli");
 const pt = zigcli.pretty_table;
+const term = zigcli.term;
 const Table = pt.Table;
 const Cell = pt.Cell;
 const Separator = pt.Separator;
@@ -292,6 +293,12 @@ fn printLocMap(
         .padding = padding,
     };
     const stdout = std.fs.File.stdout();
+    const utf8_console = if (mode != .ascii)
+        term.enableUtf8ConsoleOutput(stdout)
+    else
+        term.Utf8ConsoleOutput.noop;
+    defer utf8_console.deinit();
+
     var buf: [1024]u8 = undefined;
     var writer = stdout.writer(&buf);
     try writer.interface.print("{f}\n", .{table});
@@ -387,17 +394,7 @@ fn populateLoc(allocator: std.mem.Allocator, loc_map: *LocMap, dir: fs.Dir, base
         .windows => {
             var buf: [1024]u8 = undefined;
             var rdr = file.reader(&buf);
-            while (true) {
-                const line = rdr.interface.takeDelimiterExclusive('\n') catch |e| {
-                    switch (e) {
-                        error.EndOfStream => return,
-                        else => {
-                            std.log.err("Error when seek line delimiter, name:{s}, err:{any}", .{ basename, e });
-                            return e;
-                        },
-                    }
-                };
-
+            while (try rdr.interface.takeDelimiter('\n')) |line| {
                 state = updateLineType(state, line, lang, loc_entry);
             }
         },

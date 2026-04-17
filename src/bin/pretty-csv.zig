@@ -5,6 +5,7 @@ const zigcli = @import("zigcli");
 const csv = zigcli.csv;
 const structargs = zigcli.structargs;
 const pt = zigcli.pretty_table;
+const term = zigcli.term;
 const util = @import("util.zig");
 const mem = std.mem;
 
@@ -108,6 +109,12 @@ pub fn main() !void {
         document.num_cols;
 
     const stdout = std.fs.File.stdout();
+    const utf8_console = if (opt.options.style != .ascii)
+        term.enableUtf8ConsoleOutput(stdout)
+    else
+        term.Utf8ConsoleOutput.noop;
+    defer utf8_console.deinit();
+
     var output_buf: [8192]u8 = undefined;
     var stdout_writer = stdout.writer(&output_buf);
     const writer = &stdout_writer.interface;
