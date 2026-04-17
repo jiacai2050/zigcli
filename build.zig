@@ -118,6 +118,7 @@ fn buildExamples(
     inline for (.{
         "structargs-demo",
         "pretty-table-demo",
+        "progress-demo",
     }) |name| {
         try buildBinary(b, .{ .example = name }, optimize, target, all_tests);
     }
@@ -142,7 +143,7 @@ fn buildBinaries(
         "cowsay",
         "pretty-csv",
         "zfetch",
-        "progress",
+        "progress-it",
     }) |name| {
         try buildBinary(
             b,
@@ -279,7 +280,7 @@ fn sourceSupported(
         }
     }
 
-    if (std.mem.eql(u8, source_name, "progress")) {
+    if (std.mem.eql(u8, source_name, "progress-it")) {
         if (!(target_os == .macos or target_os == .linux)) {
             return false;
         }
@@ -349,7 +350,7 @@ fn configureCompileStep(
         return;
     }
 
-    if (std.mem.eql(u8, source_name, "progress")) {
+    if (std.mem.eql(u8, source_name, "progress-it")) {
         if (target.result.os.tag == .linux) {
             compile_step.linkLibC();
             return;
