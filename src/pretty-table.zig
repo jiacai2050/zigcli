@@ -2,7 +2,7 @@
 
 const std = @import("std");
 const term = @import("term.zig");
-const Writer = std.io.Writer;
+const Writer = std.Io.Writer;
 
 pub const String = []const u8;
 
@@ -1054,9 +1054,9 @@ test "normal usage" {
         .footer = null,
     };
 
-    var out: std.ArrayList(u8) = .empty;
-    defer out.deinit(std.testing.allocator);
-    try out.writer(std.testing.allocator).print("{f}", .{t});
+    var out: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer out.deinit();
+    try out.writer.print("{f}", .{t});
 
     try std.testing.expectEqualStrings(
         \\+-------+----------+
@@ -1068,7 +1068,7 @@ test "normal usage" {
         \\|0.5.0  |2019-09-30|
         \\+-------+----------+
         \\
-    , out.items);
+    , out.written());
 }
 
 test "footer usage" {
@@ -1081,9 +1081,9 @@ test "footer usage" {
         .footer = [2]Cell{ Cell.init("Total"), Cell.init("5") },
     };
 
-    var out: std.ArrayList(u8) = .empty;
-    defer out.deinit(std.testing.allocator);
-    try out.writer(std.testing.allocator).print("{f}", .{t});
+    var out: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer out.deinit();
+    try out.writer.print("{f}", .{t});
 
     try std.testing.expectEqualStrings(
         \\+--------+-----+
@@ -1095,7 +1095,7 @@ test "footer usage" {
         \\|Total   |5    |
         \\+--------+-----+
         \\
-    , out.items);
+    , out.written());
 }
 
 test "right alignment with padding" {
@@ -1109,9 +1109,9 @@ test "right alignment with padding" {
         .padding = 1,
     };
 
-    var out: std.ArrayList(u8) = .empty;
-    defer out.deinit(std.testing.allocator);
-    try out.writer(std.testing.allocator).print("{f}", .{t});
+    var out: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer out.deinit();
+    try out.writer.print("{f}", .{t});
 
     try std.testing.expectEqualStrings(
         \\+-------+-------+
@@ -1121,7 +1121,7 @@ test "right alignment with padding" {
         \\| Bob   |   200 |
         \\+-------+-------+
         \\
-    , out.items);
+    , out.written());
 }
 
 test "center alignment" {
@@ -1134,9 +1134,9 @@ test "center alignment" {
         .padding = 1,
     };
 
-    var out: std.ArrayList(u8) = .empty;
-    defer out.deinit(std.testing.allocator);
-    try out.writer(std.testing.allocator).print("{f}", .{t});
+    var out: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer out.deinit();
+    try out.writer.print("{f}", .{t});
 
     try std.testing.expectEqualStrings(
         \\+---+----+-----+
@@ -1145,7 +1145,7 @@ test "center alignment" {
         \\| x | yy | zzz |
         \\+---+----+-----+
         \\
-    , out.items);
+    , out.written());
 }
 
 test "row separator" {
@@ -1159,9 +1159,9 @@ test "row separator" {
         .row_separator = true,
     };
 
-    var out: std.ArrayList(u8) = .empty;
-    defer out.deinit(std.testing.allocator);
-    try out.writer(std.testing.allocator).print("{f}", .{t});
+    var out: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer out.deinit();
+    try out.writer.print("{f}", .{t});
 
     try std.testing.expectEqualStrings(
         \\+-+-+
@@ -1174,7 +1174,7 @@ test "row separator" {
         \\|c|3|
         \\+-+-+
         \\
-    , out.items);
+    , out.written());
 }
 
 test "per-cell foreground color" {
@@ -1186,17 +1186,17 @@ test "per-cell foreground color" {
         },
     };
 
-    var out: std.ArrayList(u8) = .empty;
-    defer out.deinit(std.testing.allocator);
-    try out.writer(std.testing.allocator).print("{f}", .{t});
+    var out: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer out.deinit();
+    try out.writer.print("{f}", .{t});
 
     // Borders and column widths are unchanged by color escapes.
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "+------+-----+") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "+------+-----+") != null);
     // Green escape code wraps "OK", red escape code wraps "FAIL".
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\x1b[32mOK\x1b[0m") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\x1b[31mFAIL\x1b[0m") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\x1b[32mOK\x1b[0m") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\x1b[31mFAIL\x1b[0m") != null);
     // Uncolored cells ("100", "0") do not have any escape codes.
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\x1b[32m100") == null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\x1b[32m100") == null);
 }
 
 test "header and footer colors via cell styling" {
@@ -1214,17 +1214,17 @@ test "header and footer colors via cell styling" {
         },
     };
 
-    var out: std.ArrayList(u8) = .empty;
-    defer out.deinit(std.testing.allocator);
-    try out.writer(std.testing.allocator).print("{f}", .{t});
+    var out: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer out.deinit();
+    try out.writer.print("{f}", .{t});
 
     // Header cells are wrapped with bright cyan.
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\x1b[96mName\x1b[0m") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\x1b[96mScore\x1b[0m") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\x1b[96mName\x1b[0m") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\x1b[96mScore\x1b[0m") != null);
     // Footer cells are wrapped with yellow.
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\x1b[33mTotal\x1b[0m") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\x1b[33mTotal\x1b[0m") != null);
     // Data row has no color escape codes.
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\x1b[" ++ "mAlice") == null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\x1b[" ++ "mAlice") == null);
 }
 
 test "bold and italic cell styling" {
@@ -1236,15 +1236,15 @@ test "bold and italic cell styling" {
         },
     };
 
-    var out: std.ArrayList(u8) = .empty;
-    defer out.deinit(std.testing.allocator);
-    try out.writer(std.testing.allocator).print("{f}", .{t});
+    var out: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer out.deinit();
+    try out.writer.print("{f}", .{t});
 
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\x1b[1mbold\x1b[0m") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\x1b[3mitalic\x1b[0m") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\x1b[1m\x1b[3mboth\x1b[0m") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\x1b[1mbold\x1b[0m") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\x1b[3mitalic\x1b[0m") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\x1b[1m\x1b[3mboth\x1b[0m") != null);
     // Plain cells produce no escape sequences.
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\x1b[" ++ "mplain") == null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\x1b[" ++ "mplain") == null);
 }
 
 test "background color" {
@@ -1255,11 +1255,11 @@ test "background color" {
         },
     };
 
-    var out: std.ArrayList(u8) = .empty;
-    defer out.deinit(std.testing.allocator);
-    try out.writer(std.testing.allocator).print("{f}", .{t});
+    var out: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer out.deinit();
+    try out.writer.print("{f}", .{t});
 
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\x1b[41mhi\x1b[0m") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\x1b[41mhi\x1b[0m") != null);
 }
 
 test "hspan basic" {
@@ -1273,18 +1273,18 @@ test "hspan basic" {
         },
     };
 
-    var out: std.ArrayList(u8) = .empty;
-    defer out.deinit(std.testing.allocator);
-    try out.writer(std.testing.allocator).print("{f}", .{t});
+    var out: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer out.deinit();
+    try out.writer.print("{f}", .{t});
 
     // The spanning cell "wide" should appear in the output.
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "wide") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "wide") != null);
     // The placeholder text (empty) is not rendered as a separate column in the span row.
     // Row with span: |a|wide |   (no extra | between "wide" and the right border).
     // The span row must NOT contain "|" between the two spanned columns.
-    const span_row_start = std.mem.indexOf(u8, out.items, "|a|") orelse unreachable;
-    const span_row_end = std.mem.indexOfPos(u8, out.items, span_row_start, "\n") orelse unreachable;
-    const span_row = out.items[span_row_start..span_row_end];
+    const span_row_start = std.mem.indexOf(u8, out.written(), "|a|") orelse unreachable;
+    const span_row_end = std.mem.indexOfPos(u8, out.written(), span_row_start, "\n") orelse unreachable;
+    const span_row = out.written()[span_row_start..span_row_end];
     // The span row should have exactly 3 `|` characters (left, after col 0, right border).
     var pipe_count: usize = 0;
     for (span_row) |ch| {
@@ -1306,17 +1306,17 @@ test "hspan of 3 columns" {
         },
     };
 
-    var out: std.ArrayList(u8) = .empty;
-    defer out.deinit(std.testing.allocator);
-    try out.writer(std.testing.allocator).print("{f}", .{t});
+    var out: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer out.deinit();
+    try out.writer.print("{f}", .{t});
 
     // The spanning cell text must appear in the output.
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "On leave") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "On leave") != null);
     // The span row for Bob should have exactly 3 `|` characters:
     // opening `|`, separator after col 0, and the closing `|`.
-    const span_row_start = std.mem.indexOf(u8, out.items, "|Bob|") orelse unreachable;
-    const span_row_end = std.mem.indexOfPos(u8, out.items, span_row_start, "\n") orelse unreachable;
-    const span_row = out.items[span_row_start..span_row_end];
+    const span_row_start = std.mem.indexOf(u8, out.written(), "|Bob|") orelse unreachable;
+    const span_row_end = std.mem.indexOfPos(u8, out.written(), span_row_start, "\n") orelse unreachable;
+    const span_row = out.written()[span_row_start..span_row_end];
     var pipe_count: usize = 0;
     for (span_row) |ch| {
         if (ch == '|') pipe_count += 1;
@@ -1334,9 +1334,9 @@ test "owned basic" {
     try table.addRow(allocator, .{ "Bob", "200" });
     table.setFooter(.{ "Total", "300" });
 
-    var out: std.ArrayList(u8) = .empty;
-    defer out.deinit(allocator);
-    try out.writer(allocator).print("{f}", .{table});
+    var out: std.Io.Writer.Allocating = .init(allocator);
+    defer out.deinit();
+    try out.writer.print("{f}", .{table});
 
     try std.testing.expectEqualStrings(
         \\┌───────┬───────┐
@@ -1348,7 +1348,7 @@ test "owned basic" {
         \\│ Total │ 300   │
         \\└───────┴───────┘
         \\
-    , out.items);
+    , out.written());
 }
 
 test "owned with styled cells" {
@@ -1362,11 +1362,11 @@ test "owned with styled cells" {
         .{ Cell.init("ok").withFg(.green), Cell.init("1") },
     );
 
-    var out: std.ArrayList(u8) = .empty;
-    defer out.deinit(allocator);
-    try out.writer(allocator).print("{f}", .{table});
+    var out: std.Io.Writer.Allocating = .init(allocator);
+    defer out.deinit();
+    try out.writer.print("{f}", .{table});
 
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\x1b[32mok\x1b[0m") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\x1b[32mok\x1b[0m") != null);
 }
 
 test "table transpose" {
@@ -1382,9 +1382,9 @@ test "table transpose" {
         .transpose = true,
     };
 
-    var out: std.ArrayList(u8) = .empty;
-    defer out.deinit(std.testing.allocator);
-    try out.writer(std.testing.allocator).print("{f}", .{table});
+    var out: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer out.deinit();
+    try out.writer.print("{f}", .{table});
 
     try std.testing.expectEqualStrings(
         \\┌───────┬───────┐
@@ -1397,7 +1397,7 @@ test "table transpose" {
         \\│ Score │ 200 │
         \\└───────┴─────┘
         \\
-    , out.items);
+    , out.written());
 }
 
 test "owned transpose" {
@@ -1413,11 +1413,11 @@ test "owned transpose" {
     table.setHeader(.{ "Name", "Score" });
     try table.addRow(allocator, .{ "Alice", "10" });
 
-    var out: std.ArrayList(u8) = .empty;
-    defer out.deinit(allocator);
-    try out.writer(allocator).print("{f}", .{table});
+    var out: std.Io.Writer.Allocating = .init(allocator);
+    defer out.deinit();
+    try out.writer.print("{f}", .{table});
 
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "│ Score │    10 │") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "│ Score │    10 │") != null);
 }
 
 test "runtime table footer and format" {
@@ -1432,9 +1432,9 @@ test "runtime table footer and format" {
     try table.addRow(&.{ "Python", "2" });
     try table.setFooter(&.{ "Total", "5" });
 
-    var out: std.ArrayList(u8) = .empty;
-    defer out.deinit(allocator);
-    try out.writer(allocator).print("{f}", .{table});
+    var out: std.Io.Writer.Allocating = .init(allocator);
+    defer out.deinit();
+    try out.writer.print("{f}", .{table});
 
     try std.testing.expectEqualStrings(
         \\┌──────────┬───────┐
@@ -1446,7 +1446,7 @@ test "runtime table footer and format" {
         \\│ Total    │ 5     │
         \\└──────────┴───────┘
         \\
-    , out.items);
+    , out.written());
 }
 
 test "runtime table truncation keeps utf8 boundaries" {
@@ -1476,9 +1476,9 @@ test "runtime table column alignment" {
     try table.addRow(&.{ "Alice", "10" });
     try table.addRow(&.{ "Bob", "200" });
 
-    var out: std.ArrayList(u8) = .empty;
-    defer out.deinit(allocator);
-    try out.writer(allocator).print("{f}", .{table});
+    var out: std.Io.Writer.Allocating = .init(allocator);
+    defer out.deinit();
+    try out.writer.print("{f}", .{table});
 
     try std.testing.expectEqualStrings(
         \\+-------+-------+
@@ -1488,7 +1488,7 @@ test "runtime table column alignment" {
         \\| Bob   |   200 |
         \\+-------+-------+
         \\
-    , out.items);
+    , out.written());
 }
 
 test "runtime table transpose includes footer" {
@@ -1503,12 +1503,12 @@ test "runtime table transpose includes footer" {
     try table.addRow(&.{ "A", "1" });
     try table.setFooter(&.{ "Total", "1" });
 
-    var out: std.ArrayList(u8) = .empty;
-    defer out.deinit(allocator);
-    try out.writer(allocator).print("{f}", .{table});
+    var out: std.Io.Writer.Allocating = .init(allocator);
+    defer out.deinit();
+    try out.writer.print("{f}", .{table});
 
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "│ Key   │ Total │") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "│ Value │ 1     │") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "│ Key   │ Total │") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "│ Value │ 1     │") != null);
 }
 
 test "runtime table row separator" {
@@ -1522,9 +1522,9 @@ test "runtime table row separator" {
     try table.addRow(&.{ "b", "2" });
     try table.addRow(&.{ "c", "3" });
 
-    var out: std.ArrayList(u8) = .empty;
-    defer out.deinit(allocator);
-    try out.writer(allocator).print("{f}", .{table});
+    var out: std.Io.Writer.Allocating = .init(allocator);
+    defer out.deinit();
+    try out.writer.print("{f}", .{table});
 
     try std.testing.expectEqualStrings(
         \\+-+-+
@@ -1537,7 +1537,7 @@ test "runtime table row separator" {
         \\|c|3|
         \\+-+-+
         \\
-    , out.items);
+    , out.written());
 }
 
 test "runtime table header footer cell setters" {
@@ -1555,10 +1555,10 @@ test "runtime table header footer cell setters" {
         Cell.init("95").withFg(.yellow),
     });
 
-    var out: std.ArrayList(u8) = .empty;
-    defer out.deinit(allocator);
-    try out.writer(allocator).print("{f}", .{table});
+    var out: std.Io.Writer.Allocating = .init(allocator);
+    defer out.deinit();
+    try out.writer.print("{f}", .{table});
 
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\x1b[96mName\x1b[0m") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out.items, "\x1b[33mTotal\x1b[0m") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\x1b[96mName\x1b[0m") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.written(), "\x1b[33mTotal\x1b[0m") != null);
 }

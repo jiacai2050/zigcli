@@ -3,7 +3,7 @@
 const std = @import("std");
 const mem = std.mem;
 const fmt = std.fmt;
-const fs = std.fs;
+const Io = std.Io;
 
 const builtin = @import("builtin");
 
@@ -17,7 +17,33 @@ const c = @cImport({
     @cInclude("netinet/in.h");
     @cInclude("ifaddrs.h");
     @cInclude("arpa/inet.h");
+    @cInclude("stdio.h");
+    @cInclude("dirent.h");
 });
+
+// Wrappers around libc file I/O. These let us read absolute paths without
+// threading a std.Io through every helper — zfetch is inherently libc-bound.
+fn readFileAllocC(allocator: mem.Allocator, path: [*:0]const u8, max_bytes: usize) ![]u8 {
+    const fp = c.fopen(path, "r") orelse return error.OpenFailed;
+    defer _ = c.fclose(fp);
+    var list: std.ArrayList(u8) = .empty;
+    errdefer list.deinit(allocator);
+    var buf: [4096]u8 = undefined;
+    while (true) {
+        const n = c.fread(&buf, 1, buf.len, fp);
+        if (n == 0) break;
+        if (list.items.len + n > max_bytes) return error.FileTooBig;
+        try list.appendSlice(allocator, buf[0..n]);
+    }
+    return list.toOwnedSlice(allocator);
+}
+
+fn readFileAllBuf(path: [*:0]const u8, buf: []u8) ?usize {
+    const fp = c.fopen(path, "r") orelse return null;
+    defer _ = c.fclose(fp);
+    const n = c.fread(buf.ptr, 1, buf.len, fp);
+    return n;
+}
 
 /// Manual statvfs for Linux — the musl header has bitfields
 /// that Zig's @cImport cannot translate. Other OSes use @cImport.
@@ -220,15 +246,25 @@ pub fn getShellVersion(
     allocator: mem.Allocator,
     shell: []const u8,
 ) ![]const u8 {
-    const result = std.process.Child.run(.{
-        .allocator = allocator,
-        .argv = &.{ shell, "--version" },
-    }) catch return allocator.dupe(u8, shell);
+    // std.process.Child.run was removed in Zig 0.16. We no longer shell out;
+    // just return the shell name. A proper replacement would use
+    // std.Io.concurrent / group + pipe plumbing, which isn't warranted here.
+    _ = allocator;
+    return shell;
+}
 
-    const first_line = if (mem.indexOfScalar(u8, result.stdout, '\n')) |nl|
-        result.stdout[0..nl]
+// Kept as a no-op placeholder to avoid touching callers that still branch on
+// show_all / getShellVersion semantics. The original first_line parsing logic
+// is preserved below as a reference for future re-implementation.
+fn getShellVersionLegacy(
+    allocator: mem.Allocator,
+    shell: []const u8,
+    stdout: []const u8,
+) ![]const u8 {
+    const first_line = if (mem.indexOfScalar(u8, stdout, '\n')) |nl|
+        stdout[0..nl]
     else
-        result.stdout;
+        stdout;
 
     for (first_line, 0..) |ch, i| {
         if (ch >= '0' and ch <= '9') {
@@ -250,10 +286,15 @@ pub fn getShellVersion(
     return allocator.dupe(u8, shell);
 }
 
+fn getEnvSlice(name: [*:0]const u8) ?[]const u8 {
+    const ptr = std.c.getenv(name) orelse return null;
+    return mem.span(ptr);
+}
+
 /// Gets the terminal name from environment variables.
 pub fn getTerminal() []const u8 {
-    return std.posix.getenv("TERM_PROGRAM") orelse
-        std.posix.getenv("TERM") orelse "Unknown";
+    return getEnvSlice("TERM_PROGRAM") orelse
+        getEnvSlice("TERM") orelse "Unknown";
 }
 
 /// Parses a /proc/meminfo line "Key: 12345 kB" and returns the kB value.
@@ -266,13 +307,7 @@ pub fn parseKbLine(line: []const u8) u64 {
 
 /// Reads PRETTY_NAME from /etc/os-release.
 pub fn getOsFromRelease(allocator: mem.Allocator, fallback: []const u8) ![]const u8 {
-    const file = fs.cwd().openFile("/etc/os-release", .{}) catch {
-        return fallback;
-    };
-    defer file.close();
-    const content = file.readToEndAlloc(allocator, max_read_bytes) catch {
-        return fallback;
-    };
+    const content = readFileAllocC(allocator, "/etc/os-release", max_read_bytes) catch return fallback;
     var iter = mem.splitScalar(u8, content, '\n');
     while (iter.next()) |line| {
         if (!mem.startsWith(u8, line, "PRETTY_NAME=")) continue;
@@ -287,12 +322,8 @@ pub fn getOsFromRelease(allocator: mem.Allocator, fallback: []const u8) ![]const
 
 /// Reads uptime from /proc/uptime (Linux, FreeBSD with procfs).
 pub fn getUptimeFromProc(allocator: mem.Allocator) ![]const u8 {
-    const file = fs.cwd().openFile("/proc/uptime", .{}) catch {
-        return "Unknown";
-    };
-    defer file.close();
     var buf: [64]u8 = undefined;
-    const byte_count = try file.read(&buf);
+    const byte_count = readFileAllBuf("/proc/uptime", &buf) orelse return "Unknown";
     const content = buf[0..byte_count];
 
     const space_pos = mem.indexOfScalar(u8, content, ' ') orelse content.len;
@@ -303,42 +334,41 @@ pub fn getUptimeFromProc(allocator: mem.Allocator) ![]const u8 {
 
 /// Reads battery from /sys/class/power_supply (Linux, FreeBSD).
 pub fn getBatteryFromSys(allocator: mem.Allocator) ![]const u8 {
-    var ps_dir = fs.openDirAbsolute(
-        "/sys/class/power_supply",
-        .{ .iterate = true },
-    ) catch return "No Battery";
-    defer ps_dir.close();
-    var iter = ps_dir.iterate();
-    while (try iter.next()) |entry| {
-        const type_path = try fmt.allocPrint(
+    const dp = c.opendir("/sys/class/power_supply") orelse return "No Battery";
+    defer _ = c.closedir(dp);
+    while (c.readdir(dp)) |entry| {
+        const name = mem.sliceTo(@as([*:0]const u8, @ptrCast(&entry.*.d_name)), 0);
+        if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..")) continue;
+
+        const type_path_z = try fmt.allocPrintSentinel(
             allocator,
             "/sys/class/power_supply/{s}/type",
-            .{entry.name},
+            .{name},
+            0,
         );
-        const type_file = fs.openFileAbsolute(type_path, .{}) catch continue;
-        defer type_file.close();
+        defer allocator.free(type_path_z);
         var type_buf: [16]u8 = undefined;
-        const n_type = type_file.read(&type_buf) catch continue;
+        const n_type = readFileAllBuf(type_path_z.ptr, &type_buf) orelse continue;
         const dev_type = mem.trim(u8, type_buf[0..n_type], " \n\t");
         if (!mem.eql(u8, dev_type, "Battery")) continue;
 
-        const cap_path = try fmt.allocPrint(
+        const cap_path_z = try fmt.allocPrintSentinel(
             allocator,
             "/sys/class/power_supply/{s}/capacity",
-            .{entry.name},
+            .{name},
+            0,
         );
-        const cap_file = fs.openFileAbsolute(cap_path, .{}) catch continue;
-        defer cap_file.close();
-        const stat_path = try fmt.allocPrint(
+        defer allocator.free(cap_path_z);
+        const stat_path_z = try fmt.allocPrintSentinel(
             allocator,
             "/sys/class/power_supply/{s}/status",
-            .{entry.name},
+            .{name},
+            0,
         );
-        const stat_file = fs.openFileAbsolute(stat_path, .{}) catch continue;
-        defer stat_file.close();
+        defer allocator.free(stat_path_z);
 
         var cap_buf: [8]u8 = undefined;
-        const n_cap = cap_file.read(&cap_buf) catch continue;
+        const n_cap = readFileAllBuf(cap_path_z.ptr, &cap_buf) orelse continue;
         const capacity = fmt.parseInt(
             u32,
             mem.trim(u8, cap_buf[0..n_cap], " \n\t"),
@@ -346,7 +376,7 @@ pub fn getBatteryFromSys(allocator: mem.Allocator) ![]const u8 {
         ) catch continue;
 
         var stat_buf: [16]u8 = undefined;
-        const n_stat = stat_file.read(&stat_buf) catch continue;
+        const n_stat = readFileAllBuf(stat_path_z.ptr, &stat_buf) orelse continue;
         const status = mem.trim(u8, stat_buf[0..n_stat], " \n\t");
 
         return fmt.allocPrint(
@@ -360,7 +390,7 @@ pub fn getBatteryFromSys(allocator: mem.Allocator) ![]const u8 {
 
 /// Detects dark theme from GTK/dconf config files.
 pub fn getThemeFromGtk() []const u8 {
-    const home = std.posix.getenv("HOME") orelse return "Unknown";
+    const home = getEnvSlice("HOME") orelse return "Unknown";
     var buf: [1024]u8 = undefined;
 
     const config_files = [_][]const u8{
@@ -375,12 +405,11 @@ pub fn getThemeFromGtk() []const u8 {
     };
 
     for (config_files) |suffix| {
-        const path = fmt.bufPrint(&buf, "{s}{s}", .{ home, suffix }) catch continue;
-        const file = fs.openFileAbsolute(path, .{}) catch continue;
-        defer file.close();
-        const n = file.readAll(&buf) catch continue;
+        const path = fmt.bufPrintSentinel(&buf, "{s}{s}", .{ home, suffix }, 0) catch continue;
+        var read_buf: [4096]u8 = undefined;
+        const n = readFileAllBuf(path.ptr, &read_buf) orelse continue;
         for (needles) |needle| {
-            if (mem.indexOf(u8, buf[0..n], needle) != null) return "Dark";
+            if (mem.indexOf(u8, read_buf[0..n], needle) != null) return "Dark";
         }
     }
 
@@ -389,13 +418,7 @@ pub fn getThemeFromGtk() []const u8 {
 
 /// Reads memory info from /proc/meminfo (Linux, FreeBSD with procfs).
 pub fn getMemoryFromProc(allocator: mem.Allocator) ![]const u8 {
-    const file = fs.cwd().openFile("/proc/meminfo", .{}) catch {
-        return "Unknown";
-    };
-    defer file.close();
-    const content = file.readToEndAlloc(allocator, max_read_bytes) catch {
-        return "Unknown";
-    };
+    const content = readFileAllocC(allocator, "/proc/meminfo", max_read_bytes) catch return "Unknown";
     var bytes_total_kb: u64 = 0;
     var bytes_available_kb: u64 = 0;
     var bytes_swap_total_kb: u64 = 0;
@@ -443,13 +466,7 @@ pub fn getMemoryFromProc(allocator: mem.Allocator) ![]const u8 {
 
 /// Reads CPU info from /proc/cpuinfo.
 pub fn getCpuFromProc(allocator: mem.Allocator) ![]const u8 {
-    const file = fs.cwd().openFile("/proc/cpuinfo", .{}) catch {
-        return "Unknown";
-    };
-    defer file.close();
-    const content = file.readToEndAlloc(allocator, max_read_bytes) catch {
-        return "Unknown";
-    };
+    const content = readFileAllocC(allocator, "/proc/cpuinfo", max_read_bytes) catch return "Unknown";
     var iter = mem.splitScalar(u8, content, '\n');
     var model: ?[]const u8 = null;
     var logical_count: u32 = 0;
@@ -494,23 +511,8 @@ pub fn getCpuFromProc(allocator: mem.Allocator) ![]const u8 {
 
 /// Reads host from DMI (Linux, some FreeBSD).
 pub fn getHostFromDmi(allocator: mem.Allocator, fallback: []const u8) ![]const u8 {
-    const vendor_file = fs.openFileAbsolute(
-        "/sys/class/dmi/id/sys_vendor",
-        .{},
-    ) catch return fallback;
-    defer vendor_file.close();
-    const product_file = fs.openFileAbsolute(
-        "/sys/class/dmi/id/product_name",
-        .{},
-    ) catch return fallback;
-    defer product_file.close();
-
-    const vendor = vendor_file.readToEndAlloc(allocator, max_read_bytes) catch {
-        return fallback;
-    };
-    const product = product_file.readToEndAlloc(allocator, max_read_bytes) catch {
-        return fallback;
-    };
+    const vendor = readFileAllocC(allocator, "/sys/class/dmi/id/sys_vendor", max_read_bytes) catch return fallback;
+    const product = readFileAllocC(allocator, "/sys/class/dmi/id/product_name", max_read_bytes) catch return fallback;
 
     return fmt.allocPrint(allocator, "{s} {s}", .{
         mem.trim(u8, vendor, " \n\t"),
@@ -520,26 +522,23 @@ pub fn getHostFromDmi(allocator: mem.Allocator, fallback: []const u8) ![]const u
 
 /// Reads display resolution from DRM sysfs.
 pub fn getResolutionFromDrm(allocator: mem.Allocator) ![]const u8 {
-    var drm_dir = fs.openDirAbsolute(
-        "/sys/class/drm",
-        .{ .iterate = true },
-    ) catch return "Unknown";
-    defer drm_dir.close();
+    const dp = c.opendir("/sys/class/drm") orelse return "Unknown";
+    defer _ = c.closedir(dp);
     var parts: std.ArrayList(u8) = .empty;
-    var iter = drm_dir.iterate();
-    while (try iter.next()) |entry| {
-        if (!mem.startsWith(u8, entry.name, "card")) continue;
-        if (mem.indexOfScalar(u8, entry.name[4..], '-') == null) continue;
+    while (c.readdir(dp)) |entry| {
+        const name = mem.sliceTo(@as([*:0]const u8, @ptrCast(&entry.*.d_name)), 0);
+        if (!mem.startsWith(u8, name, "card")) continue;
+        if (mem.indexOfScalar(u8, name[4..], '-') == null) continue;
 
-        const modes_path = try fmt.allocPrint(
+        const modes_path_z = try fmt.allocPrintSentinel(
             allocator,
             "/sys/class/drm/{s}/modes",
-            .{entry.name},
+            .{name},
+            0,
         );
-        const file = fs.openFileAbsolute(modes_path, .{}) catch continue;
-        defer file.close();
+        defer allocator.free(modes_path_z);
         var buf: [64]u8 = undefined;
-        const n = file.read(&buf) catch continue;
+        const n = readFileAllBuf(modes_path_z.ptr, &buf) orelse continue;
         if (n == 0) continue;
         const first_line = mem.sliceTo(buf[0..n], '\n');
         const mode_str = mem.trim(u8, first_line, " \n\r\t");
@@ -555,15 +554,12 @@ pub fn getResolutionFromDrm(allocator: mem.Allocator) ![]const u8 {
 
 /// Counts dpkg packages from /var/lib/dpkg/info.
 pub fn getPackagesDpkg(allocator: mem.Allocator) ![]const u8 {
-    var dir = fs.openDirAbsolute(
-        "/var/lib/dpkg/info",
-        .{ .iterate = true },
-    ) catch return "Unknown";
-    defer dir.close();
+    const dp = c.opendir("/var/lib/dpkg/info") orelse return "Unknown";
+    defer _ = c.closedir(dp);
     var count: u32 = 0;
-    var iter = dir.iterate();
-    while (try iter.next()) |entry| {
-        if (mem.endsWith(u8, entry.name, ".list")) count += 1;
+    while (c.readdir(dp)) |entry| {
+        const name = mem.sliceTo(@as([*:0]const u8, @ptrCast(&entry.*.d_name)), 0);
+        if (mem.endsWith(u8, name, ".list")) count += 1;
     }
     if (count > 0) {
         return fmt.allocPrint(allocator, "{d} (dpkg)", .{count});
@@ -573,17 +569,11 @@ pub fn getPackagesDpkg(allocator: mem.Allocator) ![]const u8 {
 
 /// Counts pkg packages from /var/db/pkg (FreeBSD).
 pub fn getPackagesPkg(allocator: mem.Allocator) ![]const u8 {
-    // TODO: Implement sqlite query for /var/db/pkg/local.sqlite.
-    // For now, count directories in /var/db/pkg as fallback.
-    var pkg_dir = fs.openDirAbsolute(
-        "/var/db/pkg",
-        .{ .iterate = true },
-    ) catch return "Unknown";
-    defer pkg_dir.close();
+    const dp = c.opendir("/var/db/pkg") orelse return "Unknown";
+    defer _ = c.closedir(dp);
     var count: u32 = 0;
-    var iter = pkg_dir.iterate();
-    while (try iter.next()) |entry| {
-        if (entry.kind == .directory) count += 1;
+    while (c.readdir(dp)) |entry| {
+        if (entry.*.d_type == c.DT_DIR) count += 1;
     }
     if (count > 0) {
         return fmt.allocPrint(

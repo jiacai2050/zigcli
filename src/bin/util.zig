@@ -104,11 +104,11 @@ test "slice iter" {
 // global var, used in one binary program.
 var verbose: bool = false;
 
-pub var enableVerbose = std.once(struct {
-    fn do() void {
+pub const enableVerbose = struct {
+    pub fn call() void {
         verbose = true;
     }
-}.do);
+};
 
 pub fn debugPrint(
     comptime format: []const u8,

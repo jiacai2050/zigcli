@@ -3,35 +3,34 @@
 
 const std = @import("std");
 const posix = std.posix;
-const Child = std.process.Child;
+const util = @import("util.zig");
 
-pub var child: Child = undefined;
+pub var child: std.process.Child = undefined;
 pub var spawn_success = false;
+pub var child_io: std.Io = undefined;
 
-pub fn main() !void {
-    posix.sigaction(posix.SIG.ALRM, &posix.Sigaction{
-        .handler = .{
-            .handler = struct {
-                pub fn handler(got: c_int) callconv(.c) void {
-                    std.debug.assert(got == posix.SIG.ALRM);
-                    _ = child.kill() catch |e| {
-                        std.log.err("Kill child failed, err:{any}", .{e});
-                        return;
-                    };
-                    posix.exit(124); // timeout
-                }
-            }.handler,
-        },
+fn alarmHandler(got: posix.SIG) callconv(.c) void {
+    _ = got;
+    if (spawn_success) {
+        child.kill(child_io);
+    }
+    std.process.exit(124);
+}
+
+pub fn main(init: std.process.Init) !void {
+    var gpa = util.Allocator.instance;
+    defer gpa.deinit();
+    const allocator = gpa.allocator();
+    child_io = init.io;
+
+    posix.sigaction(.ALRM, &posix.Sigaction{
+        .handler = .{ .handler = alarmHandler },
         .mask = posix.sigemptyset(),
         .flags = 0,
     }, null);
 
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer if (gpa.deinit() != .ok) @panic("leak");
-    const allocator = gpa.allocator();
-
-    const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
+    const args = try init.minimal.args.toSlice(allocator);
+    defer allocator.free(args);
 
     if (args.len < 3) {
         std.debug.print(
@@ -39,7 +38,7 @@ pub fn main() !void {
             \\ {s} SECONDS COMMAND [ARG]...
             \\
         , .{args[0]});
-        posix.exit(1);
+        std.process.exit(1);
     }
 
     const ttl_seconds = try std.fmt.parseInt(c_uint, args[1], 10);
@@ -47,20 +46,21 @@ pub fn main() !void {
     const ret = std.c.alarm(ttl_seconds);
     if (ret != 0) {
         std.log.err("Set alarm signal failed, retcode:{d}", .{ret});
-        posix.exit(1);
+        std.process.exit(1);
     }
 
-    child = Child.init(cmds, allocator);
-    try child.spawn();
+    const plain_argv = try allocator.alloc([]const u8, cmds.len);
+    defer allocator.free(plain_argv);
+    for (cmds, 0..) |a, i| plain_argv[i] = a;
+
+    child = try std.process.spawn(init.io, .{ .argv = plain_argv });
     spawn_success = true;
-    const term = try child.wait();
+    const term = try child.wait(init.io);
     switch (term) {
-        .Exited => |status| {
-            posix.exit(status);
-        },
+        .exited => |status| std.process.exit(status),
         else => {
             std.log.err("Child internal error, term:{any}", .{term});
-            posix.exit(125);
+            std.process.exit(125);
         },
     }
 }

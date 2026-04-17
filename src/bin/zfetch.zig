@@ -20,12 +20,18 @@ const platform = switch (builtin.os.tag) {
 
 const Format = enum { text, json };
 
-pub fn main() !void {
+fn getEnvSlice(name: [*:0]const u8) ?[]const u8 {
+    const ptr = std.c.getenv(name) orelse return null;
+    return mem.span(ptr);
+}
+
+pub fn main(init: std.process.Init) !void {
     var gpa = util.Allocator.instance;
     defer gpa.deinit();
     const allocator = gpa.allocator();
+    const io = init.io;
 
-    const opt = try structargs.parse(allocator, struct {
+    const opt = try structargs.parse(allocator, io, init.minimal.args, struct {
         help: bool = false,
         version: bool = false,
         all: bool = false,
@@ -53,10 +59,10 @@ pub fn main() !void {
     defer arena.deinit();
     const arena_alloc = arena.allocator();
 
-    const stdout = std.fs.File.stdout();
+    const stdout = std.Io.File.stdout();
     const is_tty = term.isTty(stdout);
     var output_buf: [8192]u8 = undefined;
-    var writer = stdout.writer(&output_buf);
+    var writer = stdout.writer(io, &output_buf);
 
     try printInfo(
         arena_alloc,
@@ -97,10 +103,10 @@ fn collectInfo(
     const hostname = try platform.getHostname(allocator);
     const kernel = try platform.getKernel(allocator);
 
-    const username = std.posix.getenv("USER") orelse
-        std.posix.getenv("USERNAME") orelse "unknown";
+    const username = getEnvSlice("USER") orelse
+        getEnvSlice("USERNAME") orelse "unknown";
 
-    const shell_path = std.posix.getenv("SHELL") orelse "unknown";
+    const shell_path = getEnvSlice("SHELL") orelse "unknown";
     const last_slash = mem.lastIndexOfScalar(u8, shell_path, '/');
     const shell = if (last_slash) |idx|
         shell_path[idx + 1 ..]

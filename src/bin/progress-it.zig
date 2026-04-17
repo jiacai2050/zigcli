@@ -109,12 +109,12 @@ const FileInfo = struct {
     }
 };
 
-pub fn main() !void {
+pub fn main(init: std.process.Init) !void {
     var gpa = util.Allocator.instance;
     defer gpa.deinit();
     const allocator = gpa.allocator();
 
-    const opt = try structargs.parse(allocator, Options, .{
+    const opt = try structargs.parse(allocator, init.io, init.minimal.args, Options, .{
         .argument_prompt = "",
         .version_string = util.get_build_info(),
     });
@@ -155,14 +155,15 @@ pub fn main() !void {
 
     const pid_filter: ?[]const u32 = if (pid_list.items.len > 0) pid_list.items else null;
 
-    const stdout = std.fs.File.stdout();
+    const stdout = std.Io.File.stdout();
     var stdout_buf: [8192]u8 = undefined;
-    var writer = stdout.writer(&stdout_buf);
+    var writer = stdout.writer(init.io, &stdout_buf);
 
     if (options.monitor) {
         // Loop until no more matching processes are running.
         while (true) {
             const found = try runOnce(
+                init.io,
                 allocator,
                 &writer.interface,
                 pid_filter,
@@ -182,11 +183,12 @@ pub fn main() !void {
                 defer arena.deinit();
                 const snap = try scanProc(arena.allocator(), pid_filter, cmd_list.items);
                 if (snap.items.len > 0) break;
-                std.Thread.sleep(time.ns_per_s);
+                try std.Io.sleep(init.io, .{ .nanoseconds = time.ns_per_s }, .awake);
                 elapsed += 1;
             }
         }
         _ = try runOnce(
+            init.io,
             allocator,
             &writer.interface,
             pid_filter,
@@ -200,6 +202,7 @@ pub fn main() !void {
 /// Run one progress reporting cycle: take two snapshots and display results.
 /// Returns true if any matching processes were found.
 fn runOnce(
+    io: std.Io,
     allocator: mem.Allocator,
     writer: *std.Io.Writer,
     pid_filter: ?[]const u32,
@@ -211,7 +214,7 @@ fn runOnce(
     const snap1 = try scanProc(arena1.allocator(), pid_filter, cmd_filter);
     if (snap1.items.len == 0) return false;
 
-    std.Thread.sleep(options.@"throughput-wait-time" * time.ns_per_s);
+    try std.Io.sleep(io, .{ .nanoseconds = @intCast(options.@"throughput-wait-time" * time.ns_per_s) }, .awake);
 
     var arena2 = std.heap.ArenaAllocator.init(allocator);
     defer arena2.deinit();

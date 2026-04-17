@@ -31,8 +31,8 @@ const Source = union(enum) {
 
     fn path(self: Self) []const u8 {
         return switch (self) {
-            .binary => |_| "src/bin",
-            .example => |_| "examples",
+            .binary => "src/bin",
+            .example => "examples",
         };
     }
 
@@ -75,7 +75,7 @@ fn addModules(
         []const u8,
         "build_date",
         b.option([]const u8, "build_date", "Build date") orelse
-            b.fmt("{d}", .{std.time.milliTimestamp()}),
+            "Unknown",
     );
 
     build_info_options.addOption(
@@ -96,7 +96,7 @@ fn addModules(
         .ReleaseSmall => "ReleaseSmall",
         .ReleaseSafe => "ReleaseSafe",
     });
-    try b.modules.put("build_info", build_info_options.createModule());
+    try b.modules.put(b.allocator, "build_info", build_info_options.createModule());
 
     const module_tests = b.addTest(.{
         .root_module = b.createModule(.{
@@ -131,7 +131,6 @@ fn buildBinaries(
     all_tests: *Step,
 ) !void {
     inline for (.{
-        "zigfetch",
         "tree",
         "loc",
         "pidof",
@@ -241,7 +240,7 @@ fn makeCompileStep(
         }),
     });
 
-    configureCompileStep(b, compile_step, source_name, optimize, target);
+    configureCompileStep(compile_step, source_name, target);
 
     const install_step = b.step("install-" ++ source_name, "Install " ++ source_name);
     install_step.dependOn(&b.addInstallArtifact(compile_step, .{}).step);
@@ -255,7 +254,7 @@ fn sourceSupported(
 ) bool {
     if (target_os == .freebsd) {
         // FreeBSD currently lacks std.net.if_nametoindex, which blocks these programs.
-        if (sourceNameInList(source_name, .{ "zigfetch", "tcp-proxy" })) {
+        if (sourceNameInList(source_name, .{"tcp-proxy"})) {
             return false;
         }
     }
@@ -290,60 +289,48 @@ fn sourceSupported(
 }
 
 fn configureCompileStep(
-    b: *std.Build,
     compile_step: *Build.Step.Compile,
     source_name: []const u8,
-    optimize: std.builtin.OptimizeMode,
     target: std.Build.ResolvedTarget,
 ) void {
+    const module = compile_step.root_module;
     if (std.mem.eql(u8, source_name, "night-shift")) {
-        compile_step.linkSystemLibrary("objc");
-        addMacOSPrivateFrameworkPaths(compile_step);
-        compile_step.linkFramework("CoreBrightness");
+        module.linkSystemLibrary("objc", .{});
+        addMacOSPrivateFrameworkPaths(module);
+        module.linkFramework("CoreBrightness", .{});
         return;
     }
 
     if (std.mem.eql(u8, source_name, "dark-mode")) {
-        addMacOSPrivateFrameworkPaths(compile_step);
-        compile_step.linkFramework("SkyLight");
+        addMacOSPrivateFrameworkPaths(module);
+        module.linkFramework("SkyLight", .{});
         return;
     }
 
     if (std.mem.eql(u8, source_name, "tcp-proxy")) {
-        compile_step.linkLibC();
+        module.link_libc = true;
         return;
     }
 
     if (std.mem.eql(u8, source_name, "timeout")) {
-        compile_step.linkLibC();
-        return;
-    }
-
-    if (std.mem.eql(u8, source_name, "zigfetch")) {
-        const curl_dependency = b.dependency("curl", .{
-            .link_vendor = true,
-            .target = target,
-            .optimize = optimize,
-        });
-        compile_step.root_module.addImport("curl", curl_dependency.module("curl"));
-        compile_step.linkLibC();
+        module.link_libc = true;
         return;
     }
 
     if (std.mem.eql(u8, source_name, "pidof")) {
-        compile_step.linkLibC();
+        module.link_libc = true;
         return;
     }
 
     if (std.mem.eql(u8, source_name, "zfetch")) {
         switch (target.result.os.tag) {
             .macos => {
-                compile_step.linkFramework("CoreGraphics");
-                compile_step.linkFramework("Foundation");
-                compile_step.linkFramework("IOKit");
+                module.linkFramework("CoreGraphics", .{});
+                module.linkFramework("Foundation", .{});
+                module.linkFramework("IOKit", .{});
             },
             .linux => {
-                compile_step.linkLibC();
+                module.link_libc = true;
             },
             else => {},
         }
@@ -352,7 +339,7 @@ fn configureCompileStep(
 
     if (std.mem.eql(u8, source_name, "progress-it")) {
         if (target.result.os.tag == .linux) {
-            compile_step.linkLibC();
+            module.link_libc = true;
             return;
         }
     }
@@ -388,7 +375,7 @@ fn zfetchSupported(
     }
 }
 
-fn addMacOSPrivateFrameworkPaths(compile_step: *Build.Step.Compile) void {
-    compile_step.addFrameworkPath(.{ .cwd_relative = macos_private_framework_xcode });
-    compile_step.addFrameworkPath(.{ .cwd_relative = macos_private_framework_clt });
+fn addMacOSPrivateFrameworkPaths(module: *Build.Module) void {
+    module.addFrameworkPath(.{ .cwd_relative = macos_private_framework_xcode });
+    module.addFrameworkPath(.{ .cwd_relative = macos_private_framework_clt });
 }

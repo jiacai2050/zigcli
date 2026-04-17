@@ -2,16 +2,11 @@
     .name = .zigcli,
     .fingerprint = 0x9e1fddac8cbb1039,
     .version = "0.5.0",
-    .minimum_zig_version = "0.15.2",
+    .minimum_zig_version = "0.16.0",
     .paths = .{
         "src",
         "build.zig",
         "build.zig.zon",
     },
-    .dependencies = .{
-        .curl = .{
-            .url = "https://github.com/jiacai2050/zig-curl/archive/refs/tags/v0.3.2.tar.gz",
-            .hash = "curl-0.3.2-P4tT4SXPAACuV6f5eyh4jG_1SspjWwMm_vRJfoKrQep5",
-        },
-    },
+    .dependencies = .{},
 }

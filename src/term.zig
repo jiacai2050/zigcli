@@ -134,21 +134,30 @@ pub const Style = struct {
 };
 
 /// Reports whether `file` is attached to an interactive terminal.
-pub fn isTty(file: std.fs.File) bool {
-    return file.isTty();
+/// Implemented directly via `TIOCGWINSZ` to avoid requiring an `Io` instance.
+pub fn isTty(file: std.Io.File) bool {
+    if (builtin.os.tag == .windows) {
+        return false;
+    }
+    if (!@hasDecl(std.posix, "T")) {
+        return false;
+    }
+    var winsize: std.posix.winsize = undefined;
+    const rc = std.posix.system.ioctl(
+        file.handle,
+        std.posix.T.IOCGWINSZ,
+        @intFromPtr(&winsize),
+    );
+    return std.posix.errno(rc) == .SUCCESS;
 }
 
 /// Returns the detected terminal width for `file`, or `null` when unavailable.
-pub fn terminalWidth(file: std.fs.File) ?u16 {
+pub fn terminalWidth(file: std.Io.File) ?u16 {
     if (builtin.os.tag == .windows) {
         return null;
     }
 
     if (!@hasDecl(std.posix, "T")) {
-        return null;
-    }
-
-    if (!isTty(file)) {
         return null;
     }
 
@@ -171,7 +180,7 @@ pub fn terminalWidth(file: std.fs.File) ?u16 {
 
 /// Returns the detected terminal width for stdout, or `null` when unavailable.
 pub fn stdoutWidth() ?u16 {
-    return terminalWidth(std.fs.File.stdout());
+    return terminalWidth(std.Io.File.stdout());
 }
 
 test "term color escape codes" {

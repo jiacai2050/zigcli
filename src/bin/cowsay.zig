@@ -38,12 +38,12 @@ const CowFace = enum {
     tux,
 };
 
-pub fn main() !void {
+pub fn main(init: std.process.Init) !void {
     var gpa = util.Allocator.instance;
     defer gpa.deinit();
     const allocator = gpa.allocator();
 
-    const opt = try structargs.parse(allocator, struct {
+    const opt = try structargs.parse(allocator, init.io, init.minimal.args, struct {
         face: CowFace = .cow,
         help: bool = false,
         version: bool = false,
@@ -70,18 +70,17 @@ pub fn main() !void {
     const message: []const u8 = if (opt.positional_arguments.len == 0)
         ""
     else blk: {
-        var fbs = std.io.fixedBufferStream(&message_parts_buf);
-        const fbs_writer = fbs.writer();
+        var fbs: std.Io.Writer = .fixed(&message_parts_buf);
         for (opt.positional_arguments, 0..) |arg, i| {
-            if (i > 0) try fbs_writer.writeByte(' ');
-            try fbs_writer.writeAll(arg);
+            if (i > 0) try fbs.writeByte(' ');
+            try fbs.writeAll(arg);
         }
-        break :blk fbs.getWritten();
+        break :blk fbs.buffered();
     };
 
-    const stdout = std.fs.File.stdout();
+    const stdout = std.Io.File.stdout();
     var output_buf: [8192]u8 = undefined;
-    var writer = stdout.writer(&output_buf);
+    var writer = stdout.writer(init.io, &output_buf);
 
     try writeSpeechBubble(&writer.interface, message);
 

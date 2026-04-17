@@ -4,17 +4,15 @@ const std = @import("std");
 const zigcli = @import("zigcli");
 const structargs = zigcli.structargs;
 const util = @import("util.zig");
-const os = std.os;
-const process = std.process;
 const mem = std.mem;
 const time = std.time;
 
-pub fn main() !void {
+pub fn main(init: std.process.Init) !void {
     var gpa = util.Allocator.instance;
     defer gpa.deinit();
     const allocator = gpa.allocator();
 
-    const opt = try structargs.parse(allocator, struct {
+    const opt = try structargs.parse(allocator, init.io, init.minimal.args, struct {
         max: ?usize,
         interval: ?usize,
         version: bool = false,
@@ -52,27 +50,33 @@ pub fn main() !void {
                 keep_running = false;
             }
         }
-        const term = try run(allocator, argv);
-        switch (term) {
-            .Exited => |rc| {
-                if (rc == 0) {
-                    keep_running = false;
-                }
-            },
-            else => {},
+        const exit_code = try run(init.io, allocator, argv);
+        if (exit_code == 0) {
+            keep_running = false;
         }
 
         if (keep_running) {
             if (opt.options.interval) |pause| {
-                std.Thread.sleep(pause * time.ns_per_s);
+                try std.Io.sleep(
+                    init.io,
+                    .{ .nanoseconds = @intCast(pause * time.ns_per_s) },
+                    .awake,
+                );
             }
         }
     }
 }
 
-fn run(allocator: mem.Allocator, argv: []const []const u8) !process.Child.Term {
-    var child = process.Child.init(argv, allocator);
-    // By default, child will inherit stdout & stderr from its parents,
-    // so child's output will be redirect to output of parents.
-    return try child.spawnAndWait();
+fn run(io: std.Io, allocator: mem.Allocator, argv: []const [:0]const u8) !u8 {
+    // Convert [:0]const u8 slices to []const u8 for SpawnOptions.
+    const plain_argv = try allocator.alloc([]const u8, argv.len);
+    defer allocator.free(plain_argv);
+    for (argv, 0..) |a, i| plain_argv[i] = a;
+
+    var child = try std.process.spawn(io, .{ .argv = plain_argv });
+    const term = try child.wait(io);
+    return switch (term) {
+        .exited => |code| code,
+        else => 1,
+    };
 }

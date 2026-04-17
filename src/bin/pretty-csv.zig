@@ -8,12 +8,12 @@ const pt = zigcli.pretty_table;
 const util = @import("util.zig");
 const mem = std.mem;
 
-pub fn main() !void {
+pub fn main(init: std.process.Init) !void {
     var gpa = util.Allocator.instance;
     defer gpa.deinit();
     const allocator = gpa.allocator();
 
-    const opt = try structargs.parse(allocator, struct {
+    const opt = try structargs.parse(allocator, init.io, init.minimal.args, struct {
         delimiter: []const u8 = ",",
         style: pt.Separator.Mode = .box,
         padding: u8 = 1,
@@ -70,16 +70,16 @@ pub fn main() !void {
         @as(usize, opt.options.@"max-size") * 1024 * 1024;
 
     const input = if (opt.positional_arguments.len > 0)
-        try std.fs.cwd().readFileAlloc(
-            allocator,
+        try std.Io.Dir.cwd().readFileAlloc(
+            init.io,
             opt.positional_arguments[0],
-            max_bytes,
-        )
-    else
-        try std.fs.File.stdin().readToEndAlloc(
             allocator,
-            max_bytes,
-        );
+            .limited(max_bytes),
+        )
+    else blk: {
+        var stdin_reader = std.Io.File.stdin().reader(init.io, &.{});
+        break :blk try stdin_reader.interface.allocRemaining(allocator, .limited(max_bytes));
+    };
     defer allocator.free(input);
 
     var document = try csv.parseDocument(allocator, input, .{
@@ -107,9 +107,9 @@ pub fn main() !void {
     else
         document.num_cols;
 
-    const stdout = std.fs.File.stdout();
+    const stdout = std.Io.File.stdout();
     var output_buf: [8192]u8 = undefined;
-    var stdout_writer = stdout.writer(&output_buf);
+    var stdout_writer = stdout.writer(init.io, &output_buf);
     const writer = &stdout_writer.interface;
 
     var table = try pt.RuntimeTable.init(allocator, display_cols);

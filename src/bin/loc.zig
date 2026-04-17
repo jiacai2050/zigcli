@@ -9,6 +9,7 @@ const util = @import("util.zig");
 const gitignore = zigcli.gitignore;
 const StringUtil = util.StringUtil;
 const fs = std.fs;
+const Io = std.Io;
 
 const Language = enum {
     Zig,
@@ -176,12 +177,13 @@ const LinesOfCode = struct {
 
 const LocMap = std.enums.EnumMap(Language, LinesOfCode);
 
-pub fn main() !void {
+pub fn main(init: std.process.Init) !void {
     var gpa = util.Allocator.instance;
     defer gpa.deinit();
     const allocator = gpa.allocator();
+    const io = init.io;
 
-    const opt = try structargs.parse(allocator, struct {
+    const opt = try structargs.parse(allocator, io, init.minimal.args, struct {
         sort: Column = .line,
         mode: Separator.Mode = .box,
         padding: usize = 3,
@@ -217,10 +219,11 @@ pub fn main() !void {
         opt.positional_arguments[0];
 
     var loc_map = LocMap{};
-    var dir = fs.cwd().openDir(file_or_dir, .{ .iterate = true }) catch |err| switch (err) {
+    var dir = Io.Dir.cwd().openDir(io, file_or_dir, .{ .iterate = true }) catch |err| switch (err) {
         error.NotDir => {
-            try populateLoc(allocator, &loc_map, fs.cwd(), file_or_dir);
+            try populateLoc(io, allocator, &loc_map, Io.Dir.cwd(), file_or_dir);
             return printLocMap(
+                io,
                 allocator,
                 &loc_map,
                 opt.options.sort,
@@ -230,16 +233,17 @@ pub fn main() !void {
         },
         else => return err,
     };
-    defer dir.close();
+    defer dir.close(io);
 
     var gi_stack = gitignore.GitignoreStack.init();
     defer gi_stack.deinit(allocator);
     if (!opt.options.@"no-gitignore") {
-        _ = try gi_stack.tryPushDir(dir, "", allocator);
+        _ = try gi_stack.tryPushDir(io, dir, "", allocator);
     }
 
-    try walk(allocator, opt.options.@"no-gitignore", &gi_stack, &loc_map, dir, "");
+    try walk(io, allocator, opt.options.@"no-gitignore", &gi_stack, &loc_map, dir, "");
     try printLocMap(
+        io,
         allocator,
         &loc_map,
         opt.options.sort,
@@ -249,6 +253,7 @@ pub fn main() !void {
 }
 
 fn printLocMap(
+    io: Io,
     allocator: std.mem.Allocator,
     loc_map: *LocMap,
     sort_col: Column,
@@ -291,20 +296,21 @@ fn printLocMap(
         .mode = mode,
         .padding = padding,
     };
-    const stdout = std.fs.File.stdout();
+    const stdout = Io.File.stdout();
     var buf: [1024]u8 = undefined;
-    var writer = stdout.writer(&buf);
+    var writer = stdout.writer(io, &buf);
     try writer.interface.print("{f}\n", .{table});
     try writer.interface.flush();
 }
 
 fn walk(
+    io: Io,
     /// Long-lived allocator for GitignoreStack patterns.
     allocator: std.mem.Allocator,
     no_gitignore: bool,
     gi_stack: *gitignore.GitignoreStack,
     loc_map: *LocMap,
-    dir: fs.Dir,
+    dir: Io.Dir,
     rel_dir: []const u8,
 ) anyerror!void {
     // Per-level arena for temporary strings (rel_path).
@@ -314,7 +320,7 @@ fn walk(
     const local = local_arena.allocator();
 
     var it = dir.iterate();
-    while (try it.next()) |e| {
+    while (try it.next(io)) |e| {
         const rel_path = if (rel_dir.len == 0)
             e.name
         else
@@ -324,19 +330,24 @@ fn walk(
 
         switch (e.kind) {
             .file => {
-                try populateLoc(allocator, loc_map, dir, e.name);
+                try populateLoc(io, allocator, loc_map, dir, e.name);
             },
             .directory => {
-                var sub_dir = try dir.openDir(e.name, .{ .iterate = true });
-                defer sub_dir.close();
+                var sub_dir = try dir.openDir(io, e.name, .{ .iterate = true });
+                defer sub_dir.close(io);
+
+                // rel_path lives in local arena which is freed on return;
+                // dup into long-lived allocator so recursion doesn't see freed memory.
+                const rel_path_owned = try allocator.dupe(u8, rel_path);
+                defer allocator.free(rel_path_owned);
 
                 const layer_pushed = if (!no_gitignore)
-                    try gi_stack.tryPushDir(sub_dir, rel_path, allocator)
+                    try gi_stack.tryPushDir(io, sub_dir, rel_path_owned, allocator)
                 else
                     false;
                 defer if (layer_pushed) gi_stack.pop(allocator);
 
-                try walk(allocator, no_gitignore, gi_stack, loc_map, sub_dir, rel_path);
+                try walk(io, allocator, no_gitignore, gi_stack, loc_map, sub_dir, rel_path_owned);
             },
             else => {},
         }
@@ -352,7 +363,7 @@ const State = enum {
     InMultipleLineComment,
 };
 
-fn populateLoc(allocator: std.mem.Allocator, loc_map: *LocMap, dir: fs.Dir, basename: []const u8) anyerror!void {
+fn populateLoc(io: Io, allocator: std.mem.Allocator, loc_map: *LocMap, dir: Io.Dir, basename: []const u8) anyerror!void {
     _ = allocator;
     const lang = Language.parse(basename);
     if (lang == Language.Other) {
@@ -371,11 +382,11 @@ fn populateLoc(allocator: std.mem.Allocator, loc_map: *LocMap, dir: fs.Dir, base
         });
         break :blk loc_map.getPtr(lang).?;
     };
-    var file = try dir.openFile(basename, .{});
-    defer file.close();
+    var file = try dir.openFile(io, basename, .{});
+    defer file.close(io);
     loc_entry.files += 1;
 
-    const stat = try file.stat();
+    const stat = try file.stat(io);
     const file_size: usize = @truncate(stat.size);
     if (file_size == 0) {
         return;
@@ -383,48 +394,20 @@ fn populateLoc(allocator: std.mem.Allocator, loc_map: *LocMap, dir: fs.Dir, base
     loc_entry.size += file_size;
 
     var state = State.Unknown;
-    switch (@import("builtin").os.tag) {
-        .windows => {
-            var buf: [1024]u8 = undefined;
-            var rdr = file.reader(&buf);
-            while (true) {
-                const line = rdr.interface.takeDelimiterExclusive('\n') catch |e| {
-                    switch (e) {
-                        error.EndOfStream => return,
-                        else => {
-                            std.log.err("Error when seek line delimiter, name:{s}, err:{any}", .{ basename, e });
-                            return e;
-                        },
-                    }
-                };
-
-                state = updateLineType(state, line, lang, loc_entry);
+    var buf: [4096]u8 = undefined;
+    var rdr = file.reader(io, &buf);
+    while (true) {
+        const line = rdr.interface.takeDelimiterExclusive('\n') catch |e| {
+            switch (e) {
+                error.EndOfStream => return,
+                else => {
+                    std.log.err("Error when seek line delimiter, name:{s}, err:{any}", .{ basename, e });
+                    return e;
+                },
             }
-        },
-        else => {
-            var ptr = try std.posix.mmap(
-                null,
-                file_size,
-                std.posix.PROT.READ,
-                .{ .TYPE = .PRIVATE },
+        };
 
-                file.handle,
-                0,
-            );
-            defer std.posix.munmap(ptr);
-
-            var offset_so_far: usize = 0;
-            while (offset_so_far < ptr.len) {
-                var line_end = offset_so_far;
-                while (line_end < ptr.len and ptr[line_end] != '\n') {
-                    line_end += 1;
-                }
-                const line = ptr[offset_so_far..line_end];
-                offset_so_far = line_end + 1;
-
-                state = updateLineType(state, line, lang, loc_entry);
-            }
-        },
+        state = updateLineType(state, line, lang, loc_entry);
     }
 }
 
@@ -523,8 +506,9 @@ test "trimWhitespace" {
 
 test "LOC Zig/Python/Ruby" {
     const allocator = std.testing.allocator;
+    const io = std.Io.Threaded.global_single_threaded.io();
     var loc_map = LocMap{};
-    const dir = fs.cwd();
+    const dir = Io.Dir.cwd();
 
     const testcases = .{
         .{
@@ -576,7 +560,7 @@ test "LOC Zig/Python/Ruby" {
 
         try std.testing.expectEqual(Language.parse(basename), lang);
 
-        try populateLoc(allocator, &loc_map, dir, basename);
+        try populateLoc(io, allocator, &loc_map, dir, basename);
         var loc = loc_map.get(lang).?;
         // On windows, newline will be \r\n, so size is different
         // Zig file stays the same since it's special taken care of in .gitattributes

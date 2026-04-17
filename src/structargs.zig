@@ -21,7 +21,7 @@ const OptionError = ParseError ||
     std.mem.Allocator.Error ||
     std.fmt.ParseIntError ||
     std.fmt.ParseFloatError ||
-    std.process.ArgIterator.InitError;
+    std.process.Args.ToSliceError;
 
 /// Configuration options for the parser.
 pub const ParseOptions = struct {
@@ -34,17 +34,20 @@ pub const ParseOptions = struct {
 
 /// Parses arguments according to the given structure.
 /// - `allocator` is used to allocate memory for raw arguments.
+/// - `args` is the source of process arguments (from `init.minimal.args`).
 /// - `Options` is the configuration of the arguments.
 /// - `options` contains metadata like argument prompt and version string.
 pub fn parse(
     allocator: std.mem.Allocator,
+    io: std.Io,
+    args: std.process.Args,
     comptime Options: type,
     comptime options: ParseOptions,
 ) OptionError!ParseResult(Options, options.version_string, options.argument_prompt) {
-    const raw_arguments = try std.process.argsAlloc(allocator);
-    errdefer std.process.argsFree(allocator, raw_arguments);
+    const raw_arguments = try args.toSlice(allocator);
+    errdefer allocator.free(raw_arguments);
 
-    var parser = OptionParser(Options).init(allocator);
+    var parser = OptionParser(Options).init(allocator, io);
     return parser.parse(raw_arguments, options);
 }
 
@@ -181,18 +184,21 @@ fn NonOptionType(comptime option_type: type) type {
 
 const MessageHelper = struct {
     allocator: std.mem.Allocator,
+    io: std.Io,
     program_name: []const u8,
     argument_prompt: ?[]const u8,
     version_string: ?[]const u8,
 
     fn init(
         allocator: std.mem.Allocator,
+        io: std.Io,
         program_name: []const u8,
         version_string: ?[]const u8,
         argument_prompt: ?[]const u8,
     ) MessageHelper {
         return .{
             .allocator = allocator,
+            .io = io,
             .program_name = program_name,
             .version_string = version_string,
             .argument_prompt = argument_prompt,
@@ -363,9 +369,9 @@ const MessageHelper = struct {
     }
 
     pub fn printVersion(self: MessageHelper) !void {
-        const stdout = std.fs.File.stdout();
+        const stdout = std.Io.File.stdout();
         var buffer: [1024]u8 = undefined;
-        var writer = stdout.writer(&buffer);
+        var writer = stdout.writer(self.io, &buffer);
         const version_string = self.version_string orelse "Unknown";
         try writer.interface.print("{s}\n", .{version_string});
         try writer.interface.flush();
@@ -381,23 +387,25 @@ fn ParseResult(
         program_name: []const u8,
         // Parsed options (the user-defined struct)
         options: Options,
-        positional_arguments: [][:0]u8,
+        positional_arguments: []const [:0]const u8,
 
         // Unparsed original input arguments
-        raw_arguments: [][:0]u8,
+        raw_arguments: []const [:0]const u8,
         allocator: std.mem.Allocator,
+        io: std.Io,
 
         const Self = @This();
 
         pub fn deinit(self: Self) void {
             if (!is_test) {
-                std.process.argsFree(self.allocator, self.raw_arguments);
+                self.allocator.free(self.raw_arguments);
             }
         }
 
         pub fn printHelp(self: Self, writer: *Writer) !void {
             try MessageHelper.init(
                 self.allocator,
+                self.io,
                 self.program_name,
                 version_string,
                 argument_prompt,
@@ -530,7 +538,9 @@ fn SubCommandsType(comptime Options: type) type {
     }
 
     const union_fields = std.meta.fields(Options);
-    var struct_fields: [union_fields.len]std.builtin.Type.StructField = undefined;
+    var field_names: [union_fields.len][:0]const u8 = undefined;
+    var field_types: [union_fields.len]type = undefined;
+    var field_attrs: [union_fields.len]std.builtin.Type.StructField.Attributes = undefined;
     inline for (union_fields, 0..) |union_field, index| {
         if (comptime @typeInfo(union_field.type) != .@"struct") {
             @compileError("Sub command should be defined using struct, found " ++ @typeName(@typeInfo(union_field.type)));
@@ -538,20 +548,13 @@ fn SubCommandsType(comptime Options: type) type {
 
         const ParserType = CommandParser(union_field.type);
         const default_value = ParserType{};
-        struct_fields[index] = .{
-            .name = union_field.name,
-            .type = ParserType,
+        field_names[index] = union_field.name;
+        field_types[index] = ParserType;
+        field_attrs[index] = .{
             .default_value_ptr = @ptrCast(&default_value),
-            .is_comptime = false,
-            .alignment = @alignOf(ParserType),
         };
     }
-    return @Type(.{ .@"struct" = .{
-        .layout = .auto,
-        .fields = &struct_fields,
-        .decls = &.{},
-        .is_tuple = false,
-    } });
+    return @Struct(.auto, null, &field_names, &field_types, &field_attrs);
 }
 
 fn CommandParser(comptime Options: type) type {
@@ -576,12 +579,14 @@ fn OptionParser(
 ) type {
     return struct {
         allocator: std.mem.Allocator,
+        io: std.Io,
 
         const Self = @This();
 
-        fn init(allocator: std.mem.Allocator) Self {
+        fn init(allocator: std.mem.Allocator, io: std.Io) Self {
             return .{
                 .allocator = allocator,
+                .io = io,
             };
         }
 
@@ -593,7 +598,7 @@ fn OptionParser(
 
         fn parseCommand(
             comptime CurrentOptions: type,
-            input_arguments: [][:0]u8,
+            input_arguments: []const [:0]const u8,
             argument_index: *usize,
             help_was_printed: *bool,
             message_helper: MessageHelper,
@@ -612,7 +617,7 @@ fn OptionParser(
                 if (!help_was_printed.*) {
                     if (!is_test and options.print_help_on_error) {
                         var stderr_buffer: [4096]u8 = undefined;
-                        var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
+                        var stderr_writer = std.Io.File.stderr().writer(message_helper.io, &stderr_buffer);
                         message_helper.printHelp(
                             CurrentOptions,
                             sub_command_name,
@@ -628,7 +633,7 @@ fn OptionParser(
 
         fn parseCommandImpl(
             comptime CurrentOptions: type,
-            input_arguments: [][:0]u8,
+            input_arguments: []const [:0]const u8,
             argument_index: *usize,
             help_was_printed: *bool,
             message_helper: MessageHelper,
@@ -736,7 +741,7 @@ fn OptionParser(
                             if (!is_test and options.print_help_and_exit) {
                                 if (std.mem.eql(u8, option.long_name, "help")) {
                                     var stdout_buffer: [4096]u8 = undefined;
-                                    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+                                    var stdout_writer = std.Io.File.stdout().writer(message_helper.io, &stdout_buffer);
                                     const stdout = &stdout_writer.interface;
                                     message_helper.printHelp(CurrentOptions, sub_command_name, stdout) catch @panic("OOM");
                                     stdout_writer.interface.flush() catch {};
@@ -815,7 +820,7 @@ fn OptionParser(
 
         fn parse(
             self: *Self,
-            input_arguments: [][:0]u8,
+            input_arguments: []const [:0]const u8,
             comptime options: ParseOptions,
         ) OptionError!ParseResult(Options, options.version_string, options.argument_prompt) {
             if (input_arguments.len == 0) {
@@ -826,6 +831,7 @@ fn OptionParser(
             var argument_index: usize = 0;
             const message_helper = MessageHelper.init(
                 self.allocator,
+                self.io,
                 input_arguments[0],
                 options.version_string,
                 options.argument_prompt,
@@ -843,6 +849,7 @@ fn OptionParser(
             var result = ParseResult(Options, options.version_string, options.argument_prompt){
                 .program_name = input_arguments[0],
                 .allocator = self.allocator,
+                .io = self.io,
                 .options = parsed_options,
                 .positional_arguments = arguments_to_parse[argument_index..],
                 .raw_arguments = input_arguments,
@@ -948,7 +955,7 @@ test "parse/valid option values" {
         gpa.free(argument);
     };
 
-    var parser = OptionParser(TestArguments).init(gpa);
+    var parser = OptionParser(TestArguments).init(gpa, std.Io.Threaded.global_single_threaded.io());
     const result = try parser.parse(&input_arguments, .{ .argument_prompt = "..." });
     defer result.deinit();
 
@@ -989,7 +996,7 @@ test "parse/bool value" {
         defer for (input_arguments) |argument| {
             gpa.free(argument);
         };
-        var parser = OptionParser(struct { help: bool }).init(gpa);
+        var parser = OptionParser(struct { help: bool }).init(gpa, std.Io.Threaded.global_single_threaded.io());
         const result = try parser.parse(&input_arguments, .{});
         defer result.deinit();
 
@@ -1005,7 +1012,7 @@ test "parse/bool value" {
         defer for (input_arguments) |argument| {
             gpa.free(argument);
         };
-        var parser = OptionParser(struct { help: bool }).init(gpa);
+        var parser = OptionParser(struct { help: bool }).init(gpa, std.Io.Threaded.global_single_threaded.io());
         const result = try parser.parse(&input_arguments, .{});
         defer result.deinit();
 
@@ -1027,7 +1034,7 @@ test "parse/missing required arguments" {
     defer for (input_arguments) |argument| {
         gpa.free(argument);
     };
-    var parser = OptionParser(TestArguments).init(gpa);
+    var parser = OptionParser(TestArguments).init(gpa, std.Io.Threaded.global_single_threaded.io());
 
     try std.testing.expectError(error.MissingRequiredOption, parser.parse(&input_arguments, .{}));
 }
@@ -1043,7 +1050,7 @@ test "parse/invalid u16 values" {
     defer for (input_arguments) |argument| {
         gpa.free(argument);
     };
-    var parser = OptionParser(TestArguments).init(gpa);
+    var parser = OptionParser(TestArguments).init(gpa, std.Io.Threaded.global_single_threaded.io());
 
     try std.testing.expectError(error.InvalidCharacter, parser.parse(&input_arguments, .{}));
 }
@@ -1059,7 +1066,7 @@ test "parse/invalid f32 values" {
     defer for (input_arguments) |argument| {
         gpa.free(argument);
     };
-    var parser = OptionParser(TestArguments).init(gpa);
+    var parser = OptionParser(TestArguments).init(gpa, std.Io.Threaded.global_single_threaded.io());
 
     try std.testing.expectError(error.InvalidCharacter, parser.parse(&input_arguments, .{}));
 }
@@ -1076,7 +1083,7 @@ test "parse/unknown option" {
     defer for (input_arguments) |argument| {
         gpa.free(argument);
     };
-    var parser = OptionParser(TestArguments).init(gpa);
+    var parser = OptionParser(TestArguments).init(gpa, std.Io.Threaded.global_single_threaded.io());
 
     try std.testing.expectError(error.NoOption, parser.parse(&input_arguments, .{}));
 }
@@ -1091,7 +1098,7 @@ test "parse/missing option value" {
     defer for (input_arguments) |argument| {
         gpa.free(argument);
     };
-    var parser = OptionParser(TestArguments).init(gpa);
+    var parser = OptionParser(TestArguments).init(gpa, std.Io.Threaded.global_single_threaded.io());
 
     try std.testing.expectError(error.MissingOptionValue, parser.parse(&input_arguments, .{}));
 }
@@ -1115,7 +1122,7 @@ test "parse/default value" {
         d2: ?bool = false,
 
         const __messages__ = .{ .d2 = "padding message" };
-    }).init(gpa);
+    }).init(gpa, std.Io.Threaded.global_single_threaded.io());
     const result = try parser.parse(&input_arguments, .{ .argument_prompt = "..." });
     try std.testing.expectEqualStrings("A1", result.options.a1);
     try std.testing.expectEqual(result.positional_arguments.len, 0);
@@ -1155,7 +1162,7 @@ test "parse/enum option" {
         a1: ?enum { A, B } = .A,
         a2: enum { C, D } = .D,
         a3: enum { X, Y },
-    }).init(gpa);
+    }).init(gpa, std.Io.Threaded.global_single_threaded.io());
     const result = try parser.parse(&input_arguments, .{ .argument_prompt = "..." });
     defer result.deinit();
 
@@ -1190,7 +1197,7 @@ test "parse/positional arguments" {
     };
     var parser = OptionParser(struct {
         a: u8 = 1,
-    }).init(gpa);
+    }).init(gpa, std.Io.Threaded.global_single_threaded.io());
     const result = try parser.parse(&input_arguments, .{ .argument_prompt = "..." });
     defer result.deinit();
 
@@ -1222,7 +1229,7 @@ test "parse/print_help_and_exit false" {
         gpa.free(argument);
     };
 
-    var parser = OptionParser(struct { help: bool }).init(gpa);
+    var parser = OptionParser(struct { help: bool }).init(gpa, std.Io.Threaded.global_single_threaded.io());
     const result = try parser.parse(&input_arguments, .{ .print_help_and_exit = false });
     defer result.deinit();
 
@@ -1244,7 +1251,7 @@ test "parse/print_help_on_error" {
 
     // With print_help_on_error: true (default), errors are still propagated.
     {
-        var parser = OptionParser(TestArguments).init(gpa);
+        var parser = OptionParser(TestArguments).init(gpa, std.Io.Threaded.global_single_threaded.io());
         try std.testing.expectError(
             error.MissingRequiredOption,
             parser.parse(&input_arguments, .{ .print_help_on_error = true }),
@@ -1252,7 +1259,7 @@ test "parse/print_help_on_error" {
     }
     // With print_help_on_error: false, errors are also propagated (no other change in test mode).
     {
-        var parser = OptionParser(TestArguments).init(gpa);
+        var parser = OptionParser(TestArguments).init(gpa, std.Io.Threaded.global_single_threaded.io());
         try std.testing.expectError(
             error.MissingRequiredOption,
             parser.parse(&input_arguments, .{ .print_help_on_error = false }),
@@ -1288,7 +1295,7 @@ test "parse/sub commands" {
                 .cmd2 = "This is command 2",
             };
         },
-    }).init(gpa);
+    }).init(gpa, std.Io.Threaded.global_single_threaded.io());
     const result = try parser.parse(&input_arguments, .{});
     defer result.deinit();
 
@@ -1324,6 +1331,7 @@ test "print help uses sub command context" {
 
     try MessageHelper.init(
         gpa,
+        std.Io.Threaded.global_single_threaded.io(),
         "awesome-cli",
         null,
         null,

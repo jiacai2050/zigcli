@@ -197,12 +197,12 @@ const Command = enum {
     });
 };
 
-pub fn main() !void {
+pub fn main(init: std.process.Init) !void {
     var gpa = util.Allocator.instance;
     defer gpa.deinit();
     const allocator = gpa.allocator();
 
-    const opt = try structargs.parse(allocator, struct {
+    const opt = try structargs.parse(allocator, init.io, init.minimal.args, struct {
         version: bool = false,
         help: bool = false,
 
@@ -247,9 +247,9 @@ pub fn main() !void {
         .Status;
 
     const client = Client.init(allocator);
-    const stdout = std.fs.File.stdout();
+    const stdout = std.Io.File.stdout();
     var buf: [1024]u8 = undefined;
-    var writer = stdout.writer(&buf);
+    var writer = stdout.writer(init.io, &buf);
     const wtr = &writer.interface;
 
     switch (cmd) {
