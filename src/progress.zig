@@ -4,7 +4,8 @@ const std = @import("std");
 const term = @import("term.zig");
 const assert = std.debug.assert;
 
-const default_refresh_interval_ms: u32 = 50;
+const ns_per_ms = std.time.ns_per_ms;
+const default_refresh_interval_ns: u64 = 50 * ns_per_ms;
 const default_bar_width: u16 = 20;
 const ellipsis = "...";
 const spinner_frames = [_][]const u8{ "-", "\\", "|", "/" };
@@ -16,12 +17,6 @@ const current_style: term.Style = .{ .fg = .bright_cyan };
 const empty_style: term.Style = .{ .fg = .bright_black };
 const stats_style: term.Style = .{ .fg = .bright_black };
 
-fn nowMilliseconds() u64 {
-    const now_ms = std.time.milliTimestamp();
-    assert(now_ms >= 0);
-    return @intCast(now_ms);
-}
-
 pub const Unit = enum { items, bytes };
 
 pub const Progress = struct {
@@ -30,7 +25,7 @@ pub const Progress = struct {
     use_ansi: bool,
     width_columns: ?u16,
     hidden: bool,
-    refresh_interval_ms: u32,
+    refresh_interval_ns: u64,
 
     unit: Unit,
     bar_width: u16,
@@ -38,7 +33,8 @@ pub const Progress = struct {
     message: []const u8,
 
     state: State,
-    last_render_at_ms: ?u64,
+    timer: std.time.Timer,
+    last_render_elapsed_ns: ?u64,
 
     const Kind = enum { bar, spinner };
 
@@ -46,7 +42,6 @@ pub const Progress = struct {
         kind: Kind,
         position: u64,
         total: ?u64,
-        started_at_ms: u64,
         tick_count: u64,
         finished: bool,
         clear_on_finish: bool,
@@ -60,7 +55,7 @@ pub const Progress = struct {
         message: []const u8 = "",
         position: u64 = 0,
         file: ?std.fs.File = null,
-        refresh_interval_ms: u32 = default_refresh_interval_ms,
+        refresh_interval_ns: u64 = default_refresh_interval_ns,
     };
 
     pub const SpinnerOptions = struct {
@@ -69,7 +64,7 @@ pub const Progress = struct {
         message: []const u8 = "",
         position: u64 = 0,
         file: ?std.fs.File = null,
-        refresh_interval_ms: u32 = default_refresh_interval_ms,
+        refresh_interval_ns: u64 = default_refresh_interval_ns,
     };
 
     pub fn bar(
@@ -84,7 +79,7 @@ pub const Progress = struct {
             .use_ansi = is_tty,
             .width_columns = term.terminalWidth(file),
             .hidden = !is_tty,
-            .refresh_interval_ms = options.refresh_interval_ms,
+            .refresh_interval_ns = options.refresh_interval_ns,
             .unit = options.unit,
             .bar_width = options.bar_width,
             .prefix = options.prefix,
@@ -96,12 +91,12 @@ pub const Progress = struct {
                     options.total,
                 ),
                 .total = options.total,
-                .started_at_ms = nowMilliseconds(),
                 .tick_count = 0,
                 .finished = false,
                 .clear_on_finish = false,
             },
-            .last_render_at_ms = null,
+            .timer = startTimer(),
+            .last_render_elapsed_ns = null,
         };
     }
 
@@ -117,7 +112,7 @@ pub const Progress = struct {
             .use_ansi = is_tty,
             .width_columns = term.terminalWidth(file),
             .hidden = !is_tty,
-            .refresh_interval_ms = options.refresh_interval_ms,
+            .refresh_interval_ns = options.refresh_interval_ns,
             .unit = options.unit,
             .bar_width = 0,
             .prefix = options.prefix,
@@ -126,12 +121,12 @@ pub const Progress = struct {
                 .kind = .spinner,
                 .position = options.position,
                 .total = null,
-                .started_at_ms = nowMilliseconds(),
                 .tick_count = 0,
                 .finished = false,
                 .clear_on_finish = false,
             },
-            .last_render_at_ms = null,
+            .timer = startTimer(),
+            .last_render_elapsed_ns = null,
         };
     }
 
@@ -141,7 +136,10 @@ pub const Progress = struct {
 
     pub fn inc(self: *Progress, delta: u64) void {
         const position = self.state.position +| delta;
-        self.state.position = clampPosition(position, self.state.total);
+        self.state.position = clampPosition(
+            position,
+            self.state.total,
+        );
     }
 
     pub fn tick(self: *Progress) void {
@@ -149,7 +147,10 @@ pub const Progress = struct {
     }
 
     pub fn setPosition(self: *Progress, position: u64) void {
-        self.state.position = clampPosition(position, self.state.total);
+        self.state.position = clampPosition(
+            position,
+            self.state.total,
+        );
     }
 
     pub fn setMessage(self: *Progress, text: []const u8) void {
@@ -158,9 +159,9 @@ pub const Progress = struct {
 
     pub fn render(self: *Progress) !void {
         if (self.hidden) return;
-        const now_ms = nowMilliseconds();
-        if (!self.shouldRenderAt(now_ms)) return;
-        try self.flushSnapshot(now_ms, false);
+        const elapsed_ns = self.timer.read();
+        if (!self.shouldRender(elapsed_ns)) return;
+        try self.flushSnapshot(elapsed_ns, false);
     }
 
     pub fn finish(self: *Progress) !void {
@@ -168,7 +169,7 @@ pub const Progress = struct {
         self.state.finished = true;
         self.state.clear_on_finish = false;
         if (self.hidden) return;
-        try self.flushSnapshot(nowMilliseconds(), true);
+        try self.flushSnapshot(self.timer.read(), true);
     }
 
     pub fn finishAndClear(self: *Progress) !void {
@@ -185,7 +186,7 @@ pub const Progress = struct {
             try writer.interface.writeAll("\r\x1b[2K");
         }
         try writer.interface.flush();
-        self.last_render_at_ms = nowMilliseconds();
+        self.last_render_elapsed_ns = self.timer.read();
     }
 
     pub fn writeSnapshot(
@@ -194,7 +195,7 @@ pub const Progress = struct {
     ) !void {
         try self.writeSnapshotAt(
             writer,
-            nowMilliseconds(),
+            self.timer.read(),
             self.width_columns,
             self.use_ansi,
         );
@@ -202,7 +203,7 @@ pub const Progress = struct {
 
     fn flushSnapshot(
         self: *Progress,
-        now_ms: u64,
+        elapsed_ns: u64,
         append_newline: bool,
     ) !void {
         var output_buffer: [4096]u8 = undefined;
@@ -212,7 +213,7 @@ pub const Progress = struct {
         }
         try self.writeSnapshotAt(
             &writer.interface,
-            now_ms,
+            elapsed_ns,
             self.width_columns,
             self.use_ansi,
         );
@@ -220,13 +221,13 @@ pub const Progress = struct {
             try writer.interface.writeAll("\n");
         }
         try writer.interface.flush();
-        self.last_render_at_ms = now_ms;
+        self.last_render_elapsed_ns = elapsed_ns;
     }
 
     fn writeSnapshotAt(
         self: *Progress,
         writer: *std.Io.Writer,
-        now_ms: u64,
+        elapsed_ns: u64,
         width_columns: ?u16,
         use_ansi: bool,
     ) !void {
@@ -235,8 +236,14 @@ pub const Progress = struct {
         const arena_alloc = arena.allocator();
 
         const stats_text = switch (self.state.kind) {
-            .bar => try self.buildBarStats(arena_alloc, now_ms),
-            .spinner => try self.buildSpinnerStats(arena_alloc, now_ms),
+            .bar => try self.buildBarStats(
+                arena_alloc,
+                elapsed_ns,
+            ),
+            .spinner => try self.buildSpinnerStats(
+                arena_alloc,
+                elapsed_ns,
+            ),
         };
 
         const fixed = self.fixedWidth(stats_text);
@@ -363,7 +370,7 @@ pub const Progress = struct {
     fn buildBarStats(
         self: *Progress,
         arena_alloc: std.mem.Allocator,
-        now_ms: u64,
+        elapsed_ns: u64,
     ) ![]const u8 {
         var list: std.ArrayList(u8) = .empty;
         defer list.deinit(arena_alloc);
@@ -406,12 +413,16 @@ pub const Progress = struct {
             ),
         );
 
-        const rate = self.ratePerSecond(now_ms) orelse 0.0;
-        if (rate > 0) {
+        const elapsed_secs = nanosToSeconds(elapsed_ns);
+        const rate = ratePerSecond(
+            self.state.position,
+            elapsed_secs,
+        );
+        if (rate) |rate_value| {
             const rate_text = try formatCount(
                 arena_alloc,
                 self.unit,
-                @intFromFloat(rate),
+                @intFromFloat(rate_value),
             );
             try appendToken(
                 arena_alloc,
@@ -424,11 +435,11 @@ pub const Progress = struct {
             );
         }
 
-        if (self.etaSeconds(now_ms)) |eta_secs| {
+        if (etaSeconds(self.state.position, total, elapsed_secs)) |eta| {
             var eta_buffer: [32]u8 = undefined;
             const eta_text = formatDurationSeconds(
                 &eta_buffer,
-                eta_secs,
+                eta,
             );
             try appendToken(
                 arena_alloc,
@@ -447,15 +458,13 @@ pub const Progress = struct {
     fn buildSpinnerStats(
         self: *Progress,
         arena_alloc: std.mem.Allocator,
-        now_ms: u64,
+        elapsed_ns: u64,
     ) ![]const u8 {
+        _ = self;
         var list: std.ArrayList(u8) = .empty;
         defer list.deinit(arena_alloc);
 
-        const elapsed_secs = elapsedSeconds(
-            self.state.started_at_ms,
-            now_ms,
-        );
+        const elapsed_secs = nanosToSeconds(elapsed_ns);
         var elapsed_buffer: [32]u8 = undefined;
         const duration_text = formatDurationSeconds(
             &elapsed_buffer,
@@ -504,33 +513,51 @@ pub const Progress = struct {
         return spinner_frames[frame_index];
     }
 
-    fn ratePerSecond(self: *Progress, now_ms: u64) ?f64 {
-        const elapsed = elapsedSeconds(
-            self.state.started_at_ms,
-            now_ms,
-        );
-        if (elapsed <= 0) return null;
-        if (self.state.position == 0) return null;
-        return @as(f64, @floatFromInt(self.state.position)) /
-            elapsed;
-    }
-
-    fn etaSeconds(self: *Progress, now_ms: u64) ?f64 {
-        const total = self.state.total orelse return null;
-        if (self.state.position >= total) return null;
-        const rate = self.ratePerSecond(now_ms) orelse return null;
-        if (rate <= 0) return null;
-        const remaining = total - self.state.position;
-        return @as(f64, @floatFromInt(remaining)) / rate;
-    }
-
-    fn shouldRenderAt(self: *Progress, now_ms: u64) bool {
-        if (self.last_render_at_ms) |last| {
-            return (now_ms - last) >= self.refresh_interval_ms;
+    fn shouldRender(self: *Progress, elapsed_ns: u64) bool {
+        if (self.last_render_elapsed_ns) |last| {
+            return (elapsed_ns - last) >= self.refresh_interval_ns;
         }
         return true;
     }
 };
+
+/// Start a monotonic timer, falling back to a zero-valued
+/// timer in hostile environments where no clock is available.
+fn startTimer() std.time.Timer {
+    const Instant = std.time.Instant;
+    const Timestamp = @FieldType(Instant, "timestamp");
+    const zero_instant: Instant = .{
+        .timestamp = std.mem.zeroes(Timestamp),
+    };
+    return std.time.Timer.start() catch .{
+        .started = zero_instant,
+        .previous = zero_instant,
+    };
+}
+
+fn nanosToSeconds(nanos: u64) f64 {
+    return @as(f64, @floatFromInt(nanos)) /
+        @as(f64, @floatFromInt(std.time.ns_per_s));
+}
+
+fn ratePerSecond(position: u64, elapsed_secs: f64) ?f64 {
+    if (elapsed_secs <= 0) return null;
+    if (position == 0) return null;
+    return @as(f64, @floatFromInt(position)) / elapsed_secs;
+}
+
+fn etaSeconds(
+    position: u64,
+    total: u64,
+    elapsed_secs: f64,
+) ?f64 {
+    if (position >= total) return null;
+    const rate = ratePerSecond(position, elapsed_secs) orelse
+        return null;
+    if (rate <= 0) return null;
+    const remaining = total - position;
+    return @as(f64, @floatFromInt(remaining)) / rate;
+}
 
 fn clampPosition(position: u64, total: ?u64) u64 {
     if (total) |total_value| {
@@ -547,12 +574,6 @@ fn appendToken(
     if (token.len == 0) return;
     if (list.items.len > 0) try list.append(arena_alloc, ' ');
     try list.appendSlice(arena_alloc, token);
-}
-
-fn elapsedSeconds(started_at_ms: u64, now_ms: u64) f64 {
-    if (now_ms <= started_at_ms) return 0;
-    return @as(f64, @floatFromInt(now_ms - started_at_ms)) /
-        1000.0;
 }
 
 fn calculateMessageLimit(
@@ -614,7 +635,11 @@ fn formatCount(
     value: u64,
 ) ![]const u8 {
     return switch (unit) {
-        .items => std.fmt.allocPrint(arena_alloc, "{d}", .{value}),
+        .items => std.fmt.allocPrint(
+            arena_alloc,
+            "{d}",
+            .{value},
+        ),
         .bytes => formatBytes(arena_alloc, value),
     };
 }
@@ -623,10 +648,13 @@ fn formatBytes(
     arena_alloc: std.mem.Allocator,
     value: u64,
 ) ![]const u8 {
-    const units = [_][]const u8{ "B", "KiB", "MiB", "GiB", "TiB" };
+    const units = [_][]const u8{
+        "B", "KiB", "MiB", "GiB", "TiB",
+    };
     var value_f64: f64 = @floatFromInt(value);
     var unit_index: usize = 0;
-    while (value_f64 >= 1024.0 and unit_index < units.len - 1) {
+    while (value_f64 >= 1024.0) {
+        if (unit_index >= units.len - 1) break;
         value_f64 /= 1024.0;
         unit_index += 1;
     }
@@ -642,7 +670,10 @@ fn formatDurationSeconds(
     seconds: f64,
 ) []const u8 {
     assert(buffer.len >= 12);
-    const total_secs = @as(u64, @intFromFloat(@max(seconds, 0)));
+    const total_secs = @as(
+        u64,
+        @intFromFloat(@max(seconds, 0)),
+    );
     const hours = total_secs / 3600;
     const minutes = (total_secs % 3600) / 60;
     const secs = total_secs % 60;
@@ -667,7 +698,7 @@ fn testProgress(kind: Progress.Kind, options: struct {
     prefix: []const u8 = "",
     message: []const u8 = "",
     width_columns: ?u16 = 120,
-    refresh_interval_ms: u32 = default_refresh_interval_ms,
+    refresh_interval_ns: u64 = default_refresh_interval_ns,
 }) Progress {
     return .{
         .gpa = std.testing.allocator,
@@ -675,7 +706,7 @@ fn testProgress(kind: Progress.Kind, options: struct {
         .use_ansi = false,
         .width_columns = options.width_columns,
         .hidden = false,
-        .refresh_interval_ms = options.refresh_interval_ms,
+        .refresh_interval_ns = options.refresh_interval_ns,
         .unit = options.unit,
         .bar_width = options.bar_width,
         .prefix = options.prefix,
@@ -684,12 +715,12 @@ fn testProgress(kind: Progress.Kind, options: struct {
             .kind = kind,
             .position = 0,
             .total = options.total,
-            .started_at_ms = nowMilliseconds(),
             .tick_count = 0,
             .finished = false,
             .clear_on_finish = false,
         },
-        .last_render_at_ms = null,
+        .timer = startTimer(),
+        .last_render_elapsed_ns = null,
     };
 }
 
@@ -706,9 +737,10 @@ test "bar snapshot: verify percent, position, rate, ETA, and message" {
         .init(std.testing.allocator);
     defer allocating.deinit();
 
+    const elapsed_ns = 2 * std.time.ns_per_s;
     try progress.writeSnapshotAt(
         &allocating.writer,
-        progress.state.started_at_ms + 2000,
+        elapsed_ns,
         120,
         false,
     );
@@ -732,9 +764,10 @@ test "spinner snapshot: verify elapsed time and message" {
         .init(std.testing.allocator);
     defer allocating.deinit();
 
+    const elapsed_ns = 3500 * std.time.ns_per_ms;
     try progress.writeSnapshotAt(
         &allocating.writer,
-        progress.state.started_at_ms + 3500,
+        elapsed_ns,
         120,
         false,
     );
@@ -744,7 +777,7 @@ test "spinner snapshot: verify elapsed time and message" {
     );
 }
 
-test "message truncation: long messages are clipped to terminal width" {
+test "message truncation: long messages clipped to terminal width" {
     var progress = testProgress(.bar, .{
         .total = 10,
         .message = "this-message-is-too-long",
@@ -758,9 +791,10 @@ test "message truncation: long messages are clipped to terminal width" {
         .init(std.testing.allocator);
     defer allocating.deinit();
 
+    const elapsed_ns = 1 * std.time.ns_per_s;
     try progress.writeSnapshotAt(
         &allocating.writer,
-        progress.state.started_at_ms + 1000,
+        elapsed_ns,
         32,
         false,
     );
@@ -771,22 +805,23 @@ test "message truncation: long messages are clipped to terminal width" {
 }
 
 test "throttle: render is skipped when within refresh interval" {
+    const interval_ns = 100 * ns_per_ms;
     var progress = testProgress(.bar, .{
         .total = 10,
-        .refresh_interval_ms = 100,
+        .refresh_interval_ns = interval_ns,
     });
     defer progress.deinit();
 
-    progress.last_render_at_ms = progress.state.started_at_ms + 90;
+    progress.last_render_elapsed_ns = 90 * ns_per_ms;
 
     // 10ms after last render: should be suppressed.
     try std.testing.expect(
-        !progress.shouldRenderAt(progress.state.started_at_ms + 100),
+        !progress.shouldRender(100 * ns_per_ms),
     );
 
-    // 110ms after last render: should be allowed.
+    // 200ms after start, 110ms after last render: allowed.
     try std.testing.expect(
-        progress.shouldRenderAt(progress.state.started_at_ms + 200),
+        progress.shouldRender(200 * ns_per_ms),
     );
 }
 
@@ -807,7 +842,7 @@ test "finishAndClear: finished bar still renders a snapshot" {
 
     try progress.writeSnapshotAt(
         &allocating.writer,
-        progress.state.started_at_ms + 1,
+        1 * std.time.ns_per_s,
         120,
         true,
     );
