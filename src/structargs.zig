@@ -17,6 +17,165 @@ const ParseError = error{
 
 const command_field_name_default = "__commands__";
 
+pub const CompletionItem = struct {
+    value: []const u8,
+    description: ?[]const u8 = null,
+};
+
+pub const Shell = enum {
+    bash,
+    fish,
+    zsh,
+    auto,
+};
+
+pub const CompletionContext = struct {
+    allocator: std.mem.Allocator,
+    shell: Shell,
+    context: *anyopaque,
+    write_fn: *const fn (ctx: *anyopaque, bytes: []const u8) anyerror!usize,
+
+    pub fn init(allocator: std.mem.Allocator, shell: Shell, writer_ptr: anytype) CompletionContext {
+        const Ptr = @TypeOf(writer_ptr);
+        const Gen = struct {
+            fn write(ctx: *anyopaque, bytes: []const u8) anyerror!usize {
+                const self: Ptr = @ptrCast(@alignCast(ctx));
+                const RealT = if (@typeInfo(Ptr) == .pointer) @typeInfo(Ptr).pointer.child else Ptr;
+                if (comptime @hasField(RealT, "interface")) {
+                    return self.interface.write(bytes);
+                } else {
+                    return self.write(bytes);
+                }
+            }
+        };
+        return .{
+            .allocator = allocator,
+            .shell = shell,
+            .context = writer_ptr,
+            .write_fn = Gen.write,
+        };
+    }
+
+    fn writeAll(self: CompletionContext, bytes: []const u8) !void {
+        var index: usize = 0;
+        while (index < bytes.len) {
+            const n = try self.write_fn(self.context, bytes[index..]);
+            if (n == 0) return error.DiskQuota;
+            index += n;
+        }
+    }
+
+    pub fn add(self: CompletionContext, value: []const u8, description: ?[]const u8) !void {
+        try self.addItem(.{ .value = value, .description = description });
+    }
+
+    pub fn addItem(self: CompletionContext, item: CompletionItem) !void {
+        switch (self.shell) {
+            .zsh => {
+                try self.writeAll(item.value);
+                if (item.description) |desc| {
+                    try self.writeAll(":");
+                    try self.writeAll(desc);
+                }
+                try self.writeAll("\n");
+            },
+            .fish => {
+                try self.writeAll(item.value);
+                if (item.description) |desc| {
+                    try self.writeAll("\t");
+                    try self.writeAll(desc);
+                }
+                try self.writeAll("\n");
+            },
+            .bash => {
+                try self.writeAll(item.value);
+                try self.writeAll("\n");
+            },
+            .auto => unreachable,
+        }
+    }
+};
+
+fn runCompleter(
+    allocator: std.mem.Allocator,
+    shell: Shell,
+    writer: anytype,
+    completer: anytype,
+) !void {
+    const ctx = CompletionContext.init(allocator, shell, writer);
+    const T = @TypeOf(completer);
+
+    switch (@typeInfo(T)) {
+        .@"fn" => |f| {
+            if (f.params.len == 0) {
+                const result = completer();
+                try writeCompleterResult(ctx, result);
+            } else if (f.params.len == 1) {
+                const Param0 = f.params[0].type.?;
+                if (Param0 == std.mem.Allocator) {
+                    const result = try completer(allocator);
+                    defer allocator.free(result);
+                    try writeCompleterResult(ctx, result);
+                } else if (Param0 == CompletionContext) {
+                    try completer(ctx);
+                } else {
+                    @compileError("Unsupported completer parameter type: " ++ @typeName(Param0));
+                }
+            } else {
+                @compileError("Unsupported completer function signature: " ++ @typeName(T));
+            }
+        },
+        .pointer => |p| {
+            switch (p.size) {
+                .slice, .one => {
+                    if (p.size == .one and @typeInfo(p.child) != .array) {
+                        @compileError("Unsupported completer type: " ++ @typeName(T));
+                    }
+                    try writeCompleterResult(ctx, completer);
+                },
+                else => @compileError("Unsupported completer type: " ++ @typeName(T)),
+            }
+        },
+        .array => {
+            try writeCompleterResult(ctx, completer);
+        },
+        else => @compileError("Unsupported completer type: " ++ @typeName(T)),
+    }
+}
+
+fn writeCompleterResult(ctx: CompletionContext, result: anytype) !void {
+    const T = @TypeOf(result);
+    const info = @typeInfo(T);
+
+    if (info == .error_union) {
+        return writeCompleterResult(ctx, try result);
+    }
+
+    const ResultT = @TypeOf(if (info == .error_union) try result else result);
+    const res_info = @typeInfo(ResultT);
+
+    if (res_info == .pointer or res_info == .array) {
+        const Base = if (res_info == .pointer) res_info.pointer.child else res_info.array.child;
+        const base_info = @typeInfo(Base);
+        const Elem = if (base_info == .array) base_info.array.child else Base;
+        if (Elem == []const u8 or Elem == [:0]const u8 or Elem == []u8) {
+            for (result) |val| {
+                try ctx.addItem(.{ .value = val });
+            }
+        } else if (Elem == CompletionItem) {
+            for (result) |item| {
+                try ctx.addItem(item);
+            }
+        } else {
+            @compileError("Unsupported completer result element type: " ++ @typeName(Elem));
+        }
+    } else {
+        @compileError("Unsupported completer result type: " ++ @typeName(ResultT));
+    }
+}
+
+const DYNAMIC_COMPLETION_FLAG = "--complete-dynamic-run";
+
 const OptionError = ParseError ||
     std.mem.Allocator.Error ||
     std.fmt.ParseIntError ||
@@ -210,8 +369,14 @@ const MessageHelper = struct {
         const default_value = @as(*align(1) const field.type, @ptrCast(field.default_value_ptr.?)).*;
         switch (@typeInfo(field.type)) {
             .bool => if (!default_value) return,
-            .optional => |optional_info| if (@typeInfo(optional_info.child) == .bool) {
-                if (!(default_value orelse false)) return;
+            .optional => |optional_info| {
+                if (@typeInfo(optional_info.child) == .bool) {
+                    if (!(default_value orelse false)) return;
+                } else if (@typeInfo(optional_info.child) == .@"enum") {
+                    if (default_value == null) return;
+                } else {
+                    if (default_value == null) return;
+                }
             },
             else => {},
         }
@@ -403,6 +568,16 @@ fn ParseResult(
                 argument_prompt,
             ).printHelp(Options, null, writer);
         }
+
+        pub fn printCompletion(self: Self, shell: Shell, writer: *Writer) !void {
+            var target_shell = shell;
+            if (target_shell == .auto) {
+                target_shell = try detectShell(self.allocator);
+            }
+
+            const base_name = std.fs.path.basename(self.program_name);
+            try writeCompletionScript(Options, target_shell, base_name, self.program_name, writer);
+        }
     };
 }
 
@@ -554,7 +729,23 @@ fn SubCommandsType(comptime Options: type) type {
     } });
 }
 
+fn validateCompleters(comptime T: type) void {
+    if (@hasDecl(T, "__completers__")) {
+        const completers = T.__completers__;
+        const CompletersT = @TypeOf(completers);
+        if (@typeInfo(CompletersT) != .@"struct") {
+            @compileError("__completers__ should be defined using struct");
+        }
+        inline for (std.meta.fields(CompletersT)) |fld| {
+            if (!@hasField(T, fld.name)) {
+                @compileError("no such option exists in __completers__, name: " ++ fld.name);
+            }
+        }
+    }
+}
+
 fn CommandParser(comptime Options: type) type {
+    comptime validateCompleters(Options);
     return struct {
         option_fields: [getOptionLength(Options)]OptionField = buildOptionFields(Options),
         option_commands: if (@hasField(Options, command_field_name_default)) blk: {
@@ -675,6 +866,42 @@ fn OptionParser(
             }
 
             var state = ParseState.start;
+
+            if (argument_index.* < input_arguments.len and std.mem.eql(u8, input_arguments[argument_index.*], DYNAMIC_COMPLETION_FLAG)) {
+                argument_index.* += 1;
+                if (argument_index.* >= input_arguments.len) {
+                    return error.MissingOptionValue;
+                }
+                const opt_name = input_arguments[argument_index.*];
+                argument_index.* += 1;
+
+                var shell: Shell = .fish;
+                if (argument_index.* < input_arguments.len) {
+                    const possible_shell = input_arguments[argument_index.*];
+                    if (std.meta.stringToEnum(Shell, possible_shell)) |s| {
+                        shell = s;
+                        argument_index.* += 1;
+                    }
+                }
+
+                if (@hasDecl(CurrentOptions, "__completers__")) {
+                    const completers = CurrentOptions.__completers__;
+                    inline for (std.meta.fields(@TypeOf(completers))) |fld| {
+                        if (std.mem.eql(u8, fld.name, opt_name)) {
+                            const completer = @field(completers, fld.name);
+                            const stdout = std.fs.File.stdout();
+                            var buf: [4096]u8 = undefined;
+                            var stdout_writer = stdout.writer(&buf);
+
+                            runCompleter(message_helper.allocator, shell, &stdout_writer, completer) catch {};
+                            stdout_writer.interface.flush() catch {};
+                            std.process.exit(0);
+                        }
+                    }
+                }
+                std.process.exit(0);
+            }
+
             var current_option: ?*OptionField = null;
 
             outer: while (argument_index.* < input_arguments.len) {
@@ -726,6 +953,32 @@ fn OptionParser(
                             }
                             return error.NoOption;
                         };
+
+                        if (std.mem.eql(u8, option.long_name, "completion")) {
+                            if (!is_test) {
+                                var requested_shell: Shell = .auto;
+                                if (argument_index.* < input_arguments.len) {
+                                    const next_arg = input_arguments[argument_index.*];
+                                    if (std.meta.stringToEnum(Shell, next_arg)) |s| {
+                                        requested_shell = s;
+                                        argument_index.* += 1;
+                                    }
+                                }
+
+                                const detected_shell = if (requested_shell == .auto)
+                                    detectShell(message_helper.allocator) catch .bash
+                                else
+                                    requested_shell;
+
+                                const stdout = std.fs.File.stdout();
+                                var buf: [4096]u8 = undefined;
+                                var stdout_writer = stdout.writer(&buf);
+                                const base_name = std.fs.path.basename(message_helper.program_name);
+                                writeCompletionScript(CurrentOptions, detected_shell, base_name, message_helper.program_name, &stdout_writer.interface) catch {};
+                                stdout_writer.interface.flush() catch {};
+                                std.process.exit(0);
+                            }
+                        }
 
                         if (option.option_type == .Bool or option.option_type == .RequiredBool) {
                             _ = try setOptionValue(CurrentOptions, &options_value, option.long_name, "true");
@@ -1337,4 +1590,610 @@ test "print help uses sub command context" {
         \\      --aa INTEGER                 (required)
         \\
     , aw.written());
+}
+
+const ZSH_COMPLETION_HEADER =
+    \\zstyle ':completion:*:*:*:*:descriptions' format '%F{green}-- %d --%f'
+    \\zstyle ':completion:*' group-name ''
+    \\
+;
+
+const BASH_COMPLETION_PREFIX =
+    \\    local cur prev opts
+    \\    COMPREPLY=()
+    \\    cur="${COMP_WORDS[COMP_CWORD]}"
+    \\    prev="${COMP_WORDS[COMP_CWORD-1]}"
+    \\    opts="
+;
+
+const BASH_COMPLETION_SUFFIX =
+    \\    if [[ ${cur} == -* ]] ; then
+    \\        COMPREPLY=( $(compgen -W "${opts}" -- ${cur}) )
+    \\        return 0
+    \\    fi
+    \\
+    \\    COMPREPLY=( $(compgen -W "${opts}" -- ${cur}) )
+    \\}
+    \\
+;
+
+fn writeBashCompletion(comptime Typ: type, base_name: []const u8, full_cmd: []const u8, writer: anytype) !void {
+    var safe_buf: [256]u8 = undefined;
+    const safe = safeBashName(&safe_buf, base_name);
+
+    try writer.print("_{s}_completion() {{\n", .{safe});
+    try writer.writeAll(BASH_COMPLETION_PREFIX);
+    try writeBashOptions(Typ, writer);
+    try writer.writeAll("\"\n\n");
+
+    try writeBashDynamicCompleters(Typ, writer);
+
+    try writer.writeAll(BASH_COMPLETION_SUFFIX);
+    try writer.print("complete -F _{s}_completion \"{s}\" \"{s}\"\n", .{ safe, base_name, full_cmd });
+}
+
+fn safeBashName(buf: []u8, name: []const u8) []const u8 {
+    var j: usize = 0;
+    for (name) |c| {
+        if (j >= buf.len) break;
+        buf[j] = if (c == '-') '_' else c;
+        j += 1;
+    }
+    return buf[0..j];
+}
+
+fn writeBashDynamicCompleters(comptime Typ: type, writer: anytype) !void {
+    const fields = comptime buildOptionFields(Typ);
+    inline for (fields) |f| {
+        if (comptime @hasDecl(Typ, "__completers__")) {
+            if (comptime @hasField(@TypeOf(Typ.__completers__), f.long_name)) {
+                try writer.print("    if [[ ${{prev}} == --{s}", .{f.long_name});
+                if (f.short_name) |s| {
+                    try writer.print(" || ${{prev}} == -{c}", .{s});
+                }
+                try writer.writeAll(" ]]; then\n");
+                try writer.print("        COMPREPLY=( $( $1 {s} {s} bash ) )\n", .{ DYNAMIC_COMPLETION_FLAG, f.long_name });
+                try writer.writeAll("        return 0\n");
+                try writer.writeAll("    fi\n");
+            }
+        }
+    }
+
+    if (comptime @hasField(Typ, command_field_name_default)) {
+        inline for (std.meta.fields(Typ)) |fld| {
+            if (comptime std.mem.eql(u8, fld.name, command_field_name_default)) {
+                inline for (std.meta.fields(fld.type)) |cmd_fld| {
+                    try writeBashDynamicCompleters(cmd_fld.type, writer);
+                }
+            }
+        }
+    }
+}
+
+fn detectShell(allocator: std.mem.Allocator) !Shell {
+    const builtin_os = @import("builtin").os.tag;
+
+    if (builtin_os == .linux) {
+        var current_ppid = std.os.linux.getppid();
+        var i: usize = 0;
+        while (i < 3) : (i += 1) {
+            var path_buf: [64]u8 = undefined;
+            const comm_path = try std.fmt.bufPrint(&path_buf, "/proc/{d}/comm", .{current_ppid});
+            if (std.fs.openFileAbsolute(comm_path, .{})) |file| {
+                defer file.close();
+                var name_buf: [256]u8 = undefined;
+                const len = try file.readAll(&name_buf);
+                const name = std.mem.trim(u8, name_buf[0..len], " \n\r\t");
+
+                if (std.mem.indexOf(u8, name, "zsh") != null) return .zsh;
+                if (std.mem.indexOf(u8, name, "fish") != null) return .fish;
+                if (std.mem.indexOf(u8, name, "bash") != null) return .bash;
+
+                const is_parent_cmd = std.mem.eql(u8, name, "zig") or
+                    std.mem.eql(u8, name, "make") or
+                    std.mem.eql(u8, name, "sudo");
+
+                if (is_parent_cmd) {
+                    const status_path = try std.fmt.bufPrint(&path_buf, "/proc/{d}/status", .{current_ppid});
+                    if (std.fs.openFileAbsolute(status_path, .{}) catch null) |sfile| {
+                        defer sfile.close();
+                        var sbuf: [4096]u8 = undefined;
+                        const slen = sfile.readAll(&sbuf) catch 0;
+                        if (std.mem.indexOf(u8, sbuf[0..slen], "PPid:")) |idx| {
+                            const line = sbuf[idx..];
+                            const end = std.mem.indexOf(u8, line, "\n") orelse line.len;
+                            const ppid_str = std.mem.trim(u8, line[5..end], " \t\r");
+                            current_ppid = std.fmt.parseInt(i32, ppid_str, 10) catch break;
+                            continue;
+                        }
+                    }
+                }
+            } else |_| {}
+            break;
+        }
+    }
+
+    if (std.process.getEnvVarOwned(allocator, "SHELL")) |shell_path| {
+        defer allocator.free(shell_path);
+        const basename = std.fs.path.basename(shell_path);
+        if (std.mem.indexOf(u8, basename, "zsh") != null) return .zsh;
+        if (std.mem.indexOf(u8, basename, "fish") != null) return .fish;
+        if (std.mem.indexOf(u8, basename, "bash") != null) return .bash;
+    } else |_| {}
+
+    if (std.process.getEnvVarOwned(allocator, "ZSH_NAME")) |val| {
+        allocator.free(val);
+        return .zsh;
+    } else |_| {}
+
+    return .bash;
+}
+
+fn writeCompletionScript(comptime T: type, shell: Shell, base_name: []const u8, full_cmd: []const u8, writer: anytype) !void {
+    switch (shell) {
+        .zsh => {
+            try writer.print("#compdef \"{s}\" \"{s}\"\n\n", .{ base_name, full_cmd });
+            try writer.writeAll(ZSH_COMPLETION_HEADER);
+            try writeZshCompletion(T, base_name, base_name, writer);
+            try writer.print("\ncompdef _{s} \"{s}\" \"{s}\"\n", .{ base_name, base_name, full_cmd });
+        },
+        .bash => {
+            try writeBashCompletion(T, base_name, full_cmd, writer);
+        },
+        .fish => {
+            try writeFishCompletion(T, base_name, full_cmd, null, writer);
+            if (!std.mem.eql(u8, base_name, full_cmd)) {
+                try writeFishCompletion(T, full_cmd, full_cmd, null, writer);
+            }
+        },
+        .auto => unreachable,
+    }
+}
+
+fn writeBashOptions(comptime Typ: type, writer: anytype) !void {
+    const fields = comptime buildOptionFields(Typ);
+    inline for (fields) |f| {
+        try writer.print("--{s} ", .{f.long_name});
+        if (f.short_name) |s| {
+            try writer.print("-{c} ", .{s});
+        }
+    }
+    if (comptime @hasField(Typ, command_field_name_default)) {
+        inline for (std.meta.fields(Typ)) |fld| {
+            if (comptime std.mem.eql(u8, fld.name, command_field_name_default)) {
+                inline for (std.meta.fields(fld.type)) |cmd_fld| {
+                    try writer.print("{s} ", .{cmd_fld.name});
+                    try writeBashOptions(cmd_fld.type, writer);
+                }
+            }
+        }
+    }
+}
+
+fn escapeFishSingleQuote(buf: []u8, target: []const u8) []const u8 {
+    var j: usize = 0;
+    for (target) |c| {
+        if (j + 4 > buf.len) break;
+        if (c == '\'') {
+            buf[j] = '\'';
+            buf[j + 1] = '\\';
+            buf[j + 2] = '\'';
+            buf[j + 3] = '\'';
+            j += 4;
+        } else {
+            buf[j] = c;
+            j += 1;
+        }
+    }
+    return buf[0..j];
+}
+
+fn writeFishCompletion(comptime Typ: type, target: []const u8, bin_to_run: []const u8, parent_cmd: ?[]const u8, writer: anytype) !void {
+    const fields = comptime buildOptionFields(Typ);
+
+    inline for (fields) |f| {
+        const is_special = std.mem.eql(u8, f.long_name, "help") or
+            std.mem.eql(u8, f.long_name, "version") or
+            std.mem.eql(u8, f.long_name, "completion");
+
+        var target_buf: [512]u8 = undefined;
+        const escaped_target = escapeFishSingleQuote(&target_buf, target);
+
+        try writer.print("complete -c '{s}'", .{escaped_target});
+        if (parent_cmd == null) {
+            try writer.writeAll(" -f");
+        }
+        if (parent_cmd) |pc| {
+            try writer.print(" -n \"__fish_seen_subcommand_from {s}\"", .{pc});
+        } else {
+            try writer.writeAll(" -n \"__fish_use_subcommand\"");
+        }
+
+        if (f.short_name) |s| {
+            try writer.print(" -s {c}", .{s});
+        }
+        try writer.print(" -l {s}", .{f.long_name});
+
+        if (f.message) |m| {
+            try writer.writeAll(" -d '");
+            for (m) |c| {
+                if (c == '\'') {
+                    try writer.writeAll("\\'");
+                } else {
+                    try writer.writeByte(c);
+                }
+            }
+            try writer.writeAll("'");
+        }
+
+        var has_completer = false;
+        if (comptime @hasDecl(Typ, "__completers__")) {
+            if (comptime @hasField(@TypeOf(Typ.__completers__), f.long_name)) {
+                has_completer = true;
+                try writer.writeAll(" -x");
+                try writer.print(" -a '(\"{s}\" {s} {s} fish)'", .{ bin_to_run, DYNAMIC_COMPLETION_FLAG, f.long_name });
+            }
+        }
+
+        switch (f.option_type) {
+            .Bool, .RequiredBool => {},
+            else => try writer.writeAll(" -r"),
+        }
+
+        switch (f.option_type) {
+            .String, .RequiredString => {},
+            .Enum, .RequiredEnum => {
+                try writer.writeAll(" -f");
+                inline for (std.meta.fields(Typ)) |tf| {
+                    if (std.mem.eql(u8, tf.name, f.long_name)) {
+                        const RealT = NonOptionType(tf.type);
+                        if (@typeInfo(RealT) == .@"enum") {
+                            try writer.writeAll(" -a \"");
+                            inline for (std.meta.fields(RealT)) |ef| {
+                                try writer.print("{s} ", .{ef.name});
+                            }
+                            try writer.writeAll("\"");
+                        }
+                    }
+                }
+            },
+            else => if (!has_completer) try writer.writeAll(" -f"),
+        }
+
+        try writer.writeAll("\n");
+
+        if (!is_special) {
+            try writer.print("complete -c '{s}' -f", .{escaped_target});
+            if (parent_cmd) |pc| {
+                try writer.print(" -n \"__fish_seen_subcommand_from {s}\"", .{pc});
+            } else {
+                try writer.writeAll(" -n \"__fish_use_subcommand\"");
+            }
+            try writer.print(" -a --{s}", .{f.long_name});
+            if (f.message) |m| {
+                try writer.writeAll(" -d '");
+                for (m) |c| {
+                    if (c == '\'') try writer.writeAll("\\'") else try writer.writeByte(c);
+                }
+                try writer.writeAll("'");
+            }
+            try writer.writeAll("\n");
+        }
+    }
+    if (comptime @hasField(Typ, command_field_name_default)) {
+        inline for (std.meta.fields(Typ)) |fld| {
+            if (comptime std.mem.eql(u8, fld.name, command_field_name_default)) {
+                inline for (std.meta.fields(fld.type)) |cmd_fld| {
+                    var target_buf2: [512]u8 = undefined;
+                    const escaped_target2 = escapeFishSingleQuote(&target_buf2, target);
+
+                    try writer.print("complete -c '{s}' -f", .{escaped_target2});
+                    if (parent_cmd) |pc| {
+                        try writer.print(" -n \"__fish_seen_subcommand_from {s}\"", .{pc});
+                    } else {
+                        try writer.writeAll(" -n \"__fish_use_subcommand\"");
+                    }
+                    try writer.print(" -a {s}", .{cmd_fld.name});
+                    if (comptime @hasDecl(fld.type, "__messages__")) {
+                        if (comptime @hasField(@TypeOf(fld.type.__messages__), cmd_fld.name)) {
+                            const m = @field(fld.type.__messages__, cmd_fld.name);
+                            try writer.writeAll(" -d '");
+                            for (m) |c| {
+                                if (c == '\'') {
+                                    try writer.writeAll("\\'");
+                                } else {
+                                    try writer.writeByte(c);
+                                }
+                            }
+                            try writer.writeAll("'");
+                        }
+                    }
+                    try writer.writeAll("\n");
+                    try writeFishCompletion(cmd_fld.type, target, bin_to_run, cmd_fld.name, writer);
+                }
+            }
+        }
+    }
+}
+
+fn writeZshEscaped(writer: anytype, text: []const u8) !void {
+    for (text) |c| {
+        switch (c) {
+            '\'' => try writer.writeAll("'\\''"),
+            ':' => try writer.writeAll("\\:"),
+            '[' => try writer.writeAll("\\["),
+            ']' => try writer.writeAll("\\]"),
+            '"' => try writer.writeAll("\\\""),
+            else => try writer.writeByte(c),
+        }
+    }
+}
+
+fn writeZshCompletion(comptime Typ: type, base_name: []const u8, cmd_path: []const u8, writer: anytype) !void {
+    try writer.print("function _{s} {{\n", .{cmd_path});
+    try writer.writeAll("  local context state state_descr line\n  typeset -A opt_args\n\n");
+
+    if (comptime @hasField(Typ, command_field_name_default)) {
+        try writer.writeAll("  local -a commands\n  commands=(\n");
+        inline for (std.meta.fields(Typ)) |fld| {
+            if (comptime std.mem.eql(u8, fld.name, command_field_name_default)) {
+                inline for (std.meta.fields(fld.type)) |cmd_fld| {
+                    var desc: []const u8 = "";
+                    if (comptime @hasDecl(fld.type, "__messages__")) {
+                        if (comptime @hasField(@TypeOf(fld.type.__messages__), cmd_fld.name)) {
+                            desc = @field(fld.type.__messages__, cmd_fld.name);
+                        }
+                    }
+                    try writer.print("    '{s}:", .{cmd_fld.name});
+                    try writeZshEscaped(writer, desc);
+                    try writer.writeAll("'\n");
+                }
+            }
+        }
+        try writer.writeAll("  )\n\n");
+    }
+
+    try writer.writeAll("  _arguments -C");
+
+    const fields = comptime buildOptionFields(Typ);
+    inline for (fields) |f| {
+        const has_short = f.short_name != null;
+        const iterations: usize = if (has_short) 2 else 1;
+        var i: usize = 0;
+
+        while (i < iterations) : (i += 1) {
+            try writer.writeAll(" \\\n    '");
+
+            if (has_short) {
+                if (i == 0) {
+                    try writer.print("(--{s})-{c}", .{ f.long_name, f.short_name.? });
+                } else {
+                    try writer.print("(-{c})--{s}", .{ f.short_name.?, f.long_name });
+                }
+            } else {
+                try writer.print("--{s}", .{f.long_name});
+            }
+
+            try writer.writeAll("[");
+            const desc = if (f.message) |m| m else f.long_name;
+            try writeZshEscaped(writer, desc);
+            try writer.writeAll("]");
+
+            var action_written = false;
+            if (comptime @hasDecl(Typ, "__completers__")) {
+                if (comptime @hasField(@TypeOf(Typ.__completers__), f.long_name)) {
+                    try writer.writeAll(":");
+                    try writeZshEscaped(writer, desc);
+                    try writer.print(":{{ local -a candidates; candidates=( ${{(f)\"$(command ${{words[1]}} {s} {s} zsh)\"}} ); _describe '\\''", .{ DYNAMIC_COMPLETION_FLAG, f.long_name });
+                    try writeZshEscaped(writer, desc);
+                    try writer.writeAll("'\\'' candidates }");
+                    action_written = true;
+                }
+            }
+
+            if (!action_written) {
+                switch (f.option_type) {
+                    .String, .RequiredString => try writer.writeAll(":filename:_files"),
+                    .Bool, .RequiredBool => {},
+                    .Int, .RequiredInt, .Float, .RequiredFloat => try writer.writeAll(":number"),
+                    .Enum, .RequiredEnum => {
+                        inline for (std.meta.fields(Typ)) |tf| {
+                            if (std.mem.eql(u8, tf.name, f.long_name)) {
+                                const RealT = NonOptionType(tf.type);
+                                if (@typeInfo(RealT) == .@"enum") {
+                                    try writer.writeAll(":(");
+                                    inline for (std.meta.fields(RealT)) |ef| {
+                                        try writer.print("{s} ", .{ef.name});
+                                    }
+                                    try writer.writeAll(")");
+                                } else {
+                                    try writer.writeAll(":value");
+                                }
+                            }
+                        }
+                    },
+                }
+            }
+
+            try writer.writeAll("'");
+        }
+    }
+
+    if (comptime @hasField(Typ, command_field_name_default)) {
+        try writer.writeAll(" \\\n");
+        try writer.writeAll("    '1: :->cmd' \\\n");
+        try writer.writeAll("    '*:: :->args'");
+
+        try writer.writeAll("\n\n");
+        try writer.writeAll(
+            \\  case $state in
+            \\    cmd)
+            \\      _describe -t subcommands 'subcommands' commands
+            \\      ;;
+            \\    args)
+            \\      case $line[1] in
+        );
+        inline for (std.meta.fields(Typ)) |fld| {
+            if (comptime std.mem.eql(u8, fld.name, command_field_name_default)) {
+                inline for (std.meta.fields(fld.type)) |cmd_fld| {
+                    try writer.print("        {s})\n          _{s}_{s}\n          ;;\n", .{ cmd_fld.name, cmd_path, cmd_fld.name });
+                }
+            }
+        }
+        try writer.writeAll(
+            \\      esac
+            \\      ;;
+            \\  esac
+        );
+    } else {
+        try writer.writeAll("\n");
+    }
+
+    try writer.writeAll("\n}\n\n");
+
+    if (comptime @hasField(Typ, command_field_name_default)) {
+        inline for (std.meta.fields(Typ)) |fld| {
+            if (comptime std.mem.eql(u8, fld.name, command_field_name_default)) {
+                inline for (std.meta.fields(fld.type)) |cmd_fld| {
+                    var new_path_buf: [128]u8 = undefined;
+                    const new_path = try std.fmt.bufPrint(&new_path_buf, "{s}_{s}", .{ cmd_path, cmd_fld.name });
+                    try writeZshCompletion(cmd_fld.type, base_name, new_path, writer);
+                }
+            }
+        }
+    }
+}
+
+test "dynamic completion/different types" {
+    const allocator = std.testing.allocator;
+    const Args = struct {
+        foo: []const u8 = "",
+        bar: []const u8 = "",
+        baz: []const u8 = "",
+        qux: []const u8 = "",
+
+        pub const __completers__ = .{
+            .foo = &[_][]const u8{ "apple", "banana" },
+            .bar = struct {
+                fn run() []const []const u8 {
+                    return &.{ "cherry", "date" };
+                }
+            }.run,
+            .baz = struct {
+                fn run(alloc: std.mem.Allocator) ![]const CompletionItem {
+                    var list: std.ArrayList(CompletionItem) = .empty;
+                    try list.append(alloc, .{ .value = "eggplant", .description = "purple" });
+                    return list.toOwnedSlice(alloc);
+                }
+            }.run,
+            .qux = struct {
+                fn run(ctx: CompletionContext) !void {
+                    try ctx.add("fig", "sweet");
+                }
+            }.run,
+        };
+    };
+
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(allocator);
+    var writer = buf.writer(allocator);
+
+    try runCompleter(allocator, .fish, &writer, Args.__completers__.foo);
+    try std.testing.expectEqualStrings("apple\nbanana\n", buf.items);
+    buf.items.len = 0;
+
+    try runCompleter(allocator, .fish, &writer, Args.__completers__.bar);
+    try std.testing.expectEqualStrings("cherry\ndate\n", buf.items);
+    buf.items.len = 0;
+
+    try runCompleter(allocator, .fish, &writer, Args.__completers__.baz);
+    try std.testing.expectEqualStrings("eggplant\tpurple\n", buf.items);
+    buf.items.len = 0;
+
+    try runCompleter(allocator, .fish, &writer, Args.__completers__.qux);
+    try std.testing.expectEqualStrings("fig\tsweet\n", buf.items);
+}
+
+test "completion generation/complex" {
+    const allocator = std.testing.allocator;
+    const ComplexArgs = struct {
+        verbose: bool = false,
+        @"user-agent": ?[]const u8 = "Firefox",
+        __commands__: union(enum) {
+            upload: struct {
+                file: []const u8,
+                force: bool = false,
+                pub const __shorts__ = .{ .force = .f };
+            },
+            config: struct {
+                key: []const u8,
+                __commands__: union(enum) {
+                    get: struct {
+                        json: bool = false,
+                    },
+                    set: struct {
+                        value: []const u8,
+                    },
+                    pub const __messages__ = .{
+                        .get = "Get a config value",
+                        .set = "Set a config value",
+                    };
+                },
+            },
+            pub const __messages__ = .{
+                .upload = "Upload a file",
+                .config = "Manage configuration",
+            };
+        },
+
+        pub const __shorts__ = .{
+            .verbose = .v,
+        };
+    };
+
+    var args = [_][:0]u8{
+        try allocator.dupeZ(u8, "my-tool"),
+        try allocator.dupeZ(u8, "upload"),
+        try allocator.dupeZ(u8, "--file"),
+        try allocator.dupeZ(u8, "test.txt"),
+    };
+    defer for (args) |arg| allocator.free(arg);
+
+    var parser = OptionParser(ComplexArgs).init(allocator);
+    const result = try parser.parse(&args, .{});
+    defer result.deinit();
+
+    {
+        var aw: std.Io.Writer.Allocating = .init(allocator);
+        defer aw.deinit();
+        try result.printCompletion(.fish, &aw.writer);
+        const fish_out = aw.written();
+
+        try std.testing.expect(std.mem.indexOf(u8, fish_out, "complete -c 'my-tool' -f -n \"__fish_use_subcommand\" -s v -l verbose") != null);
+        try std.testing.expect(std.mem.indexOf(u8, fish_out, "complete -c 'my-tool' -f -n \"__fish_use_subcommand\" -a upload -d 'Upload a file'") != null);
+        try std.testing.expect(std.mem.indexOf(u8, fish_out, "complete -c 'my-tool' -n \"__fish_seen_subcommand_from upload\" -s f -l force") != null);
+        try std.testing.expect(std.mem.indexOf(u8, fish_out, "complete -c 'my-tool' -f -n \"__fish_seen_subcommand_from config\" -a get -d 'Get a config value'") != null);
+        try std.testing.expect(std.mem.indexOf(u8, fish_out, "complete -c 'my-tool' -n \"__fish_seen_subcommand_from get\" -l json") != null);
+    }
+
+    {
+        var aw: std.Io.Writer.Allocating = .init(allocator);
+        defer aw.deinit();
+        try result.printCompletion(.bash, &aw.writer);
+        const bash_out = aw.written();
+        try std.testing.expect(std.mem.indexOf(u8, bash_out, "_my_tool_completion()") != null);
+        try std.testing.expect(std.mem.indexOf(u8, bash_out, "opts=\"--verbose -v --user-agent upload --file --force -f config --key get --json set --value \"") != null);
+    }
+
+    {
+        var aw: std.Io.Writer.Allocating = .init(allocator);
+        defer aw.deinit();
+        try result.printCompletion(.zsh, &aw.writer);
+        const zsh_out = aw.written();
+        try std.testing.expect(std.mem.indexOf(u8, zsh_out, "#compdef \"my-tool\" \"my-tool\"") != null);
+        try std.testing.expect(std.mem.indexOf(u8, zsh_out, "function _my-tool") != null);
+        try std.testing.expect(std.mem.indexOf(u8, zsh_out, "upload:Upload a file") != null);
+        try std.testing.expect(std.mem.indexOf(u8, zsh_out, "config:Manage configuration") != null);
+        try std.testing.expect(std.mem.indexOf(u8, zsh_out, "compdef _my-tool \"my-tool\" \"my-tool\"") != null);
+    }
 }
