@@ -283,6 +283,12 @@ fn sourceSupported(
         if (!(target_os == .macos or target_os == .linux)) {
             return false;
         }
+        // Compile this on ubuntu for macos will fail with
+        // .zig-cache/o/513b79f3b8ebc065f2954c84bf996d8e/cimport.zig:1323:40: note: opaque declared here
+        // pub const mach_msg_type_descriptor_t = opaque {};
+        if (host_os != target_os) {
+            return false;
+        }
     }
 
     return true;
