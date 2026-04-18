@@ -41,8 +41,9 @@ pub const Fingerprint = packed struct(u64) {
     checksum: u32,
 
     pub fn generate(name: []const u8) Fingerprint {
+        var prng = std.Random.DefaultPrng.init(std.hash.Wyhash.hash(0, name));
         return .{
-            .id = std.crypto.random.intRangeLessThan(u32, 1, 0xffffffff),
+            .id = prng.random().intRangeLessThan(u32, 1, 0xffffffff),
             .checksum = std.hash.Crc32.hash(name),
         };
     }
@@ -114,7 +115,7 @@ pub fn parse(gpa: Allocator, ast: Ast, options: ParseOptions) Error!Manifest {
         .gpa = gpa,
         .ast = ast,
         .arena = arena_instance.allocator(),
-        .errors = .{},
+        .errors = .empty,
 
         .name = undefined,
         .id = 0,
@@ -127,7 +128,7 @@ pub fn parse(gpa: Allocator, ast: Ast, options: ParseOptions) Error!Manifest {
         .allow_name_string = options.allow_name_string,
         .allow_missing_fingerprint = options.allow_missing_fingerprint,
         .minimum_zig_version = null,
-        .buf = .{},
+        .buf = .empty,
     };
     defer p.buf.deinit(gpa);
     defer p.errors.deinit(gpa);
@@ -512,7 +513,7 @@ const Parse = struct {
     ) InnerError!void {
         const raw_string = bytes[offset..];
         const result = r: {
-            var aw: std.io.Writer.Allocating = .fromArrayList(p.gpa, buf);
+            var aw: std.Io.Writer.Allocating = .fromArrayList(p.gpa, buf);
             defer buf.* = aw.toArrayList();
             break :r std.zig.string_literal.parseWrite(&aw.writer, raw_string) catch |err| switch (err) {
                 error.WriteFailed => return error.OutOfMemory,

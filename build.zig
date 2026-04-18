@@ -131,6 +131,7 @@ fn buildBinaries(
     all_tests: *Step,
 ) !void {
     inline for (.{
+        "zigfetch",
         "tree",
         "loc",
         "pidof",
@@ -240,7 +241,7 @@ fn makeCompileStep(
         }),
     });
 
-    configureCompileStep(compile_step, source_name, target);
+    configureCompileStep(b, compile_step, source_name, optimize, target);
 
     const install_step = b.step("install-" ++ source_name, "Install " ++ source_name);
     install_step.dependOn(&b.addInstallArtifact(compile_step, .{}).step);
@@ -254,7 +255,7 @@ fn sourceSupported(
 ) bool {
     if (target_os == .freebsd) {
         // FreeBSD currently lacks std.net.if_nametoindex, which blocks these programs.
-        if (sourceNameInList(source_name, .{"tcp-proxy"})) {
+        if (sourceNameInList(source_name, .{ "zigfetch", "tcp-proxy" })) {
             return false;
         }
     }
@@ -295,8 +296,10 @@ fn sourceSupported(
 }
 
 fn configureCompileStep(
+    b: *std.Build,
     compile_step: *Build.Step.Compile,
     source_name: []const u8,
+    optimize: std.builtin.OptimizeMode,
     target: std.Build.ResolvedTarget,
 ) void {
     const module = compile_step.root_module;
@@ -319,6 +322,17 @@ fn configureCompileStep(
     }
 
     if (std.mem.eql(u8, source_name, "timeout")) {
+        module.link_libc = true;
+        return;
+    }
+
+    if (std.mem.eql(u8, source_name, "zigfetch")) {
+        const curl_dependency = b.dependency("curl", .{
+            .link_vendor = true,
+            .target = target,
+            .optimize = optimize,
+        });
+        module.addImport("curl", curl_dependency.module("curl"));
         module.link_libc = true;
         return;
     }
