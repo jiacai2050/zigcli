@@ -938,6 +938,7 @@ const TestArguments = struct {
 
 test "parse/valid option values" {
     const gpa = std.testing.allocator;
+    const io = std.testing.io;
     var input_arguments = [_][:0]u8{
         try gpa.dupeZ(u8, "awesome-cli"),
         try gpa.dupeZ(u8, "--help"),
@@ -955,7 +956,7 @@ test "parse/valid option values" {
         gpa.free(argument);
     };
 
-    var parser = OptionParser(TestArguments).init(gpa, std.Io.Threaded.global_single_threaded.io());
+    var parser = OptionParser(TestArguments).init(gpa, io);
     const result = try parser.parse(&input_arguments, .{ .argument_prompt = "..." });
     defer result.deinit();
 
@@ -988,6 +989,7 @@ test "parse/valid option values" {
 
 test "parse/bool value" {
     const gpa = std.testing.allocator;
+    const io = std.testing.io;
     {
         var input_arguments = [_][:0]u8{
             try gpa.dupeZ(u8, "awesome-cli"),
@@ -996,7 +998,7 @@ test "parse/bool value" {
         defer for (input_arguments) |argument| {
             gpa.free(argument);
         };
-        var parser = OptionParser(struct { help: bool }).init(gpa, std.Io.Threaded.global_single_threaded.io());
+        var parser = OptionParser(struct { help: bool }).init(gpa, io);
         const result = try parser.parse(&input_arguments, .{});
         defer result.deinit();
 
@@ -1012,7 +1014,7 @@ test "parse/bool value" {
         defer for (input_arguments) |argument| {
             gpa.free(argument);
         };
-        var parser = OptionParser(struct { help: bool }).init(gpa, std.Io.Threaded.global_single_threaded.io());
+        var parser = OptionParser(struct { help: bool }).init(gpa, io);
         const result = try parser.parse(&input_arguments, .{});
         defer result.deinit();
 
@@ -1027,6 +1029,7 @@ test "parse/bool value" {
 
 test "parse/missing required arguments" {
     const gpa = std.testing.allocator;
+    const io = std.testing.io;
     var input_arguments = [_][:0]u8{
         try gpa.dupeZ(u8, "abc"),
         try gpa.dupeZ(u8, "def"),
@@ -1034,13 +1037,14 @@ test "parse/missing required arguments" {
     defer for (input_arguments) |argument| {
         gpa.free(argument);
     };
-    var parser = OptionParser(TestArguments).init(gpa, std.Io.Threaded.global_single_threaded.io());
+    var parser = OptionParser(TestArguments).init(gpa, io);
 
     try std.testing.expectError(error.MissingRequiredOption, parser.parse(&input_arguments, .{}));
 }
 
 test "parse/invalid u16 values" {
     const gpa = std.testing.allocator;
+    const io = std.testing.io;
     var input_arguments = [_][:0]u8{
         try gpa.dupeZ(u8, "awesome-cli"),
         try gpa.dupeZ(u8, "--timeout"),
@@ -1050,13 +1054,14 @@ test "parse/invalid u16 values" {
     defer for (input_arguments) |argument| {
         gpa.free(argument);
     };
-    var parser = OptionParser(TestArguments).init(gpa, std.Io.Threaded.global_single_threaded.io());
+    var parser = OptionParser(TestArguments).init(gpa, io);
 
     try std.testing.expectError(error.InvalidCharacter, parser.parse(&input_arguments, .{}));
 }
 
 test "parse/invalid f32 values" {
     const gpa = std.testing.allocator;
+    const io = std.testing.io;
     var input_arguments = [_][:0]u8{
         try gpa.dupeZ(u8, "awesome-cli"),
         try gpa.dupeZ(u8, "--rate"),
@@ -1066,13 +1071,14 @@ test "parse/invalid f32 values" {
     defer for (input_arguments) |argument| {
         gpa.free(argument);
     };
-    var parser = OptionParser(TestArguments).init(gpa, std.Io.Threaded.global_single_threaded.io());
+    var parser = OptionParser(TestArguments).init(gpa, io);
 
     try std.testing.expectError(error.InvalidCharacter, parser.parse(&input_arguments, .{}));
 }
 
 test "parse/unknown option" {
     const gpa = std.testing.allocator;
+    const io = std.testing.io;
     var input_arguments = [_][:0]u8{
         try gpa.dupeZ(u8, "awesome-cli"),
         try gpa.dupeZ(u8, "-h"),
@@ -1083,13 +1089,14 @@ test "parse/unknown option" {
     defer for (input_arguments) |argument| {
         gpa.free(argument);
     };
-    var parser = OptionParser(TestArguments).init(gpa, std.Io.Threaded.global_single_threaded.io());
+    var parser = OptionParser(TestArguments).init(gpa, io);
 
     try std.testing.expectError(error.NoOption, parser.parse(&input_arguments, .{}));
 }
 
 test "parse/missing option value" {
     const gpa = std.testing.allocator;
+    const io = std.testing.io;
     var input_arguments = [_][:0]u8{
         try gpa.dupeZ(u8, "awesome-cli"),
         try gpa.dupeZ(u8, "-h"),
@@ -1098,13 +1105,14 @@ test "parse/missing option value" {
     defer for (input_arguments) |argument| {
         gpa.free(argument);
     };
-    var parser = OptionParser(TestArguments).init(gpa, std.Io.Threaded.global_single_threaded.io());
+    var parser = OptionParser(TestArguments).init(gpa, io);
 
     try std.testing.expectError(error.MissingOptionValue, parser.parse(&input_arguments, .{}));
 }
 
 test "parse/default value" {
     const gpa = std.testing.allocator;
+    const io = std.testing.io;
     var input_arguments = [_][:0]u8{
         try gpa.dupeZ(u8, "awesome-cli"),
     };
@@ -1122,7 +1130,7 @@ test "parse/default value" {
         d2: ?bool = false,
 
         const __messages__ = .{ .d2 = "padding message" };
-    }).init(gpa, std.Io.Threaded.global_single_threaded.io());
+    }).init(gpa, io);
     const result = try parser.parse(&input_arguments, .{ .argument_prompt = "..." });
     try std.testing.expectEqualStrings("A1", result.options.a1);
     try std.testing.expectEqual(result.positional_arguments.len, 0);
@@ -1150,6 +1158,7 @@ test "parse/default value" {
 
 test "parse/enum option" {
     const gpa = std.testing.allocator;
+    const io = std.testing.io;
     var input_arguments = [_][:0]u8{
         try gpa.dupeZ(u8, "awesome-cli"),
         try gpa.dupeZ(u8, "--a3"),
@@ -1162,7 +1171,7 @@ test "parse/enum option" {
         a1: ?enum { A, B } = .A,
         a2: enum { C, D } = .D,
         a3: enum { X, Y },
-    }).init(gpa, std.Io.Threaded.global_single_threaded.io());
+    }).init(gpa, io);
     const result = try parser.parse(&input_arguments, .{ .argument_prompt = "..." });
     defer result.deinit();
 
@@ -1186,6 +1195,7 @@ test "parse/enum option" {
 
 test "parse/positional arguments" {
     const gpa = std.testing.allocator;
+    const io = std.testing.io;
     var input_arguments = [_][:0]u8{
         try gpa.dupeZ(u8, "awesome-cli"),
         try gpa.dupeZ(u8, "--"),
@@ -1197,7 +1207,7 @@ test "parse/positional arguments" {
     };
     var parser = OptionParser(struct {
         a: u8 = 1,
-    }).init(gpa, std.Io.Threaded.global_single_threaded.io());
+    }).init(gpa, io);
     const result = try parser.parse(&input_arguments, .{ .argument_prompt = "..." });
     defer result.deinit();
 
@@ -1221,6 +1231,7 @@ test "parse/positional arguments" {
 
 test "parse/print_help_and_exit false" {
     const gpa = std.testing.allocator;
+    const io = std.testing.io;
     var input_arguments = [_][:0]u8{
         try gpa.dupeZ(u8, "awesome-cli"),
         try gpa.dupeZ(u8, "--help"),
@@ -1229,7 +1240,7 @@ test "parse/print_help_and_exit false" {
         gpa.free(argument);
     };
 
-    var parser = OptionParser(struct { help: bool }).init(gpa, std.Io.Threaded.global_single_threaded.io());
+    var parser = OptionParser(struct { help: bool }).init(gpa, io);
     const result = try parser.parse(&input_arguments, .{ .print_help_and_exit = false });
     defer result.deinit();
 
@@ -1241,6 +1252,7 @@ test "parse/print_help_on_error" {
     // Verify that parse errors are propagated correctly regardless of print_help_on_error.
     // The actual stderr printing is guarded by !is_test, so only the error return is tested here.
     const gpa = std.testing.allocator;
+    const io = std.testing.io;
     var input_arguments = [_][:0]u8{
         try gpa.dupeZ(u8, "awesome-cli"),
         try gpa.dupeZ(u8, "--help"),
@@ -1251,7 +1263,7 @@ test "parse/print_help_on_error" {
 
     // With print_help_on_error: true (default), errors are still propagated.
     {
-        var parser = OptionParser(TestArguments).init(gpa, std.Io.Threaded.global_single_threaded.io());
+        var parser = OptionParser(TestArguments).init(gpa, io);
         try std.testing.expectError(
             error.MissingRequiredOption,
             parser.parse(&input_arguments, .{ .print_help_on_error = true }),
@@ -1259,7 +1271,7 @@ test "parse/print_help_on_error" {
     }
     // With print_help_on_error: false, errors are also propagated (no other change in test mode).
     {
-        var parser = OptionParser(TestArguments).init(gpa, std.Io.Threaded.global_single_threaded.io());
+        var parser = OptionParser(TestArguments).init(gpa, io);
         try std.testing.expectError(
             error.MissingRequiredOption,
             parser.parse(&input_arguments, .{ .print_help_on_error = false }),
@@ -1269,6 +1281,7 @@ test "parse/print_help_on_error" {
 
 test "parse/sub commands" {
     const gpa = std.testing.allocator;
+    const io = std.testing.io;
     var input_arguments = [_][:0]u8{
         try gpa.dupeZ(u8, "awesome-cli"),
         try gpa.dupeZ(u8, "--a"),
@@ -1295,7 +1308,7 @@ test "parse/sub commands" {
                 .cmd2 = "This is command 2",
             };
         },
-    }).init(gpa, std.Io.Threaded.global_single_threaded.io());
+    }).init(gpa, io);
     const result = try parser.parse(&input_arguments, .{});
     defer result.deinit();
 
@@ -1322,6 +1335,7 @@ test "parse/sub commands" {
 
 test "print help uses sub command context" {
     const gpa = std.testing.allocator;
+    const io = std.testing.io;
     const CommandOptions = struct {
         aa: u8,
     };
@@ -1331,7 +1345,7 @@ test "print help uses sub command context" {
 
     try MessageHelper.init(
         gpa,
-        std.Io.Threaded.global_single_threaded.io(),
+        io,
         "awesome-cli",
         null,
         null,

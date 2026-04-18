@@ -394,20 +394,40 @@ fn populateLoc(io: Io, allocator: std.mem.Allocator, loc_map: *LocMap, dir: Io.D
     loc_entry.size += file_size;
 
     var state = State.Unknown;
-    var buf: [4096]u8 = undefined;
-    var rdr = file.reader(io, &buf);
-    while (true) {
-        const line = rdr.interface.takeDelimiterExclusive('\n') catch |e| {
-            switch (e) {
-                error.EndOfStream => return,
-                else => {
-                    std.log.err("Error when seek line delimiter, name:{s}, err:{any}", .{ basename, e });
-                    return e;
-                },
+    switch (@import("builtin").os.tag) {
+        .windows => {
+            var buf: [1024]u8 = undefined;
+            var rdr = file.reader(io, &buf);
+            while ((rdr.interface.takeDelimiter('\n') catch |e| {
+                std.log.err("Error when seek line delimiter, name:{s}, err:{any}", .{ basename, e });
+                return e;
+            })) |line| {
+                state = updateLineType(state, line, lang, loc_entry);
             }
-        };
+        },
+        else => {
+            const mapped = try std.posix.mmap(
+                null,
+                file_size,
+                .{ .READ = true },
+                .{ .TYPE = .PRIVATE },
+                file.handle,
+                0,
+            );
+            defer std.posix.munmap(mapped);
 
-        state = updateLineType(state, line, lang, loc_entry);
+            var offset_so_far: usize = 0;
+            while (offset_so_far < mapped.len) {
+                var line_end = offset_so_far;
+                while (line_end < mapped.len and mapped[line_end] != '\n') {
+                    line_end += 1;
+                }
+                const line = mapped[offset_so_far..line_end];
+                offset_so_far = if (line_end < mapped.len) line_end + 1 else line_end;
+
+                state = updateLineType(state, line, lang, loc_entry);
+            }
+        },
     }
 }
 
@@ -506,7 +526,7 @@ test "trimWhitespace" {
 
 test "LOC Zig/Python/Ruby" {
     const allocator = std.testing.allocator;
-    const io = std.Io.Threaded.global_single_threaded.io();
+    const io = std.testing.io;
     var loc_map = LocMap{};
     const dir = Io.Dir.cwd();
 

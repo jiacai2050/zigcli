@@ -722,9 +722,10 @@ fn testProgress(kind: Progress.Kind, options: struct {
     width_columns: ?u16 = 120,
     refresh_interval_ns: u64 = default_refresh_interval_ns,
 }) Progress {
+    const io = std.testing.io;
     return .{
         .gpa = std.testing.allocator,
-        .io = std.Io.Threaded.global_single_threaded.io(),
+        .io = io,
         .file = std.Io.File.stdout(),
         .use_ansi = false,
         .width_columns = options.width_columns,
