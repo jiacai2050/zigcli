@@ -4,13 +4,16 @@ const std = @import("std");
 const common = @import("common.zig");
 const mem = std.mem;
 const fmt = std.fmt;
-const fs = std.fs;
 
 const c = @cImport({
-    @cInclude("sys/time.h");
     @cInclude("sys/sysctl.h");
     @cInclude("unistd.h");
 });
+const c_timeval = extern struct {
+    tv_sec: c_long,
+    tv_usec: c_long,
+};
+extern "c" fn time(tloc: ?*i64) i64;
 
 /// Reads a sysctl string value into the provided buffer.
 fn sysctlString(
@@ -21,7 +24,7 @@ fn sysctlString(
     if (c.sysctlbyname(name, buf.ptr, &size, null, 0) != 0) {
         return null;
     }
-    return mem.trimRight(u8, buf[0..size], &[_]u8{0});
+    return mem.trimEnd(u8, buf[0..size], &[_]u8{0});
 }
 
 pub const getHostname = common.getHostname;
@@ -171,8 +174,8 @@ pub fn getMemory(
 
 pub fn getUptime(allocator: mem.Allocator) ![]const u8 {
     // FreeBSD has kern.boottime sysctl like macOS.
-    var boot_time: c.struct_timeval = undefined;
-    var boot_time_size: usize = @sizeOf(c.struct_timeval);
+    var boot_time: c_timeval = undefined;
+    var boot_time_size: usize = @sizeOf(c_timeval);
     if (c.sysctlbyname(
         "kern.boottime",
         &boot_time,
@@ -182,7 +185,7 @@ pub fn getUptime(allocator: mem.Allocator) ![]const u8 {
     ) != 0) {
         return "Unknown";
     }
-    const now_s: i64 = std.time.timestamp();
+    const now_s: i64 = time(null);
     const boot_s: i64 = @intCast(boot_time.tv_sec);
     if (now_s < boot_s) return "Unknown";
     const uptime_s: u64 = @intCast(now_s - boot_s);

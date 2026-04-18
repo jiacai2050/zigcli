@@ -181,7 +181,7 @@ pub fn main(init: std.process.Init) !void {
             while (elapsed < wait_secs) {
                 var arena = std.heap.ArenaAllocator.init(allocator);
                 defer arena.deinit();
-                const snap = try scanProc(arena.allocator(), pid_filter, cmd_list.items);
+                const snap = try scanProc(init.io, arena.allocator(), pid_filter, cmd_list.items);
                 if (snap.items.len > 0) break;
                 try std.Io.sleep(init.io, .{ .nanoseconds = time.ns_per_s }, .awake);
                 elapsed += 1;
@@ -211,14 +211,14 @@ fn runOnce(
 ) !bool {
     var arena1 = std.heap.ArenaAllocator.init(allocator);
     defer arena1.deinit();
-    const snap1 = try scanProc(arena1.allocator(), pid_filter, cmd_filter);
+    const snap1 = try scanProc(io, arena1.allocator(), pid_filter, cmd_filter);
     if (snap1.items.len == 0) return false;
 
     try std.Io.sleep(io, .{ .nanoseconds = @intCast(options.@"throughput-wait-time" * time.ns_per_s) }, .awake);
 
     var arena2 = std.heap.ArenaAllocator.init(allocator);
     defer arena2.deinit();
-    const snap2 = try scanProc(arena2.allocator(), pid_filter, cmd_filter);
+    const snap2 = try scanProc(io, arena2.allocator(), pid_filter, cmd_filter);
 
     const elapsed_secs: f64 = @as(f64, @floatFromInt(options.@"throughput-wait-time"));
     for (snap2.items) |info| {
@@ -240,14 +240,15 @@ fn runOnce(
 /// Scan running processes and return FileInfo entries for all matching open files.
 /// Dispatches to the platform-specific implementation.
 fn scanProc(
+    io: std.Io,
     allocator: mem.Allocator,
     pid_filter: ?[]const u32,
     cmd_filter: []const []const u8,
 ) !std.ArrayList(FileInfo) {
     if (builtin.os.tag == .linux) {
-        return scanProcLinux(allocator, pid_filter, cmd_filter);
+        return scanProcLinux(io, allocator, pid_filter, cmd_filter);
     } else if (builtin.os.tag == .macos) {
-        return scanProcMacos(allocator, pid_filter, cmd_filter);
+        return scanProcMacos(io, allocator, pid_filter, cmd_filter);
     } else {
         @compileError("progress-it is only supported on Linux and macOS");
     }
@@ -255,17 +256,18 @@ fn scanProc(
 
 /// Scan /proc and return FileInfo entries for all matching processes.
 fn scanProcLinux(
+    io: std.Io,
     allocator: mem.Allocator,
     pid_filter: ?[]const u32,
     cmd_filter: []const []const u8,
 ) !std.ArrayList(FileInfo) {
     var results: std.ArrayList(FileInfo) = .empty;
 
-    var proc_dir = fs.openDirAbsolute("/proc", .{ .iterate = true }) catch return results;
-    defer proc_dir.close();
+    var proc_dir = std.Io.Dir.openDirAbsolute(io, "/proc", .{ .iterate = true }) catch return results;
+    defer proc_dir.close(io);
 
     var proc_iter = proc_dir.iterate();
-    while (proc_iter.next() catch null) |entry| {
+    while (proc_iter.next(io) catch null) |entry| {
         if (entry.kind != .directory) continue;
         const pid = fmt.parseInt(u32, entry.name, 10) catch continue;
 
@@ -283,7 +285,7 @@ fn scanProcLinux(
 
         // Read command name.
         var comm_buf: [256]u8 = undefined;
-        const comm = readComm(pid, &comm_buf) orelse continue;
+        const comm = readComm(io, pid, &comm_buf) orelse continue;
 
         // Apply command filter (only when no PID filter is active).
         if (pid_filter == null and cmd_filter.len > 0) {
@@ -298,25 +300,28 @@ fn scanProcLinux(
         }
 
         // Scan this process's open file descriptors.
-        try addFilesForPid(allocator, &results, pid, comm);
+        try addFilesForPid(io, allocator, &results, pid, comm);
     }
 
     return results;
 }
 
 /// Read the command name of a process from /proc/<pid>/comm.
-fn readComm(pid: u32, buf: []u8) ?[]const u8 {
+fn readComm(io: std.Io, pid: u32, buf: []u8) ?[]const u8 {
     var path_buf: [64]u8 = undefined;
     const path = fmt.bufPrint(&path_buf, "/proc/{d}/comm", .{pid}) catch return null;
-    const file = fs.openFileAbsolute(path, .{}) catch return null;
-    defer file.close();
-    const len = file.readAll(buf) catch return null;
+    const file = std.Io.Dir.openFileAbsolute(io, path, .{}) catch return null;
+    defer file.close(io);
+    var file_buf: [256]u8 = undefined;
+    var reader = file.reader(io, &file_buf);
+    const len = reader.interface.readSliceShort(buf) catch return null;
     if (len == 0) return null;
     return mem.trim(u8, buf[0..len], " \n\r");
 }
 
 /// Scan /proc/<pid>/fd/ and record FileInfo for each interesting open file.
 fn addFilesForPid(
+    io: std.Io,
     allocator: mem.Allocator,
     results: *std.ArrayList(FileInfo),
     pid: u32,
@@ -324,14 +329,14 @@ fn addFilesForPid(
 ) !void {
     var path_buf: [128]u8 = undefined;
     const fd_dir_path = fmt.bufPrint(&path_buf, "/proc/{d}/fd", .{pid}) catch return;
-    var fd_dir = fs.openDirAbsolute(fd_dir_path, .{ .iterate = true }) catch return;
-    defer fd_dir.close();
+    var fd_dir = std.Io.Dir.openDirAbsolute(io, fd_dir_path, .{ .iterate = true }) catch return;
+    defer fd_dir.close(io);
 
     var fd_iter = fd_dir.iterate();
-    while (fd_iter.next() catch null) |fd_entry| {
+    while (fd_iter.next(io) catch null) |fd_entry| {
         if (fd_entry.kind != .sym_link) continue;
         const fd_num = fmt.parseInt(u32, fd_entry.name, 10) catch continue;
-        try recordFd(allocator, results, pid, fd_num, comm);
+        try recordFd(io, allocator, results, pid, fd_num, comm);
     }
 }
 
@@ -339,6 +344,7 @@ fn addFilesForPid(
 /// Silently returns (without error) if the fd is not an interesting regular file.
 /// Only propagates allocator errors.
 fn recordFd(
+    io: std.Io,
     allocator: mem.Allocator,
     results: *std.ArrayList(FileInfo),
     pid: u32,
@@ -349,7 +355,8 @@ fn recordFd(
     var link_buf: [64]u8 = undefined;
     const link_path = fmt.bufPrint(&link_buf, "/proc/{d}/fd/{d}", .{ pid, fd }) catch return;
     var target_buf: [fs.max_path_bytes]u8 = undefined;
-    const file_path = std.posix.readlink(link_path, &target_buf) catch return;
+    const file_path_len = std.Io.Dir.readLinkAbsolute(io, link_path, &target_buf) catch return;
+    const file_path = target_buf[0..file_path_len];
 
     // Skip non-filesystem paths (sockets, pipes, anonymous mappings, etc.).
     if (!mem.startsWith(u8, file_path, "/")) return;
@@ -358,19 +365,21 @@ fn recordFd(
     if (mem.startsWith(u8, file_path, "/dev/")) return;
 
     // Open and stat the file to check type and size.
-    const real_file = fs.openFileAbsolute(file_path, .{}) catch return;
-    defer real_file.close();
-    const file_stat = real_file.stat() catch return;
+    const real_file = std.Io.Dir.openFileAbsolute(io, file_path, .{}) catch return;
+    defer real_file.close(io);
+    const file_stat = real_file.stat(io) catch return;
     if (file_stat.kind != .file) return;
     if (file_stat.size == 0) return;
 
     // Read the current file position from /proc/<pid>/fdinfo/<fd>.
     var fdinfo_path_buf: [96]u8 = undefined;
     const fdinfo_path = fmt.bufPrint(&fdinfo_path_buf, "/proc/{d}/fdinfo/{d}", .{ pid, fd }) catch return;
-    const fdinfo_file = fs.openFileAbsolute(fdinfo_path, .{}) catch return;
-    defer fdinfo_file.close();
+    const fdinfo_file = std.Io.Dir.openFileAbsolute(io, fdinfo_path, .{}) catch return;
+    defer fdinfo_file.close(io);
+    var fdinfo_file_buf: [256]u8 = undefined;
+    var fdinfo_reader = fdinfo_file.reader(io, &fdinfo_file_buf);
     var fdinfo_buf: [512]u8 = undefined;
-    const fdinfo_len = fdinfo_file.readAll(&fdinfo_buf) catch return;
+    const fdinfo_len = fdinfo_reader.interface.readSliceShort(&fdinfo_buf) catch return;
 
     const position = parseFdinfoPos(fdinfo_buf[0..fdinfo_len]) orelse return;
     // Skip files with no progress or position beyond file size.
@@ -406,6 +415,7 @@ fn parseFdinfoPos(text: []const u8) ?u64 {
 
 /// Scan processes using macOS libproc and return FileInfo entries for all matching open files.
 fn scanProcMacos(
+    _: std.Io,
     allocator: mem.Allocator,
     pid_filter: ?[]const u32,
     cmd_filter: []const []const u8,
