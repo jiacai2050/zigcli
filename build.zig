@@ -155,7 +155,7 @@ fn buildBinaries(
     }
 
     // TODO: Move util out of src/bin because it is a shared helper.
-    all_tests.dependOn(buildTestStep(b, .{ .binary = "util" }, target));
+    all_tests.dependOn(buildTestStep(b, .{ .binary = "util" }, optimize, target));
 }
 
 fn buildBinary(
@@ -189,7 +189,7 @@ fn buildBinary(
             .dependOn(&run_step.step);
 
         if (source.needsTest()) {
-            all_tests.dependOn(buildTestStep(b, source, target));
+            all_tests.dependOn(buildTestStep(b, source, optimize, target));
         }
     }
 }
@@ -197,6 +197,7 @@ fn buildBinary(
 fn buildTestStep(
     b: *std.Build,
     comptime source: Source,
+    optimize: std.builtin.OptimizeMode,
     target: std.Build.ResolvedTarget,
 ) *Step {
     const source_name = comptime source.name();
@@ -204,12 +205,14 @@ fn buildTestStep(
     const test_module = b.modules.get(source_name) orelse b.createModule(.{
         .root_source_file = b.path(source_path ++ "/" ++ source_name ++ ".zig"),
         .target = target,
+        .optimize = optimize,
     });
     const test_compile_step = b.addTest(.{
         .root_module = test_module,
     });
     test_compile_step.root_module.addImport("zigcli", b.modules.get("zigcli").?);
     test_compile_step.root_module.addImport("build_info", b.modules.get("build_info").?);
+    configureCompileStep(b, test_compile_step, source_name, optimize, target);
     const test_step = b.step("test-" ++ source_name, "Run " ++ source_name ++ " tests");
     // Build test artifacts through addRunArtifact because Zig does not expose a direct test step.
     test_step.dependOn(&b.addRunArtifact(test_compile_step).step);
@@ -231,7 +234,6 @@ fn makeCompileStep(
     )) {
         return null;
     }
-
     const compile_step = b.addExecutable(.{
         .name = source_name,
         .root_module = b.createModule(.{
