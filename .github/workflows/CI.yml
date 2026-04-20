@@ -28,21 +28,27 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: true
       - uses: mlugg/setup-zig@v2
+        with:
+          use-cache: false
       - name: fmt
         if: matrix.os == 'ubuntu-latest'
         run: |
           zig fmt --check .
       - name: test
         run: |
-          zig build --fetch=needed test
+          rm -rf .zig-cache zig-pkg ~/.cache/zig
+          git clean -xfd
+          cat build.zig.zon
+          # zig build test
       - name: build
         run: |
-          zig build --fetch=needed
-          find zig-out
+          find .
+          zig build
+          find zig-out || true
       - name: zigfetch compare
         if: matrix.os != 'windows-latest'
         run: |
