@@ -38,8 +38,10 @@ jobs:
           zig fmt --check .
       - name: test
         run: |
-          zig build test
-          zig build
+          zig build --fetch=needed test
+      - name: build
+        run: |
+          zig build --fetch=needed
           find zig-out
       - name: zigfetch compare
         if: matrix.os != 'windows-latest'

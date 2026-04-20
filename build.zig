@@ -329,12 +329,13 @@ fn configureCompileStep(
     }
 
     if (std.mem.eql(u8, source_name, "zigfetch")) {
-        const curl_dependency = b.dependency("curl", .{
+        if (b.lazyDependency("curl", .{
             .link_vendor = true,
             .target = target,
             .optimize = optimize,
-        });
-        module.addImport("curl", curl_dependency.module("curl"));
+        })) |curl_dependency| {
+            module.addImport("curl", curl_dependency.module("curl"));
+        }
         module.link_libc = true;
         return;
     }
