@@ -7,129 +7,34 @@ const fmt = std.fmt;
 const Io = std.Io;
 const Environ = std.process.Environ;
 
-// Manual extern declarations for the few symbols we use. Zig 0.16's arocc
-// C translator cannot handle Apple's CoreGraphics/CoreFoundation block-typedef
-// headers, so @cImport fails there. We instead declare what we need directly.
-const c = struct {
-    // libc time
-    pub extern "c" fn time(tloc: ?*i64) i64;
+const c = @cImport({
+    @cInclude("sys/time.h");
+    @cInclude("sys/sysctl.h");
+    @cInclude("sys/mount.h");
+    @cInclude("mach/mach_host.h");
+    @cInclude("mach/mach_init.h");
+    @cInclude("mach/vm_statistics.h");
+    // CoreGraphics headers use Objective-C block typedefs that arocc can't
+    // translate. Manual externs for the 6 CG symbols we use are declared below.
+    @cInclude("IOKit/ps/IOPowerSources.h");
+    @cInclude("IOKit/ps/IOPSKeys.h");
+});
 
-    // sysctl
-    pub extern "c" fn sysctlbyname(
-        name: [*:0]const u8,
-        oldp: ?*anyopaque,
-        oldlenp: ?*usize,
-        newp: ?*const anyopaque,
-        newlen: usize,
-    ) c_int;
-
-    // <sys/time.h>
-    pub const struct_timeval = extern struct {
-        tv_sec: c_long,
-        tv_usec: c_int,
-    };
-
-    // <mach/...>
-    pub const mach_port_t = c_uint;
-    pub const host_t = mach_port_t;
-    pub const mach_msg_type_number_t = c_uint;
-    pub const integer_t = c_int;
-    pub const natural_t = c_uint;
-    pub const host_flavor_t = integer_t;
-    pub const kern_return_t = c_int;
-
-    pub const vm_statistics64_data_t = extern struct {
-        free_count: natural_t,
-        active_count: natural_t,
-        inactive_count: natural_t,
-        wire_count: natural_t,
-        zero_fill_count: u64,
-        reactivations: u64,
-        pageins: u64,
-        pageouts: u64,
-        faults: u64,
-        cow_faults: u64,
-        lookups: u64,
-        hits: u64,
-        purges: u64,
-        purgeable_count: natural_t,
-        speculative_count: natural_t,
-        decompressions: u64,
-        compressions: u64,
-        swapins: u64,
-        swapouts: u64,
-        compressor_page_count: natural_t,
-        throttled_count: natural_t,
-        external_page_count: natural_t,
-        internal_page_count: natural_t,
-        total_uncompressed_pages_in_compressor: u64,
-    };
-
-    pub const HOST_VM_INFO64: host_flavor_t = 4;
-    pub const HOST_VM_INFO64_COUNT: mach_msg_type_number_t =
-        @sizeOf(vm_statistics64_data_t) / @sizeOf(integer_t);
-
-    pub extern "c" fn mach_host_self() host_t;
-    pub extern "c" fn host_statistics64(
-        host_priv: host_t,
-        flavor: host_flavor_t,
-        host_info_out: *anyopaque,
-        host_info_outCnt: *mach_msg_type_number_t,
-    ) kern_return_t;
-
-    // CoreFoundation
-    pub const CFTypeRef = ?*anyopaque;
-    pub const CFStringRef = ?*anyopaque;
-    pub const CFArrayRef = ?*anyopaque;
-    pub const CFDictionaryRef = ?*anyopaque;
-    pub const CFNumberRef = ?*anyopaque;
-    pub const CFBooleanRef = ?*anyopaque;
-    pub const CFAllocatorRef = ?*anyopaque;
-    pub const CFIndex = c_long;
-    pub const CFStringEncoding = u32;
-    pub const CFNumberType = c_long;
-    pub const Boolean = u8;
-
-    pub const kCFStringEncodingUTF8: CFStringEncoding = 0x08000100;
-    pub const kCFNumberSInt32Type: CFNumberType = 3;
-
-    pub extern "c" fn CFRelease(cf: CFTypeRef) void;
-    pub extern "c" fn CFArrayGetCount(theArray: CFArrayRef) CFIndex;
-    pub extern "c" fn CFArrayGetValueAtIndex(theArray: CFArrayRef, idx: CFIndex) ?*const anyopaque;
-    pub extern "c" fn CFStringCreateWithCString(
-        alloc: CFAllocatorRef,
-        cStr: [*:0]const u8,
-        encoding: CFStringEncoding,
-    ) CFStringRef;
-    pub extern "c" fn CFDictionaryGetValue(theDict: CFDictionaryRef, key: ?*const anyopaque) ?*const anyopaque;
-    pub extern "c" fn CFNumberGetValue(number: CFNumberRef, theType: CFNumberType, valuePtr: *anyopaque) Boolean;
-    pub extern "c" fn CFBooleanGetValue(boolean: CFBooleanRef) Boolean;
-    pub extern "c" fn CFPreferencesCopyAppValue(key: CFStringRef, applicationID: CFStringRef) CFTypeRef;
-    pub extern "c" const kCFPreferencesAnyApplication: CFStringRef;
-
-    // CoreGraphics
-    pub const CGDirectDisplayID = u32;
-    pub const CGDisplayModeRef = ?*anyopaque;
-    pub const CGError = i32;
-
-    pub extern "c" fn CGGetActiveDisplayList(
-        maxDisplays: u32,
-        activeDisplays: [*]CGDirectDisplayID,
-        displayCount: *u32,
-    ) CGError;
-    pub extern "c" fn CGDisplayCopyDisplayMode(display: CGDirectDisplayID) CGDisplayModeRef;
-    pub extern "c" fn CGDisplayModeRelease(mode: CGDisplayModeRef) void;
-    pub extern "c" fn CGDisplayModeGetWidth(mode: CGDisplayModeRef) usize;
-    pub extern "c" fn CGDisplayModeGetHeight(mode: CGDisplayModeRef) usize;
-    pub extern "c" fn CGDisplayModeGetRefreshRate(mode: CGDisplayModeRef) f64;
-
-    // IOKit / IOPS
-    pub extern "c" fn IOPSCopyPowerSourcesInfo() CFTypeRef;
-    pub extern "c" fn IOPSCopyPowerSourcesList(blob: CFTypeRef) CFArrayRef;
-    pub extern "c" fn IOPSGetPowerSourceDescription(blob: CFTypeRef, ps: ?*const anyopaque) CFDictionaryRef;
-    pub const kIOPSCurrentCapacityKey: [*:0]const u8 = "Current Capacity";
-    pub const kIOPSIsChargingKey: [*:0]const u8 = "Is Charging";
-};
+// Minimal CoreGraphics bindings — declared manually because @cImport of
+// <CoreGraphics/CoreGraphics.h> fails under arocc.
+const CGDirectDisplayID = u32;
+const CGDisplayModeRef = ?*anyopaque;
+const CGError = i32;
+extern "c" fn CGGetActiveDisplayList(
+    maxDisplays: u32,
+    activeDisplays: [*]CGDirectDisplayID,
+    displayCount: *u32,
+) CGError;
+extern "c" fn CGDisplayCopyDisplayMode(display: CGDirectDisplayID) CGDisplayModeRef;
+extern "c" fn CGDisplayModeRelease(mode: CGDisplayModeRef) void;
+extern "c" fn CGDisplayModeGetWidth(mode: CGDisplayModeRef) usize;
+extern "c" fn CGDisplayModeGetHeight(mode: CGDisplayModeRef) usize;
+extern "c" fn CGDisplayModeGetRefreshRate(mode: CGDisplayModeRef) f64;
 
 pub const getHostname = common.getHostname;
 pub const getKernel = common.getKernel;
@@ -248,9 +153,9 @@ pub fn getDiskMounts() []const [:0]const u8 {
 }
 
 pub fn getResolution(_: Io, allocator: mem.Allocator) ![]const u8 {
-    var display_ids: [8]c.CGDirectDisplayID = undefined;
+    var display_ids: [8]CGDirectDisplayID = undefined;
     var display_count: u32 = 0;
-    if (c.CGGetActiveDisplayList(
+    if (CGGetActiveDisplayList(
         display_ids.len,
         &display_ids,
         &display_count,
@@ -260,13 +165,13 @@ pub fn getResolution(_: Io, allocator: mem.Allocator) ![]const u8 {
 
     var parts: std.ArrayList(u8) = .empty;
     for (display_ids[0..display_count]) |did| {
-        const mode = c.CGDisplayCopyDisplayMode(did);
+        const mode = CGDisplayCopyDisplayMode(did);
         if (mode == null) continue;
-        defer c.CGDisplayModeRelease(mode);
+        defer CGDisplayModeRelease(mode);
 
-        const w: u32 = @intCast(c.CGDisplayModeGetWidth(mode));
-        const h: u32 = @intCast(c.CGDisplayModeGetHeight(mode));
-        const hz = c.CGDisplayModeGetRefreshRate(mode);
+        const w: u32 = @intCast(CGDisplayModeGetWidth(mode));
+        const h: u32 = @intCast(CGDisplayModeGetHeight(mode));
+        const hz = CGDisplayModeGetRefreshRate(mode);
 
         if (parts.items.len > 0) {
             try parts.appendSlice(allocator, ", ");
@@ -310,9 +215,9 @@ pub fn getBattery(_: Io, allocator: mem.Allocator) ![]const u8 {
     );
     defer _ = c.CFRelease(key_cap);
     const val_cap = c.CFDictionaryGetValue(desc, key_cap);
-    if (val_cap != null) {
+    if (val_cap) |v| {
         _ = c.CFNumberGetValue(
-            @constCast(val_cap),
+            @ptrCast(@alignCast(v)),
             c.kCFNumberSInt32Type,
             &capacity,
         );
@@ -326,9 +231,9 @@ pub fn getBattery(_: Io, allocator: mem.Allocator) ![]const u8 {
     );
     defer _ = c.CFRelease(key_chg);
     const val_chg = c.CFDictionaryGetValue(desc, key_chg);
-    if (val_chg != null) {
+    if (val_chg) |v| {
         is_charging = c.CFBooleanGetValue(
-            @constCast(val_chg),
+            @ptrCast(@alignCast(v)),
         ) != 0;
     }
 
