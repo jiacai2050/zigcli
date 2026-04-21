@@ -10,8 +10,8 @@
     },
     .dependencies = .{
         .curl = .{
-            .url = "https://github.com/jiacai2050/zig-curl/archive/refs/tags/v0.5.0.tar.gz",
-            .hash = "curl-0.5.0-P4tT4e_-AABZBa1zBmiSKFQo7xV0DJ2cUxFfH4KiQKj2",
+            .url = "https://github.com/jiacai2050/zig-curl/archive/refs/tags/v0.5.1.tar.gz",
+            .hash = "curl-0.5.1-P4tT4T4AAQAWgbb1Iwh00q9raBCW4ZphsAkFh2U5oQ6X",
             .lazy = true,
         },
     },

@@ -40,7 +40,6 @@ jobs:
           zig fmt --check .
       - name: test
         run: |
-          zig build --fetch=all
           zig build test
       - name: build
         run: |
@@ -70,5 +69,4 @@ jobs:
       - uses: mlugg/setup-zig@v2
       - name: Build
         run: |
-          zig build --fetch=all -Dtarget=${{ matrix.targets }}
           zig build -Dtarget=${{ matrix.targets }}
