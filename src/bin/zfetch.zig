@@ -124,7 +124,7 @@ fn collectInfo(
         .kernel = kernel,
         .uptime = try platform.getUptime(io, allocator),
         .shell = if (show_all)
-            try common.getShellVersion(allocator, shell)
+            try common.getShellVersion(io, allocator, shell)
         else
             shell,
         .terminal = common.getTerminal(env),

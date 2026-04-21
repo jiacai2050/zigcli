@@ -232,28 +232,22 @@ pub fn getLocalIp(allocator: mem.Allocator) ![]const u8 {
 
 /// Gets shell name with version by running `<shell> --version`.
 pub fn getShellVersion(
+    io: Io,
     allocator: mem.Allocator,
     shell: []const u8,
 ) ![]const u8 {
-    // std.process.Child.run was removed in Zig 0.16. We no longer shell out;
-    // just return the shell name. A proper replacement would use
-    // std.Io.concurrent / group + pipe plumbing, which isn't warranted here.
-    _ = allocator;
-    return shell;
-}
+    const result = std.process.run(allocator, io, .{
+        .argv = &.{ shell, "--version" },
+        .stdout_limit = .limited(128),
+        .stderr_limit = .limited(128),
+    }) catch return allocator.dupe(u8, shell);
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
 
-// Kept as a no-op placeholder to avoid touching callers that still branch on
-// show_all / getShellVersion semantics. The original first_line parsing logic
-// is preserved below as a reference for future re-implementation.
-fn getShellVersionLegacy(
-    allocator: mem.Allocator,
-    shell: []const u8,
-    stdout: []const u8,
-) ![]const u8 {
-    const first_line = if (mem.indexOfScalar(u8, stdout, '\n')) |nl|
-        stdout[0..nl]
+    const first_line = if (mem.indexOfScalar(u8, result.stdout, '\n')) |nl|
+        result.stdout[0..nl]
     else
-        stdout;
+        result.stdout;
 
     for (first_line, 0..) |ch, i| {
         if (ch >= '0' and ch <= '9') {
