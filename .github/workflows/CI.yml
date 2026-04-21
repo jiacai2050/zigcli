@@ -40,13 +40,10 @@ jobs:
           zig fmt --check .
       - name: test
         run: |
-          rm -rf .zig-cache zig-pkg ~/.cache/zig
-          git clean -xfd
-          cat build.zig.zon
-          # zig build test
+          zig build --fetch=all
+          zig build test
       - name: build
         run: |
-          find .
           zig build
           find zig-out || true
       - name: zigfetch compare
@@ -73,4 +70,5 @@ jobs:
       - uses: mlugg/setup-zig@v2
       - name: Build
         run: |
+          zig build --fetch=all -Dtarget=${{ matrix.targets }}
           zig build -Dtarget=${{ matrix.targets }}
