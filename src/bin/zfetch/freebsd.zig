@@ -4,6 +4,8 @@ const std = @import("std");
 const common = @import("common.zig");
 const mem = std.mem;
 const fmt = std.fmt;
+const Io = std.Io;
+const Environ = std.process.Environ;
 
 const c = @cImport({
     @cInclude("sys/sysctl.h");
@@ -30,12 +32,12 @@ fn sysctlString(
 pub const getHostname = common.getHostname;
 pub const getKernel = common.getKernel;
 
-pub fn getOs(allocator: mem.Allocator) ![]const u8 {
+pub fn getOs(io: Io, allocator: mem.Allocator) ![]const u8 {
     // FreeBSD also has /etc/os-release on recent versions.
-    return common.getOsFromRelease(allocator, "FreeBSD");
+    return common.getOsFromRelease(io, allocator, "FreeBSD");
 }
 
-pub fn getCpu(allocator: mem.Allocator) ![]const u8 {
+pub fn getCpu(_: Io, allocator: mem.Allocator) ![]const u8 {
     // FreeBSD exposes CPU model via hw.model sysctl.
     var buf: [256]u8 = undefined;
     const model = sysctlString("hw.model", &buf) orelse
@@ -60,21 +62,21 @@ pub fn getCpu(allocator: mem.Allocator) ![]const u8 {
     );
 }
 
-pub fn getHost(allocator: mem.Allocator) ![]const u8 {
+pub fn getHost(io: Io, allocator: mem.Allocator) ![]const u8 {
     // Try DMI first (works on x86 FreeBSD).
-    return common.getHostFromDmi(allocator, "FreeBSD");
+    return common.getHostFromDmi(io, allocator, "FreeBSD");
 }
 
 pub fn getDiskMounts() []const [:0]const u8 {
     return &[_][:0]const u8{ "/", "/home" };
 }
 
-pub fn getResolution(allocator: mem.Allocator) ![]const u8 {
+pub fn getResolution(io: Io, allocator: mem.Allocator) ![]const u8 {
     // FreeBSD uses DRM sysfs like Linux.
-    return common.getResolutionFromDrm(allocator);
+    return common.getResolutionFromDrm(io, allocator);
 }
 
-pub fn getBattery(allocator: mem.Allocator) ![]const u8 {
+pub fn getBattery(_: Io, allocator: mem.Allocator) ![]const u8 {
     // FreeBSD ACPI battery: read from sysctl.
     var life: u32 = 0;
     var life_size: usize = @sizeOf(u32);
@@ -112,12 +114,13 @@ pub fn getBattery(allocator: mem.Allocator) ![]const u8 {
     );
 }
 
-pub fn getTheme() []const u8 {
+pub fn getTheme(io: Io, env: *const Environ.Map) []const u8 {
     // FreeBSD desktop users typically use GTK.
-    return common.getThemeFromGtk();
+    return common.getThemeFromGtk(io, env);
 }
 
 pub fn getMemory(
+    _: Io,
     allocator: mem.Allocator,
     bytes_per_page: u64,
 ) ![]const u8 {
@@ -172,7 +175,7 @@ pub fn getMemory(
     );
 }
 
-pub fn getUptime(allocator: mem.Allocator) ![]const u8 {
+pub fn getUptime(_: Io, allocator: mem.Allocator) ![]const u8 {
     // FreeBSD has kern.boottime sysctl like macOS.
     var boot_time: c_timeval = undefined;
     var boot_time_size: usize = @sizeOf(c_timeval);
@@ -192,6 +195,6 @@ pub fn getUptime(allocator: mem.Allocator) ![]const u8 {
     return common.formatUptime(allocator, uptime_s);
 }
 
-pub fn getPackages(allocator: mem.Allocator) ![]const u8 {
-    return common.getPackagesPkg(allocator);
+pub fn getPackages(io: Io, allocator: mem.Allocator) ![]const u8 {
+    return common.getPackagesPkg(io, allocator);
 }

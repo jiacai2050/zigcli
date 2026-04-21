@@ -4,6 +4,7 @@ const std = @import("std");
 const mem = std.mem;
 const fmt = std.fmt;
 const Io = std.Io;
+const Environ = std.process.Environ;
 
 const builtin = @import("builtin");
 
@@ -17,32 +18,20 @@ const c = @cImport({
     @cInclude("netinet/in.h");
     @cInclude("ifaddrs.h");
     @cInclude("arpa/inet.h");
-    @cInclude("stdio.h");
-    @cInclude("dirent.h");
 });
 
-// Wrappers around libc file I/O. These let us read absolute paths without
-// threading a std.Io through every helper — zfetch is inherently libc-bound.
-fn readFileAllocC(allocator: mem.Allocator, path: [*:0]const u8, max_bytes: usize) ![]u8 {
-    const fp = c.fopen(path, "r") orelse return error.OpenFailed;
-    defer _ = c.fclose(fp);
-    var list: std.ArrayList(u8) = .empty;
-    errdefer list.deinit(allocator);
-    var buf: [4096]u8 = undefined;
-    while (true) {
-        const n = c.fread(&buf, 1, buf.len, fp);
-        if (n == 0) break;
-        if (list.items.len + n > max_bytes) return error.FileTooBig;
-        try list.appendSlice(allocator, buf[0..n]);
-    }
-    return list.toOwnedSlice(allocator);
+fn readAbsoluteAlloc(io: Io, allocator: mem.Allocator, path: []const u8, max_bytes: usize) ![]u8 {
+    var file = try std.Io.Dir.cwd().openFile(io, path, .{});
+    defer file.close(io);
+    var file_reader = file.reader(io, &.{});
+    return file_reader.interface.allocRemaining(allocator, .limited(max_bytes));
 }
 
-fn readFileAllBuf(path: [*:0]const u8, buf: []u8) ?usize {
-    const fp = c.fopen(path, "r") orelse return null;
-    defer _ = c.fclose(fp);
-    const n = c.fread(buf.ptr, 1, buf.len, fp);
-    return n;
+fn readAbsoluteIntoBuf(io: Io, path: []const u8, buf: []u8) ?usize {
+    var file = std.Io.Dir.cwd().openFile(io, path, .{}) catch return null;
+    defer file.close(io);
+    var file_reader = file.reader(io, &.{});
+    return file_reader.interface.readSliceShort(buf) catch null;
 }
 
 /// Manual statvfs for Linux — the musl header has bitfields
@@ -286,15 +275,10 @@ fn getShellVersionLegacy(
     return allocator.dupe(u8, shell);
 }
 
-fn getEnvSlice(name: [*:0]const u8) ?[]const u8 {
-    const ptr = std.c.getenv(name) orelse return null;
-    return mem.span(ptr);
-}
-
 /// Gets the terminal name from environment variables.
-pub fn getTerminal() []const u8 {
-    return getEnvSlice("TERM_PROGRAM") orelse
-        getEnvSlice("TERM") orelse "Unknown";
+pub fn getTerminal(env: *const Environ.Map) []const u8 {
+    return env.get("TERM_PROGRAM") orelse
+        env.get("TERM") orelse "Unknown";
 }
 
 /// Parses a /proc/meminfo line "Key: 12345 kB" and returns the kB value.
@@ -306,8 +290,8 @@ pub fn parseKbLine(line: []const u8) u64 {
 }
 
 /// Reads PRETTY_NAME from /etc/os-release.
-pub fn getOsFromRelease(allocator: mem.Allocator, fallback: []const u8) ![]const u8 {
-    const content = readFileAllocC(allocator, "/etc/os-release", max_read_bytes) catch return fallback;
+pub fn getOsFromRelease(io: Io, allocator: mem.Allocator, fallback: []const u8) ![]const u8 {
+    const content = readAbsoluteAlloc(io, allocator, "/etc/os-release", max_read_bytes) catch return fallback;
     var iter = mem.splitScalar(u8, content, '\n');
     while (iter.next()) |line| {
         if (!mem.startsWith(u8, line, "PRETTY_NAME=")) continue;
@@ -321,9 +305,9 @@ pub fn getOsFromRelease(allocator: mem.Allocator, fallback: []const u8) ![]const
 }
 
 /// Reads uptime from /proc/uptime (Linux, FreeBSD with procfs).
-pub fn getUptimeFromProc(allocator: mem.Allocator) ![]const u8 {
+pub fn getUptimeFromProc(io: Io, allocator: mem.Allocator) ![]const u8 {
     var buf: [64]u8 = undefined;
-    const byte_count = readFileAllBuf("/proc/uptime", &buf) orelse return "Unknown";
+    const byte_count = readAbsoluteIntoBuf(io, "/proc/uptime", &buf) orelse return "Unknown";
     const content = buf[0..byte_count];
 
     const space_pos = mem.indexOfScalar(u8, content, ' ') orelse content.len;
@@ -333,50 +317,32 @@ pub fn getUptimeFromProc(allocator: mem.Allocator) ![]const u8 {
 }
 
 /// Reads battery from /sys/class/power_supply (Linux, FreeBSD).
-pub fn getBatteryFromSys(allocator: mem.Allocator) ![]const u8 {
-    const dp = c.opendir("/sys/class/power_supply") orelse return "No Battery";
-    defer _ = c.closedir(dp);
-    while (c.readdir(dp)) |entry| {
-        const name = mem.sliceTo(@as([*:0]const u8, @ptrCast(&entry.*.d_name)), 0);
-        if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..")) continue;
+pub fn getBatteryFromSys(io: Io, allocator: mem.Allocator) ![]const u8 {
+    var ps_dir = std.Io.Dir.openDirAbsolute(io, "/sys/class/power_supply", .{ .iterate = true }) catch
+        return "No Battery";
+    defer ps_dir.close(io);
+    var iter = ps_dir.iterate();
+    while (try iter.next(io)) |entry| {
+        var path_buf: [256]u8 = undefined;
 
-        const type_path_z = try fmt.allocPrintSentinel(
-            allocator,
-            "/sys/class/power_supply/{s}/type",
-            .{name},
-            0,
-        );
-        defer allocator.free(type_path_z);
+        const type_path = fmt.bufPrint(&path_buf, "/sys/class/power_supply/{s}/type", .{entry.name}) catch continue;
         var type_buf: [16]u8 = undefined;
-        const n_type = readFileAllBuf(type_path_z.ptr, &type_buf) orelse continue;
+        const n_type = readAbsoluteIntoBuf(io, type_path, &type_buf) orelse continue;
         const dev_type = mem.trim(u8, type_buf[0..n_type], " \n\t");
         if (!mem.eql(u8, dev_type, "Battery")) continue;
 
-        const cap_path_z = try fmt.allocPrintSentinel(
-            allocator,
-            "/sys/class/power_supply/{s}/capacity",
-            .{name},
-            0,
-        );
-        defer allocator.free(cap_path_z);
-        const stat_path_z = try fmt.allocPrintSentinel(
-            allocator,
-            "/sys/class/power_supply/{s}/status",
-            .{name},
-            0,
-        );
-        defer allocator.free(stat_path_z);
-
+        const cap_path = fmt.bufPrint(&path_buf, "/sys/class/power_supply/{s}/capacity", .{entry.name}) catch continue;
         var cap_buf: [8]u8 = undefined;
-        const n_cap = readFileAllBuf(cap_path_z.ptr, &cap_buf) orelse continue;
+        const n_cap = readAbsoluteIntoBuf(io, cap_path, &cap_buf) orelse continue;
         const capacity = fmt.parseInt(
             u32,
             mem.trim(u8, cap_buf[0..n_cap], " \n\t"),
             10,
         ) catch continue;
 
+        const stat_path = fmt.bufPrint(&path_buf, "/sys/class/power_supply/{s}/status", .{entry.name}) catch continue;
         var stat_buf: [16]u8 = undefined;
-        const n_stat = readFileAllBuf(stat_path_z.ptr, &stat_buf) orelse continue;
+        const n_stat = readAbsoluteIntoBuf(io, stat_path, &stat_buf) orelse continue;
         const status = mem.trim(u8, stat_buf[0..n_stat], " \n\t");
 
         return fmt.allocPrint(
@@ -389,8 +355,8 @@ pub fn getBatteryFromSys(allocator: mem.Allocator) ![]const u8 {
 }
 
 /// Detects dark theme from GTK/dconf config files.
-pub fn getThemeFromGtk() []const u8 {
-    const home = getEnvSlice("HOME") orelse return "Unknown";
+pub fn getThemeFromGtk(io: Io, env: *const Environ.Map) []const u8 {
+    const home = env.get("HOME") orelse return "Unknown";
     var buf: [1024]u8 = undefined;
 
     const config_files = [_][]const u8{
@@ -405,9 +371,9 @@ pub fn getThemeFromGtk() []const u8 {
     };
 
     for (config_files) |suffix| {
-        const path = fmt.bufPrintSentinel(&buf, "{s}{s}", .{ home, suffix }, 0) catch continue;
+        const path = fmt.bufPrint(&buf, "{s}{s}", .{ home, suffix }) catch continue;
         var read_buf: [4096]u8 = undefined;
-        const n = readFileAllBuf(path.ptr, &read_buf) orelse continue;
+        const n = readAbsoluteIntoBuf(io, path, &read_buf) orelse continue;
         for (needles) |needle| {
             if (mem.indexOf(u8, read_buf[0..n], needle) != null) return "Dark";
         }
@@ -417,8 +383,8 @@ pub fn getThemeFromGtk() []const u8 {
 }
 
 /// Reads memory info from /proc/meminfo (Linux, FreeBSD with procfs).
-pub fn getMemoryFromProc(allocator: mem.Allocator) ![]const u8 {
-    const content = readFileAllocC(allocator, "/proc/meminfo", max_read_bytes) catch return "Unknown";
+pub fn getMemoryFromProc(io: Io, allocator: mem.Allocator) ![]const u8 {
+    const content = readAbsoluteAlloc(io, allocator, "/proc/meminfo", max_read_bytes) catch return "Unknown";
     var bytes_total_kb: u64 = 0;
     var bytes_available_kb: u64 = 0;
     var bytes_swap_total_kb: u64 = 0;
@@ -465,8 +431,8 @@ pub fn getMemoryFromProc(allocator: mem.Allocator) ![]const u8 {
 }
 
 /// Reads CPU info from /proc/cpuinfo.
-pub fn getCpuFromProc(allocator: mem.Allocator) ![]const u8 {
-    const content = readFileAllocC(allocator, "/proc/cpuinfo", max_read_bytes) catch return "Unknown";
+pub fn getCpuFromProc(io: Io, allocator: mem.Allocator) ![]const u8 {
+    const content = readAbsoluteAlloc(io, allocator, "/proc/cpuinfo", max_read_bytes) catch return "Unknown";
     var iter = mem.splitScalar(u8, content, '\n');
     var model: ?[]const u8 = null;
     var logical_count: u32 = 0;
@@ -510,9 +476,9 @@ pub fn getCpuFromProc(allocator: mem.Allocator) ![]const u8 {
 }
 
 /// Reads host from DMI (Linux, some FreeBSD).
-pub fn getHostFromDmi(allocator: mem.Allocator, fallback: []const u8) ![]const u8 {
-    const vendor = readFileAllocC(allocator, "/sys/class/dmi/id/sys_vendor", max_read_bytes) catch return fallback;
-    const product = readFileAllocC(allocator, "/sys/class/dmi/id/product_name", max_read_bytes) catch return fallback;
+pub fn getHostFromDmi(io: Io, allocator: mem.Allocator, fallback: []const u8) ![]const u8 {
+    const vendor = readAbsoluteAlloc(io, allocator, "/sys/class/dmi/id/sys_vendor", max_read_bytes) catch return fallback;
+    const product = readAbsoluteAlloc(io, allocator, "/sys/class/dmi/id/product_name", max_read_bytes) catch return fallback;
 
     return fmt.allocPrint(allocator, "{s} {s}", .{
         mem.trim(u8, vendor, " \n\t"),
@@ -521,24 +487,20 @@ pub fn getHostFromDmi(allocator: mem.Allocator, fallback: []const u8) ![]const u
 }
 
 /// Reads display resolution from DRM sysfs.
-pub fn getResolutionFromDrm(allocator: mem.Allocator) ![]const u8 {
-    const dp = c.opendir("/sys/class/drm") orelse return "Unknown";
-    defer _ = c.closedir(dp);
+pub fn getResolutionFromDrm(io: Io, allocator: mem.Allocator) ![]const u8 {
+    var drm_dir = std.Io.Dir.openDirAbsolute(io, "/sys/class/drm", .{ .iterate = true }) catch
+        return "Unknown";
+    defer drm_dir.close(io);
     var parts: std.ArrayList(u8) = .empty;
-    while (c.readdir(dp)) |entry| {
-        const name = mem.sliceTo(@as([*:0]const u8, @ptrCast(&entry.*.d_name)), 0);
-        if (!mem.startsWith(u8, name, "card")) continue;
-        if (mem.indexOfScalar(u8, name[4..], '-') == null) continue;
+    var iter = drm_dir.iterate();
+    while (try iter.next(io)) |entry| {
+        if (!mem.startsWith(u8, entry.name, "card")) continue;
+        if (mem.indexOfScalar(u8, entry.name[4..], '-') == null) continue;
 
-        const modes_path_z = try fmt.allocPrintSentinel(
-            allocator,
-            "/sys/class/drm/{s}/modes",
-            .{name},
-            0,
-        );
-        defer allocator.free(modes_path_z);
+        var path_buf: [256]u8 = undefined;
+        const modes_path = fmt.bufPrint(&path_buf, "/sys/class/drm/{s}/modes", .{entry.name}) catch continue;
         var buf: [64]u8 = undefined;
-        const n = readFileAllBuf(modes_path_z.ptr, &buf) orelse continue;
+        const n = readAbsoluteIntoBuf(io, modes_path, &buf) orelse continue;
         if (n == 0) continue;
         const first_line = mem.sliceTo(buf[0..n], '\n');
         const mode_str = mem.trim(u8, first_line, " \n\r\t");
@@ -553,13 +515,14 @@ pub fn getResolutionFromDrm(allocator: mem.Allocator) ![]const u8 {
 }
 
 /// Counts dpkg packages from /var/lib/dpkg/info.
-pub fn getPackagesDpkg(allocator: mem.Allocator) ![]const u8 {
-    const dp = c.opendir("/var/lib/dpkg/info") orelse return "Unknown";
-    defer _ = c.closedir(dp);
+pub fn getPackagesDpkg(io: Io, allocator: mem.Allocator) ![]const u8 {
+    var dir = std.Io.Dir.openDirAbsolute(io, "/var/lib/dpkg/info", .{ .iterate = true }) catch
+        return "Unknown";
+    defer dir.close(io);
     var count: u32 = 0;
-    while (c.readdir(dp)) |entry| {
-        const name = mem.sliceTo(@as([*:0]const u8, @ptrCast(&entry.*.d_name)), 0);
-        if (mem.endsWith(u8, name, ".list")) count += 1;
+    var iter = dir.iterate();
+    while (try iter.next(io)) |entry| {
+        if (mem.endsWith(u8, entry.name, ".list")) count += 1;
     }
     if (count > 0) {
         return fmt.allocPrint(allocator, "{d} (dpkg)", .{count});
@@ -568,12 +531,14 @@ pub fn getPackagesDpkg(allocator: mem.Allocator) ![]const u8 {
 }
 
 /// Counts pkg packages from /var/db/pkg (FreeBSD).
-pub fn getPackagesPkg(allocator: mem.Allocator) ![]const u8 {
-    const dp = c.opendir("/var/db/pkg") orelse return "Unknown";
-    defer _ = c.closedir(dp);
+pub fn getPackagesPkg(io: Io, allocator: mem.Allocator) ![]const u8 {
+    var dir = std.Io.Dir.openDirAbsolute(io, "/var/db/pkg", .{ .iterate = true }) catch
+        return "Unknown";
+    defer dir.close(io);
     var count: u32 = 0;
-    while (c.readdir(dp)) |entry| {
-        if (entry.*.d_type == c.DT_DIR) count += 1;
+    var iter = dir.iterate();
+    while (try iter.next(io)) |entry| {
+        if (entry.kind == .directory) count += 1;
     }
     if (count > 0) {
         return fmt.allocPrint(

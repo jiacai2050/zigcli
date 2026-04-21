@@ -4,6 +4,8 @@ const std = @import("std");
 const common = @import("common.zig");
 const mem = std.mem;
 const fmt = std.fmt;
+const Io = std.Io;
+const Environ = std.process.Environ;
 
 // Manual extern declarations for the few symbols we use. Zig 0.16's arocc
 // C translator cannot handle Apple's CoreGraphics/CoreFoundation block-typedef
@@ -132,7 +134,7 @@ const c = struct {
 pub const getHostname = common.getHostname;
 pub const getKernel = common.getKernel;
 
-pub fn getOs(allocator: mem.Allocator) ![]const u8 {
+pub fn getOs(_: Io, allocator: mem.Allocator) ![]const u8 {
     var version_buf: [64]u8 = undefined;
     var version_size: usize = version_buf.len;
     if (c.sysctlbyname(
@@ -152,7 +154,7 @@ pub fn getOs(allocator: mem.Allocator) ![]const u8 {
     return fmt.allocPrint(allocator, "macOS {s}", .{version});
 }
 
-pub fn getCpu(allocator: mem.Allocator) ![]const u8 {
+pub fn getCpu(_: Io, allocator: mem.Allocator) ![]const u8 {
     var cpu_buf: [256]u8 = undefined;
     var cpu_size: usize = cpu_buf.len;
     if (c.sysctlbyname(
@@ -221,7 +223,7 @@ pub fn getCpu(allocator: mem.Allocator) ![]const u8 {
     return allocator.dupe(u8, brand);
 }
 
-pub fn getHost(allocator: mem.Allocator) ![]const u8 {
+pub fn getHost(_: Io, allocator: mem.Allocator) ![]const u8 {
     var model_buf: [128]u8 = undefined;
     var model_size: usize = model_buf.len;
     if (c.sysctlbyname(
@@ -245,7 +247,7 @@ pub fn getDiskMounts() []const [:0]const u8 {
     return &[_][:0]const u8{"/"};
 }
 
-pub fn getResolution(allocator: mem.Allocator) ![]const u8 {
+pub fn getResolution(_: Io, allocator: mem.Allocator) ![]const u8 {
     var display_ids: [8]c.CGDirectDisplayID = undefined;
     var display_count: u32 = 0;
     if (c.CGGetActiveDisplayList(
@@ -288,7 +290,7 @@ pub fn getResolution(allocator: mem.Allocator) ![]const u8 {
     return if (parts.items.len > 0) parts.items else "Unknown";
 }
 
-pub fn getBattery(allocator: mem.Allocator) ![]const u8 {
+pub fn getBattery(_: Io, allocator: mem.Allocator) ![]const u8 {
     const info = c.IOPSCopyPowerSourcesInfo();
     defer _ = c.CFRelease(info);
     const list = c.IOPSCopyPowerSourcesList(info);
@@ -336,7 +338,7 @@ pub fn getBattery(allocator: mem.Allocator) ![]const u8 {
     });
 }
 
-pub fn getTheme() []const u8 {
+pub fn getTheme(_: Io, _: *const Environ.Map) []const u8 {
     const key = c.CFStringCreateWithCString(
         null,
         "AppleInterfaceStyle",
@@ -355,6 +357,7 @@ pub fn getTheme() []const u8 {
 }
 
 pub fn getMemory(
+    _: Io,
     allocator: mem.Allocator,
     bytes_per_page: u64,
 ) ![]const u8 {
@@ -423,7 +426,7 @@ pub fn getMemory(
     );
 }
 
-pub fn getUptime(allocator: mem.Allocator) ![]const u8 {
+pub fn getUptime(_: Io, allocator: mem.Allocator) ![]const u8 {
     var boot_time: c.struct_timeval = undefined;
     var boot_time_size: usize = @sizeOf(c.struct_timeval);
     if (c.sysctlbyname(
@@ -442,7 +445,7 @@ pub fn getUptime(allocator: mem.Allocator) ![]const u8 {
     return common.formatUptime(allocator, uptime_s);
 }
 
-pub fn getPackages(allocator: mem.Allocator) ![]const u8 {
+pub fn getPackages(_: Io, allocator: mem.Allocator) ![]const u8 {
     const brew_paths = [_][*:0]const u8{
         "/opt/homebrew/Cellar",
         "/usr/local/Cellar",

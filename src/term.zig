@@ -134,10 +134,12 @@ pub const Style = struct {
 };
 
 /// Reports whether `file` is attached to an interactive terminal.
-/// Implemented directly via `TIOCGWINSZ` to avoid requiring an `Io` instance.
+/// Implemented directly to avoid requiring an `Io` instance: `GetConsoleMode`
+/// on Windows, `TIOCGWINSZ` elsewhere.
 pub fn isTty(file: std.Io.File) bool {
     if (builtin.os.tag == .windows) {
-        return false;
+        var mode: u32 = undefined;
+        return GetConsoleMode(file.handle, &mode) != 0;
     }
     if (!@hasDecl(std.posix, "T")) {
         return false;
@@ -150,6 +152,11 @@ pub fn isTty(file: std.Io.File) bool {
     );
     return std.posix.errno(rc) == .SUCCESS;
 }
+
+extern "kernel32" fn GetConsoleMode(
+    hConsoleHandle: *anyopaque,
+    lpMode: *u32,
+) callconv(.winapi) i32;
 
 /// Returns the detected terminal width for `file`, or `null` when unavailable.
 pub fn terminalWidth(file: std.Io.File) ?u16 {
