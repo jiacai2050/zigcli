@@ -230,7 +230,7 @@ pub fn getLocalIp(allocator: mem.Allocator) ![]const u8 {
     return if (parts.items.len > 0) parts.items else "Unknown";
 }
 
-/// Gets shell name with version by running `<shell> --version`.
+/// Gets shell name with version by running `<shell> --version` via PATH lookup.
 pub fn getShellVersion(
     io: Io,
     allocator: mem.Allocator,
@@ -238,10 +238,9 @@ pub fn getShellVersion(
 ) ![]const u8 {
     const result = std.process.run(allocator, io, .{
         .argv = &.{ shell, "--version" },
-        .stdout_limit = .limited(128),
-        .stderr_limit = .limited(128),
+        .stdout_limit = .limited(1024),
+        .stderr_limit = .limited(1024),
     }) catch return allocator.dupe(u8, shell);
-    defer allocator.free(result.stdout);
     defer allocator.free(result.stderr);
 
     const first_line = if (mem.indexOfScalar(u8, result.stdout, '\n')) |nl|
@@ -258,14 +257,18 @@ pub fn getShellVersion(
                     else => break,
                 }
             }
-            return fmt.allocPrint(
+            const version_str = first_line[i..end];
+            const out = try fmt.allocPrint(
                 allocator,
                 "{s} {s}",
-                .{ shell, first_line[i..end] },
+                .{ shell, version_str },
             );
+            allocator.free(result.stdout);
+            return out;
         }
     }
 
+    allocator.free(result.stdout);
     return allocator.dupe(u8, shell);
 }
 
