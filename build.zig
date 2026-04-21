@@ -262,6 +262,14 @@ fn sourceSupported(
         }
     }
 
+    if (std.mem.eql(u8, source_name, "zigfetch")) {
+        // .zig-cache/o/3390549d3c902e4c2db17c04c316202a/c.zig:2199:15: error: unused local constant
+        // const extern_local_wcscat_s = struct {
+        if (target_os == .windows) {
+            return false;
+        }
+    }
+
     if (std.mem.eql(u8, source_name, "timeout")) {
         // Windows still lacks the required Sigaction definition here.
         if (target_os == .windows) {
