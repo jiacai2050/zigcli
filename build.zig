@@ -306,18 +306,18 @@ fn configureCompileStep(
 ) void {
     const module = compile_step.root_module;
 
-    {
-        const curl_dependency = b.dependency("curl", .{
+    if (std.mem.eql(u8, source_name, "zigfetch")) {
+        if (b.lazyDependency("curl", .{
             .link_vendor = true,
             .target = target,
             .optimize = optimize,
-        });
-        for (curl_dependency.builder.modules.keys(), 1..) |name, i| {
-            std.debug.print("module is {d}--{s}\n", .{ i, name });
+        })) |curl_dependency| {
+            module.addImport("curl", curl_dependency.module("curl"));
         }
-        module.addImport("curl", curl_dependency.module("curl"));
         module.link_libc = true;
+        return;
     }
+
     if (std.mem.eql(u8, source_name, "night-shift")) {
         module.linkSystemLibrary("objc", .{});
         addMacOSPrivateFrameworkPaths(module);
@@ -337,17 +337,6 @@ fn configureCompileStep(
     }
 
     if (std.mem.eql(u8, source_name, "timeout")) {
-        module.link_libc = true;
-        return;
-    }
-
-    if (std.mem.eql(u8, source_name, "zigfetch")) {
-        const curl_dependency = b.dependency("curl", .{
-            .link_vendor = true,
-            .target = target,
-            .optimize = optimize,
-        });
-        module.addImport("curl", curl_dependency.module("curl"));
         module.link_libc = true;
         return;
     }
