@@ -800,7 +800,7 @@ fn hashFileFallible(dir: std.Io.Dir, hashed_file: *HashedFile) HashedFile.Error!
             // Hard-coded false executable bit: https://github.com/ziglang/zig/issues/17463
             hasher.update(&.{ 0, 0 });
             var file_header: FileHeader = .{};
-            var file_reader = file.reader(g_io, &buf);
+            var file_reader = file.reader(g_io, &.{});
             while (true) {
                 const bytes_read = file_reader.interface.readSliceShort(&buf) catch return error.ReadFailed;
                 if (bytes_read == 0) break;

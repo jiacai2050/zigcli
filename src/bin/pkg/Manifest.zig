@@ -468,7 +468,7 @@ const Parse = struct {
                 std.zig.fmtId(ident_name), max_name_len,
             });
 
-        return ident_name;
+        return try p.arena.dupe(u8, ident_name);
     }
 
     fn parseString(p: *Parse, node: Ast.Node.Index) ![]const u8 {

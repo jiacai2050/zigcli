@@ -57,6 +57,7 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: |
           export TARGET="${{ matrix.targets }}"
+          zig build --fetch=all
           bash .github/release-single.sh
       - name: Release
         uses: softprops/action-gh-release@v2

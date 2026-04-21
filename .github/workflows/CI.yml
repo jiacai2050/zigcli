@@ -33,7 +33,7 @@ jobs:
           submodules: true
       - uses: mlugg/setup-zig@v2
         with:
-          use-cache: false
+          use-cache: true
       - name: fmt
         if: matrix.os == 'ubuntu-latest'
         run: |
