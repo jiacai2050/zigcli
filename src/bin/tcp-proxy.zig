@@ -102,50 +102,67 @@ fn spliceFd(fd_in: std.posix.fd_t, fd_out: std.posix.fd_t, len: usize, flags: u3
     return signed;
 }
 
+const Pipes = struct {
+    src_to_remote: [2]std.posix.fd_t,
+    remote_to_src: [2]std.posix.fd_t,
+};
+
+const CopyContext = if (is_linux) Pipes else struct {
+    src_to_remote: []u8,
+    remote_to_src: []u8,
+};
+
 const Proxy = struct {
     source: net.Stream,
     remote: net.Stream,
     allocator: mem.Allocator,
-    buf: if (is_linux) void else []u8,
+    context: CopyContext,
 
     fn init(allocator: mem.Allocator, source: net.Stream, remote: net.Stream, buf_size: usize) !Proxy {
+        const context: CopyContext = if (is_linux) .{
+            .src_to_remote = try createPipe(),
+            .remote_to_src = try createPipe(),
+        } else blk: {
+            const buf = try allocator.alloc(u8, buf_size * 2);
+            break :blk .{
+                .src_to_remote = buf[0..buf_size],
+                .remote_to_src = buf[buf_size..],
+            };
+        };
         return .{
             .allocator = allocator,
             .source = source,
             .remote = remote,
-            .buf = if (is_linux) {} else try allocator.alloc(u8, buf_size * 2),
+            .context = context,
         };
     }
 
     fn run(self: Proxy, io: std.Io) void {
         var group: std.Io.Group = .init;
         if (is_linux) {
-            group.async(io, copyStreamSplice, .{ self.source.socket.handle, self.remote.socket.handle });
-            group.async(io, copyStreamSplice, .{ self.remote.socket.handle, self.source.socket.handle });
+            group.async(io, copyStreamSplice, .{ self.context.src_to_remote, self.source.socket.handle, self.remote.socket.handle });
+            group.async(io, copyStreamSplice, .{ self.context.remote_to_src, self.remote.socket.handle, self.source.socket.handle });
         } else {
-            const half = self.buf.len / 2;
-            group.async(io, copyStream, .{ io, self.source, self.remote, self.buf[0..half] });
-            group.async(io, copyStream, .{ io, self.remote, self.source, self.buf[half..] });
+            group.async(io, copyStream, .{ io, self.source, self.remote, self.context.src_to_remote });
+            group.async(io, copyStream, .{ io, self.remote, self.source, self.context.remote_to_src });
         }
-
         group.await(io) catch {};
         self.deinit(io);
     }
 
-    // Linux zero-copy path: kernel pipe + splice(2).
-    fn copyStreamSplice(src: std.posix.fd_t, dst: std.posix.fd_t) void {
-        var pipe_fds: [2]i32 = undefined;
-        const pipe_rc = std.os.linux.pipe2(&pipe_fds, .{ .CLOEXEC = true });
-        if (pipe_rc != 0) return;
-        defer {
-            _ = std.os.linux.close(pipe_fds[0]);
-            _ = std.os.linux.close(pipe_fds[1]);
-        }
+    // Linux zero-copy path: dedicated pipe pair per direction + splice(2).
+    fn copyStreamSplice(fds: [2]std.posix.fd_t, src: std.posix.fd_t, dst: std.posix.fd_t) void {
         while (true) {
-            const n = spliceFd(src, pipe_fds[1], std.math.maxInt(u31), SPLICE_F_MOVE | SPLICE_F_NONBLOCK);
-            if (n <= 0) return;
-            const m = spliceFd(pipe_fds[0], dst, @intCast(n), SPLICE_F_MOVE);
-            if (m <= 0) return;
+            const rc = spliceFd(src, fds[1], std.math.maxInt(u31), SPLICE_F_MOVE | SPLICE_F_NONBLOCK);
+            if (rc <= 0) {
+                if (rc < 0) std.log.err("Read stream into pipe failed, err:{d}", .{-rc});
+                return;
+            }
+            const rc2 = spliceFd(fds[0], dst, @intCast(rc), SPLICE_F_MOVE);
+            if (rc2 <= 0) {
+                if (rc2 < 0) std.log.err("Write stream from pipe failed, err:{d}", .{-rc2});
+                return;
+            }
         }
     }
 
@@ -158,6 +175,23 @@ const Proxy = struct {
     fn deinit(self: Proxy, io: std.Io) void {
         self.source.close(io);
         self.remote.close(io);
-        if (!is_linux) self.allocator.free(self.buf);
+        if (is_linux) {
+            closePipe(self.context.src_to_remote);
+            closePipe(self.context.remote_to_src);
+        } else {
+            self.allocator.free(self.context.src_to_remote.ptr[0 .. self.context.src_to_remote.len + self.context.remote_to_src.len]);
+        }
     }
 };
+
+fn createPipe() ![2]std.posix.fd_t {
+    var fds: [2]i32 = undefined;
+    const rc = std.os.linux.pipe2(&fds, .{ .CLOEXEC = true });
+    if (rc != 0) return error.SystemResources;
+    return fds;
+}
+
+fn closePipe(fds: [2]std.posix.fd_t) void {
+    _ = std.os.linux.close(fds[0]);
+    _ = std.os.linux.close(fds[1]);
+}

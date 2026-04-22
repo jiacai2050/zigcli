@@ -367,7 +367,7 @@ fn execShell(allocator: Allocator, argv: []const []const u8) !void {
     defer allocator.free(run_result.stderr);
     switch (run_result.term) {
         .exited => |code| if (code != 0) {
-            if (args.verbose) {
+            if (run_result.stderr.len > 0) {
                 log.err("Exec shell failed, stderr: {s}", .{run_result.stderr});
             }
             return error.ExecShellFailed;

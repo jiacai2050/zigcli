@@ -50,9 +50,8 @@ pub fn main(init: std.process.Init) !void {
                 keep_running = false;
             }
         }
-        const exit_code = try run(init.io, argv);
-        if (exit_code == 0) {
-            keep_running = false;
+        if (try run(init.io, argv)) |exit_code| {
+            if (exit_code == 0) keep_running = false;
         }
 
         if (keep_running) {
@@ -67,11 +66,11 @@ pub fn main(init: std.process.Init) !void {
     }
 }
 
-fn run(io: std.Io, argv: []const []const u8) !u8 {
+fn run(io: std.Io, argv: []const []const u8) !?u8 {
     var child = try std.process.spawn(io, .{ .argv = argv });
     const term = try child.wait(io);
     return switch (term) {
         .exited => |code| code,
-        else => 1,
+        else => null,
     };
 }
