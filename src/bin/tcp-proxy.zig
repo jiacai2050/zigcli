@@ -56,7 +56,7 @@ pub fn main(init: std.process.Init) !void {
     std.log.info("Tcp proxy listen on {f}", .{bind_addr});
 
     var group: std.Io.Group = .init;
-    defer group.wait(io);
+    defer group.await(io) catch {};
 
     while (true) {
         const client = server.accept(io) catch |e| {
@@ -82,30 +82,71 @@ pub fn main(init: std.process.Init) !void {
     }
 }
 
+const is_linux = @import("builtin").os.tag == .linux;
+
+// splice(2) flags
+const SPLICE_F_MOVE: u32 = 1;
+const SPLICE_F_NONBLOCK: u32 = 2;
+
+fn spliceFd(fd_in: std.posix.fd_t, fd_out: std.posix.fd_t, len: usize, flags: u32) isize {
+    const rc = std.os.linux.syscall6(
+        .splice,
+        @as(usize, @bitCast(@as(isize, fd_in))),
+        0,
+        @as(usize, @bitCast(@as(isize, fd_out))),
+        0,
+        len,
+        flags,
+    );
+    const signed: isize = @bitCast(rc);
+    return signed;
+}
+
 const Proxy = struct {
     source: net.Stream,
     remote: net.Stream,
     allocator: mem.Allocator,
-    src_to_remote: []u8,
-    remote_to_src: []u8,
+    buf: if (is_linux) void else []u8,
 
     fn init(allocator: mem.Allocator, source: net.Stream, remote: net.Stream, buf_size: usize) !Proxy {
-        const buf = try allocator.alloc(u8, buf_size * 2);
         return .{
             .allocator = allocator,
             .source = source,
             .remote = remote,
-            .src_to_remote = buf[0..buf_size],
-            .remote_to_src = buf[buf_size..],
+            .buf = if (is_linux) {} else try allocator.alloc(u8, buf_size * 2),
         };
     }
 
     fn run(self: Proxy, io: std.Io) void {
         var group: std.Io.Group = .init;
-        group.async(io, copyStream, .{ io, self.source, self.remote, self.src_to_remote });
-        group.async(io, copyStream, .{ io, self.remote, self.source, self.remote_to_src });
+        if (is_linux) {
+            group.async(io, copyStreamSplice, .{ self.source.handle, self.remote.handle });
+            group.async(io, copyStreamSplice, .{ self.remote.handle, self.source.handle });
+        } else {
+            const half = self.buf.len / 2;
+            group.async(io, copyStream, .{ io, self.source, self.remote, self.buf[0..half] });
+            group.async(io, copyStream, .{ io, self.remote, self.source, self.buf[half..] });
+        }
+
         group.await(io) catch {};
         self.deinit(io);
+    }
+
+    // Linux zero-copy path: kernel pipe + splice(2).
+    fn copyStreamSplice(src: std.posix.fd_t, dst: std.posix.fd_t) void {
+        var pipe_fds: [2]i32 = undefined;
+        const pipe_rc = std.os.linux.pipe2(&pipe_fds, .{ .CLOEXEC = true });
+        if (pipe_rc != 0) return;
+        defer {
+            std.posix.close(pipe_fds[0]);
+            std.posix.close(pipe_fds[1]);
+        }
+        while (true) {
+            const n = spliceFd(src, pipe_fds[1], std.math.maxInt(u31), SPLICE_F_MOVE | SPLICE_F_NONBLOCK);
+            if (n <= 0) return;
+            const m = spliceFd(pipe_fds[0], dst, @intCast(n), SPLICE_F_MOVE);
+            if (m <= 0) return;
+        }
     }
 
     fn copyStream(io: std.Io, src: net.Stream, dst: net.Stream, buf: []u8) void {
@@ -117,6 +158,7 @@ const Proxy = struct {
     fn deinit(self: Proxy, io: std.Io) void {
         self.source.close(io);
         self.remote.close(io);
-        self.allocator.free(self.src_to_remote.ptr[0 .. self.src_to_remote.len + self.remote_to_src.len]);
+        if (!is_linux) self.allocator.free(self.buf);
+
     }
 };

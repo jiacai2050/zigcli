@@ -43,11 +43,7 @@ pub fn main(init: std.process.Init) !void {
 
     const ttl_seconds = try std.fmt.parseInt(c_uint, args[1], 10);
     const cmds = args[2..];
-    const ret = std.c.alarm(ttl_seconds);
-    if (ret != 0) {
-        std.log.err("Set alarm signal failed, retcode:{d}", .{ret});
-        std.process.exit(1);
-    }
+    _ = std.c.alarm(ttl_seconds);
 
     child = try std.process.spawn(init.io, .{ .argv = cmds });
     spawn_success = true;
