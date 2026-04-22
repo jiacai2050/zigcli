@@ -15,7 +15,6 @@ const c_timeval = extern struct {
     tv_sec: c_long,
     tv_usec: c_long,
 };
-extern "c" fn time(tloc: ?*i64) i64;
 
 /// Reads a sysctl string value into the provided buffer.
 fn sysctlString(
@@ -175,7 +174,7 @@ pub fn getMemory(
     );
 }
 
-pub fn getUptime(_: Io, allocator: mem.Allocator) ![]const u8 {
+pub fn getUptime(io: Io, allocator: mem.Allocator) ![]const u8 {
     // FreeBSD has kern.boottime sysctl like macOS.
     var boot_time: c_timeval = undefined;
     var boot_time_size: usize = @sizeOf(c_timeval);
@@ -188,7 +187,7 @@ pub fn getUptime(_: Io, allocator: mem.Allocator) ![]const u8 {
     ) != 0) {
         return "Unknown";
     }
-    const now_s: i64 = time(null);
+    const now_s: i64 = Io.Clock.now(.real, io).toSeconds();
     const boot_s: i64 = @intCast(boot_time.tv_sec);
     if (now_s < boot_s) return "Unknown";
     const uptime_s: u64 = @intCast(now_s - boot_s);

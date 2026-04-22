@@ -336,18 +336,13 @@ fn walk(
                 var sub_dir = try dir.openDir(io, e.name, .{ .iterate = true });
                 defer sub_dir.close(io);
 
-                // rel_path lives in local arena which is freed on return;
-                // dup into long-lived allocator so recursion doesn't see freed memory.
-                const rel_path_owned = try allocator.dupe(u8, rel_path);
-                defer allocator.free(rel_path_owned);
-
                 const layer_pushed = if (!no_gitignore)
-                    try gi_stack.tryPushDir(io, sub_dir, rel_path_owned, allocator)
+                    try gi_stack.tryPushDir(io, sub_dir, rel_path, allocator)
                 else
                     false;
                 defer if (layer_pushed) gi_stack.pop(allocator);
 
-                try walk(io, allocator, no_gitignore, gi_stack, loc_map, sub_dir, rel_path_owned);
+                try walk(io, allocator, no_gitignore, gi_stack, loc_map, sub_dir, rel_path);
             },
             else => {},
         }

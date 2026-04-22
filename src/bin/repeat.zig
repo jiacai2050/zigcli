@@ -50,7 +50,7 @@ pub fn main(init: std.process.Init) !void {
                 keep_running = false;
             }
         }
-        const exit_code = try run(init.io, allocator, argv);
+        const exit_code = try run(init.io, argv);
         if (exit_code == 0) {
             keep_running = false;
         }
@@ -67,13 +67,8 @@ pub fn main(init: std.process.Init) !void {
     }
 }
 
-fn run(io: std.Io, allocator: mem.Allocator, argv: []const [:0]const u8) !u8 {
-    // Convert [:0]const u8 slices to []const u8 for SpawnOptions.
-    const plain_argv = try allocator.alloc([]const u8, argv.len);
-    defer allocator.free(plain_argv);
-    for (argv, 0..) |a, i| plain_argv[i] = a;
-
-    var child = try std.process.spawn(io, .{ .argv = plain_argv });
+fn run(io: std.Io, argv: []const []const u8) !u8 {
+    var child = try std.process.spawn(io, .{ .argv = argv });
     const term = try child.wait(io);
     return switch (term) {
         .exited => |code| code,

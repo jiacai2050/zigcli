@@ -49,11 +49,7 @@ pub fn main(init: std.process.Init) !void {
         std.process.exit(1);
     }
 
-    const plain_argv = try allocator.alloc([]const u8, cmds.len);
-    defer allocator.free(plain_argv);
-    for (cmds, 0..) |a, i| plain_argv[i] = a;
-
-    child = try std.process.spawn(init.io, .{ .argv = plain_argv });
+    child = try std.process.spawn(init.io, .{ .argv = cmds });
     spawn_success = true;
     const term = try child.wait(init.io);
     switch (term) {

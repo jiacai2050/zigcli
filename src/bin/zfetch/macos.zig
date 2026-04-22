@@ -331,7 +331,7 @@ pub fn getMemory(
     );
 }
 
-pub fn getUptime(_: Io, allocator: mem.Allocator) ![]const u8 {
+pub fn getUptime(io: Io, allocator: mem.Allocator) ![]const u8 {
     var boot_time: c.struct_timeval = undefined;
     var boot_time_size: usize = @sizeOf(c.struct_timeval);
     if (c.sysctlbyname(
@@ -343,49 +343,28 @@ pub fn getUptime(_: Io, allocator: mem.Allocator) ![]const u8 {
     ) != 0) {
         return "Unknown";
     }
-    const now_s: i64 = c.time(null);
+    const now_s: i64 = Io.Clock.now(.real, io).toSeconds();
     const boot_s: i64 = @intCast(boot_time.tv_sec);
     if (now_s < boot_s) return "Unknown";
     const uptime_s: u64 = @intCast(now_s - boot_s);
     return common.formatUptime(allocator, uptime_s);
 }
 
-pub fn getPackages(_: Io, allocator: mem.Allocator) ![]const u8 {
-    const brew_paths = [_][*:0]const u8{
+pub fn getPackages(io: Io, allocator: mem.Allocator) ![]const u8 {
+    const brew_paths = [_][]const u8{
         "/opt/homebrew/Cellar",
         "/usr/local/Cellar",
     };
     for (brew_paths) |brew_path| {
-        const dp = opendir(brew_path) orelse continue;
-        defer _ = closedir(dp);
+        var dir = std.Io.Dir.cwd().openDir(io, brew_path, .{ .iterate = true }) catch continue;
+        defer dir.close(io);
+        var it = dir.iterate();
         var count: u32 = 0;
-        while (readdir(dp)) |entry| {
-            const name = mem.sliceTo(@as([*:0]const u8, @ptrCast(&entry.*.d_name)), 0);
-            if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..")) continue;
-            count += 1;
-        }
+        while (try it.next(io)) |_| count += 1;
         if (count > 0) {
-            return fmt.allocPrint(
-                allocator,
-                "{d} (brew)",
-                .{count},
-            );
+            return fmt.allocPrint(allocator, "{d} (brew)", .{count});
         }
         break; // Only use the first found path.
     }
     return "Unknown";
 }
-
-// Minimal dirent bindings — we don't use the fields other than d_name here.
-const DIR = opaque {};
-const dirent = extern struct {
-    d_ino: u64,
-    d_seekoff: u64,
-    d_reclen: u16,
-    d_namlen: u16,
-    d_type: u8,
-    d_name: [1024]u8,
-};
-extern "c" fn opendir(name: [*:0]const u8) ?*DIR;
-extern "c" fn closedir(dirp: *DIR) c_int;
-extern "c" fn readdir(dirp: *DIR) ?*dirent;
