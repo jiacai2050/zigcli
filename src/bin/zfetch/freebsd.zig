@@ -9,7 +9,6 @@ const Environ = std.process.Environ;
 
 const c = @cImport({
     @cInclude("sys/sysctl.h");
-    @cInclude("unistd.h");
 });
 const c_timeval = extern struct {
     tv_sec: c_long,

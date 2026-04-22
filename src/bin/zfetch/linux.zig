@@ -7,10 +7,6 @@ const fmt = std.fmt;
 const Io = std.Io;
 const Environ = std.process.Environ;
 
-const c = @cImport({
-    @cInclude("unistd.h");
-});
-
 pub const getHostname = common.getHostname;
 pub const getKernel = common.getKernel;
 
