@@ -1,13 +1,13 @@
 #+TITLE: Introduction
 #+DATE: 2023-10-21T12:09:48+0800
-#+LASTMOD: 2026-03-22T21:35:38+0800
+#+LASTMOD: 2026-04-22T19:37:27+0800
 #+TYPE: docs
 #+author: Jiacai Liu
 
 [[https://github.com/jiacai2050/zigcli][https://img.shields.io/github/stars/jiacai2050/zigcli.svg]]
 [[https://github.com/jiacai2050/loc/actions/workflows/CI.yml][https://github.com/jiacai2050/loc/actions/workflows/CI.yml/badge.svg]]
 [[https://github.com/jiacai2050/loc/actions/workflows/release.yml][https://github.com/jiacai2050/loc/actions/workflows/release.yml/badge.svg]]
-[[https://img.shields.io/badge/zig%20version-0.15.2-F7A41D.svg]]
+[[https://img.shields.io/badge/zig%20version-0.16.0-F7A41D.svg]]
 
 #+begin_export html
 <img src="/images/logo.svg" alt="Zigcli logo" style="width: 350px;"/>
@@ -25,6 +25,10 @@
 This repository keeps both sides together. If you are writing your own Zig tool, add =zigcli= as
 a dependency and import the packages you need. If you only want ready-made binaries such as =tree=,
 =loc=, =pretty-csv=, or =cowsay=, install the release package and run them directly.
+
+#+begin_quote
+The =main= branch targets *Zig 0.16.0*.
+#+end_quote
 
 * Packages
 

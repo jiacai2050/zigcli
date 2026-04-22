@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## v0.6.0 (2026-04-22)
+
+### Breaking Changes
+- **build**: Upgrade to Zig 0.16, all modules migrated to `std.Io` API
+- **progress-it**: Binary renamed from `progress` to `progress-it`
+
+### New Modules
+- **progress**: Reusable terminal progress bars and spinners library (`zigcli.progress`)
+
 ## v0.5.0 (2026-03-22)
 
 ### Breaking Changes

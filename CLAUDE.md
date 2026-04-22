@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Zigcli is a toolkit for building command-line programs in Zig (currently targeting Zig 0.15.1). It provides both reusable Zig packages (modules) and standalone CLI programs.
+Zigcli is a toolkit for building command-line programs in Zig (currently targeting Zig 0.16.0). It provides both reusable Zig packages (modules) and standalone CLI programs.
 
 ## Build Commands
 
@@ -21,12 +21,16 @@ make ci                            # fmt + test (what CI runs)
 
 ## Architecture
 
-### Modules (`src/mod/`)
+### Modules (`src/`)
 
-Reusable Zig packages exported via `build.zig`:
+Reusable Zig packages exported via `build.zig` and bundled under a single `zigcli` root module (`src/lib.zig`):
 
-- **structargs** — Struct-based CLI argument parser. Binaries define a struct of their options and structargs handles parsing, help text, and validation.
-- **pretty-table** — Terminal table renderer with ASCII/box/DOS border styles.
+- **structargs** — Struct-based CLI argument parser
+- **pretty-table** — Terminal table renderer with ASCII/box/DOS border styles
+- **gitignore** — Pure Zig `.gitignore` glob matching
+- **csv** — RFC 4180 delimited text parser
+- **term** — ANSI colors and terminal capability helpers
+- **progress** — Terminal progress bars and spinners
 
 ### Binaries (`src/bin/`)
 
@@ -34,8 +38,13 @@ Each `.zig` file in `src/bin/` is a standalone CLI tool. The build system auto-w
 
 - **loc** — Lines-of-code counter (multi-language)
 - **tree** — Directory tree viewer
+- **pretty-csv** — Pretty-print CSV/TSV files as aligned tables
+- **zfetch** — System information fetcher (macOS, Linux, FreeBSD)
 - **zigfetch** — URL fetcher (depends on zig-curl)
-- **tcp-proxy** — TCP proxy server
+- **tcp-proxy** — TCP proxy server (Linux zero-copy via splice)
+- **progress-it** — Port of [progress](https://github.com/Xfennec/progress) (Linux + macOS)
+- **cowsay** — ASCII cow message display
+- **repeat** — Repeat a command
 - **night-shift** / **dark-mode** — macOS-only (link private frameworks; skipped on non-macOS)
 - **pidof** — macOS-only process lookup
 - **timeout** — Skipped on Windows (no sigaction)
@@ -61,4 +70,4 @@ Demo programs (`structargs-demo`, `pretty-table-demo`) that exercise the modules
 
 ### Dependencies
 
-Single external dependency: **zig-curl** (used only by zigfetch).
+Single external dependency: **zig-curl** (used only by zigfetch, lazy-loaded).
