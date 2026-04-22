@@ -31,8 +31,8 @@ const Source = union(enum) {
 
     fn path(self: Self) []const u8 {
         return switch (self) {
-            .binary => |_| "src/bin",
-            .example => |_| "examples",
+            .binary => "src/bin",
+            .example => "examples",
         };
     }
 
@@ -75,7 +75,7 @@ fn addModules(
         []const u8,
         "build_date",
         b.option([]const u8, "build_date", "Build date") orelse
-            b.fmt("{d}", .{std.time.milliTimestamp()}),
+            "Unknown",
     );
 
     build_info_options.addOption(
@@ -96,7 +96,7 @@ fn addModules(
         .ReleaseSmall => "ReleaseSmall",
         .ReleaseSafe => "ReleaseSafe",
     });
-    try b.modules.put("build_info", build_info_options.createModule());
+    try b.modules.put(b.allocator, "build_info", build_info_options.createModule());
 
     const module_tests = b.addTest(.{
         .root_module = b.createModule(.{
@@ -155,7 +155,7 @@ fn buildBinaries(
     }
 
     // TODO: Move util out of src/bin because it is a shared helper.
-    all_tests.dependOn(buildTestStep(b, .{ .binary = "util" }, target));
+    all_tests.dependOn(buildTestStep(b, .{ .binary = "util" }, optimize, target));
 }
 
 fn buildBinary(
@@ -189,7 +189,7 @@ fn buildBinary(
             .dependOn(&run_step.step);
 
         if (source.needsTest()) {
-            all_tests.dependOn(buildTestStep(b, source, target));
+            all_tests.dependOn(buildTestStep(b, source, optimize, target));
         }
     }
 }
@@ -197,6 +197,7 @@ fn buildBinary(
 fn buildTestStep(
     b: *std.Build,
     comptime source: Source,
+    optimize: std.builtin.OptimizeMode,
     target: std.Build.ResolvedTarget,
 ) *Step {
     const source_name = comptime source.name();
@@ -204,12 +205,14 @@ fn buildTestStep(
     const test_module = b.modules.get(source_name) orelse b.createModule(.{
         .root_source_file = b.path(source_path ++ "/" ++ source_name ++ ".zig"),
         .target = target,
+        .optimize = optimize,
     });
     const test_compile_step = b.addTest(.{
         .root_module = test_module,
     });
     test_compile_step.root_module.addImport("zigcli", b.modules.get("zigcli").?);
     test_compile_step.root_module.addImport("build_info", b.modules.get("build_info").?);
+    configureCompileStep(b, test_compile_step, source_name, optimize, target);
     const test_step = b.step("test-" ++ source_name, "Run " ++ source_name ++ " tests");
     // Build test artifacts through addRunArtifact because Zig does not expose a direct test step.
     test_step.dependOn(&b.addRunArtifact(test_compile_step).step);
@@ -231,7 +234,6 @@ fn makeCompileStep(
     )) {
         return null;
     }
-
     const compile_step = b.addExecutable(.{
         .name = source_name,
         .root_module = b.createModule(.{
@@ -260,6 +262,14 @@ fn sourceSupported(
         }
     }
 
+    if (std.mem.eql(u8, source_name, "zigfetch")) {
+        // .zig-cache/o/3390549d3c902e4c2db17c04c316202a/c.zig:2199:15: error: unused local constant
+        // const extern_local_wcscat_s = struct {
+        if (target_os == .windows) {
+            return false;
+        }
+    }
+
     if (std.mem.eql(u8, source_name, "timeout")) {
         // Windows still lacks the required Sigaction definition here.
         if (target_os == .windows) {
@@ -284,6 +294,12 @@ fn sourceSupported(
         if (!(target_os == .macos or target_os == .linux)) {
             return false;
         }
+        // Compile this on ubuntu for macos will fail with
+        // .zig-cache/o/513b79f3b8ebc065f2954c84bf996d8e/cimport.zig:1323:40: note: opaque declared here
+        // pub const mach_msg_type_descriptor_t = opaque {};
+        if (host_os != target_os) {
+            return false;
+        }
     }
 
     return true;
@@ -296,54 +312,57 @@ fn configureCompileStep(
     optimize: std.builtin.OptimizeMode,
     target: std.Build.ResolvedTarget,
 ) void {
+    const module = compile_step.root_module;
+
+    if (std.mem.eql(u8, source_name, "zigfetch")) {
+        if (b.lazyDependency("curl", .{
+            .link_vendor = true,
+            .target = target,
+            .optimize = optimize,
+        })) |curl_dependency| {
+            module.addImport("curl", curl_dependency.module("curl"));
+        }
+        module.link_libc = true;
+        return;
+    }
+
     if (std.mem.eql(u8, source_name, "night-shift")) {
-        compile_step.linkSystemLibrary("objc");
-        addMacOSPrivateFrameworkPaths(compile_step);
-        compile_step.linkFramework("CoreBrightness");
+        module.linkSystemLibrary("objc", .{});
+        addMacOSPrivateFrameworkPaths(module);
+        module.linkFramework("CoreBrightness", .{});
         return;
     }
 
     if (std.mem.eql(u8, source_name, "dark-mode")) {
-        addMacOSPrivateFrameworkPaths(compile_step);
-        compile_step.linkFramework("SkyLight");
+        addMacOSPrivateFrameworkPaths(module);
+        module.linkFramework("SkyLight", .{});
         return;
     }
 
     if (std.mem.eql(u8, source_name, "tcp-proxy")) {
-        compile_step.linkLibC();
+        module.link_libc = true;
         return;
     }
 
     if (std.mem.eql(u8, source_name, "timeout")) {
-        compile_step.linkLibC();
-        return;
-    }
-
-    if (std.mem.eql(u8, source_name, "zigfetch")) {
-        const curl_dependency = b.dependency("curl", .{
-            .link_vendor = true,
-            .target = target,
-            .optimize = optimize,
-        });
-        compile_step.root_module.addImport("curl", curl_dependency.module("curl"));
-        compile_step.linkLibC();
+        module.link_libc = true;
         return;
     }
 
     if (std.mem.eql(u8, source_name, "pidof")) {
-        compile_step.linkLibC();
+        module.link_libc = true;
         return;
     }
 
     if (std.mem.eql(u8, source_name, "zfetch")) {
         switch (target.result.os.tag) {
             .macos => {
-                compile_step.linkFramework("CoreGraphics");
-                compile_step.linkFramework("Foundation");
-                compile_step.linkFramework("IOKit");
+                module.linkFramework("CoreGraphics", .{});
+                module.linkFramework("Foundation", .{});
+                module.linkFramework("IOKit", .{});
             },
             .linux => {
-                compile_step.linkLibC();
+                module.link_libc = true;
             },
             else => {},
         }
@@ -352,7 +371,7 @@ fn configureCompileStep(
 
     if (std.mem.eql(u8, source_name, "progress-it")) {
         if (target.result.os.tag == .linux) {
-            compile_step.linkLibC();
+            module.link_libc = true;
             return;
         }
     }
@@ -388,7 +407,7 @@ fn zfetchSupported(
     }
 }
 
-fn addMacOSPrivateFrameworkPaths(compile_step: *Build.Step.Compile) void {
-    compile_step.addFrameworkPath(.{ .cwd_relative = macos_private_framework_xcode });
-    compile_step.addFrameworkPath(.{ .cwd_relative = macos_private_framework_clt });
+fn addMacOSPrivateFrameworkPaths(module: *Build.Module) void {
+    module.addFrameworkPath(.{ .cwd_relative = macos_private_framework_xcode });
+    module.addFrameworkPath(.{ .cwd_relative = macos_private_framework_clt });
 }

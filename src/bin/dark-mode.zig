@@ -9,12 +9,12 @@ const util = @import("util.zig");
 extern "c" fn SLSSetAppearanceThemeLegacy(bool) void;
 extern "c" fn SLSGetAppearanceThemeLegacy() bool;
 
-pub fn main() !void {
+pub fn main(init: std.process.Init) !void {
     var gpa = util.Allocator.instance;
     defer gpa.deinit();
     const allocator = gpa.allocator();
 
-    const opt = try structargs.parse(allocator, struct {
+    const opt = try structargs.parse(allocator, init.io, init.minimal.args, struct {
         version: bool = false,
         help: bool = false,
 

@@ -6,12 +6,13 @@ pub const std_options: std.Options = .{
     .log_level = .info,
 };
 
-pub fn main() !void {
+pub fn main(init: std.process.Init) !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
+    const io = init.io;
 
-    var opt = try structargs.parse(allocator, struct {
+    var opt = try structargs.parse(allocator, io, init.minimal.args, struct {
         // Those fields declare arguments options
         // only `output` is required, others are all optional
         verbose: ?bool,
@@ -76,9 +77,9 @@ pub fn main() !void {
 
     // Provide a print_help util method
     std.debug.print("\n{s}print_help{s}\n", .{ sep, sep });
-    const stdout = std.fs.File.stdout();
+    const stdout = std.Io.File.stdout();
     var buffer: [1024]u8 = undefined;
-    var writer = stdout.writer(&buffer);
+    var writer = stdout.writer(io, &buffer);
     try opt.printHelp(&writer.interface);
     try writer.interface.flush();
 }

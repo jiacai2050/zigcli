@@ -8,10 +8,11 @@ const Cell = pt.Cell;
 const Align = pt.Align;
 const Color = term.Style.Color;
 
-pub fn main() !void {
-    const out = std.fs.File.stdout();
+pub fn main(init: std.process.Init) !void {
+    const io = init.io;
+    const out = std.Io.File.stdout();
     var buf: [4096]u8 = undefined;
-    var writer = out.writer(&buf);
+    var writer = out.writer(io, &buf);
 
     // Basic table with box-drawing borders.
     const basic = Table(2){

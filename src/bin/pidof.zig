@@ -89,12 +89,12 @@ pub fn searchPids(allocator: std.mem.Allocator, opt: Options, program: []const u
     return pids;
 }
 
-pub fn main() !void {
+pub fn main(init: std.process.Init) !void {
     var gpa = util.Allocator.instance;
     defer gpa.deinit();
     const allocator = gpa.allocator();
 
-    const opt = try structargs.parse(allocator, Options, .{
+    const opt = try structargs.parse(allocator, init.io, init.minimal.args, Options, .{
         .argument_prompt = "[program]",
         .version_string = util.get_build_info(),
     });
@@ -102,18 +102,18 @@ pub fn main() !void {
 
     if (opt.positional_arguments.len == 0) {
         std.log.err("program is not given", .{});
-        std.posix.exit(1);
+        std.process.exit(1);
     }
 
     const program = opt.positional_arguments[0];
     const pids = try searchPids(allocator, opt.options, program);
     if (pids.items.len == 0) {
-        std.posix.exit(1);
+        std.process.exit(1);
     }
 
-    var stdout = std.fs.File.stdout();
+    var stdout = std.Io.File.stdout();
     var buf: [1024]u8 = undefined;
-    var writer = stdout.writer(&buf);
+    var writer = stdout.writer(init.io, &buf);
     for (pids.items, 0..) |pid, i| {
         if (i > 0) {
             try writer.interface.writeAll(opt.options.delimiter);

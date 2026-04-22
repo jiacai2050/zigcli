@@ -5,6 +5,37 @@ const term = @import("term.zig");
 const assert = std.debug.assert;
 
 const ns_per_ms = std.time.ns_per_ms;
+
+/// Minimal monotonic timer that tracks elapsed nanoseconds since creation.
+/// Uses `std.Io.Clock.awake` via the runtime `Io` provided on construction.
+const MonoTimer = struct {
+    io: ?std.Io,
+    started: std.Io.Timestamp,
+
+    fn start(io: std.Io) MonoTimer {
+        return .{
+            .io = io,
+            .started = std.Io.Clock.awake.now(io),
+        };
+    }
+
+    /// Returns a frozen zero-valued timer. Suitable for tests where `read`
+    /// is never called because callers drive elapsed time directly.
+    fn zero() MonoTimer {
+        return .{
+            .io = null,
+            .started = .{ .nanoseconds = 0 },
+        };
+    }
+
+    fn read(self: MonoTimer) u64 {
+        const io = self.io orelse return 0;
+        const now = std.Io.Clock.awake.now(io);
+        const diff = now.nanoseconds - self.started.nanoseconds;
+        if (diff < 0) return 0;
+        return @intCast(diff);
+    }
+};
 const default_refresh_interval_ns: u64 = 50 * ns_per_ms;
 const default_bar_width: u16 = 20;
 const ellipsis = "...";
@@ -21,7 +52,8 @@ pub const Unit = enum { items, bytes };
 
 pub const Progress = struct {
     gpa: std.mem.Allocator,
-    file: std.fs.File,
+    io: std.Io,
+    file: std.Io.File,
     use_ansi: bool,
     width_columns: ?u16,
     hidden: bool,
@@ -33,7 +65,7 @@ pub const Progress = struct {
     message: []const u8,
 
     state: State,
-    timer: std.time.Timer,
+    timer: MonoTimer,
     last_render_elapsed_ns: ?u64,
 
     const Kind = enum { bar, spinner };
@@ -48,22 +80,24 @@ pub const Progress = struct {
     };
 
     pub const BarOptions = struct {
+        io: std.Io,
         total: u64,
         unit: Unit = .items,
         bar_width: u16 = default_bar_width,
         prefix: []const u8 = "",
         message: []const u8 = "",
         position: u64 = 0,
-        file: ?std.fs.File = null,
+        file: ?std.Io.File = null,
         refresh_interval_ns: u64 = default_refresh_interval_ns,
     };
 
     pub const SpinnerOptions = struct {
+        io: std.Io,
         unit: Unit = .items,
         prefix: []const u8 = "",
         message: []const u8 = "",
         position: u64 = 0,
-        file: ?std.fs.File = null,
+        file: ?std.Io.File = null,
         refresh_interval_ns: u64 = default_refresh_interval_ns,
     };
 
@@ -71,10 +105,11 @@ pub const Progress = struct {
         gpa: std.mem.Allocator,
         options: BarOptions,
     ) Progress {
-        const file = options.file orelse std.fs.File.stderr();
+        const file = options.file orelse std.Io.File.stderr();
         const is_tty = term.isTty(file);
         return .{
             .gpa = gpa,
+            .io = options.io,
             .file = file,
             .use_ansi = is_tty,
             .width_columns = term.terminalWidth(file),
@@ -95,7 +130,7 @@ pub const Progress = struct {
                 .finished = false,
                 .clear_on_finish = false,
             },
-            .timer = startTimer(),
+            .timer = MonoTimer.start(options.io),
             .last_render_elapsed_ns = null,
         };
     }
@@ -104,10 +139,11 @@ pub const Progress = struct {
         gpa: std.mem.Allocator,
         options: SpinnerOptions,
     ) Progress {
-        const file = options.file orelse std.fs.File.stderr();
+        const file = options.file orelse std.Io.File.stderr();
         const is_tty = term.isTty(file);
         return .{
             .gpa = gpa,
+            .io = options.io,
             .file = file,
             .use_ansi = is_tty,
             .width_columns = term.terminalWidth(file),
@@ -125,7 +161,7 @@ pub const Progress = struct {
                 .finished = false,
                 .clear_on_finish = false,
             },
-            .timer = startTimer(),
+            .timer = MonoTimer.start(options.io),
             .last_render_elapsed_ns = null,
         };
     }
@@ -181,7 +217,7 @@ pub const Progress = struct {
         if (self.hidden) return;
 
         var output_buffer: [4096]u8 = undefined;
-        var writer = self.file.writer(&output_buffer);
+        var writer = self.file.writer(self.io, &output_buffer);
         if (self.use_ansi) {
             try writer.interface.writeAll("\r\x1b[2K");
         }
@@ -207,7 +243,7 @@ pub const Progress = struct {
         append_newline: bool,
     ) !void {
         var output_buffer: [4096]u8 = undefined;
-        var writer = self.file.writer(&output_buffer);
+        var writer = self.file.writer(self.io, &output_buffer);
         if (self.use_ansi) {
             try writer.interface.writeAll("\r\x1b[2K");
         }
@@ -521,20 +557,6 @@ pub const Progress = struct {
     }
 };
 
-/// Start a monotonic timer, falling back to a zero-valued
-/// timer in hostile environments where no clock is available.
-fn startTimer() std.time.Timer {
-    const Instant = std.time.Instant;
-    const Timestamp = @FieldType(Instant, "timestamp");
-    const zero_instant: Instant = .{
-        .timestamp = std.mem.zeroes(Timestamp),
-    };
-    return std.time.Timer.start() catch .{
-        .started = zero_instant,
-        .previous = zero_instant,
-    };
-}
-
 fn nanosToSeconds(nanos: u64) f64 {
     return @as(f64, @floatFromInt(nanos)) /
         @as(f64, @floatFromInt(std.time.ns_per_s));
@@ -700,9 +722,11 @@ fn testProgress(kind: Progress.Kind, options: struct {
     width_columns: ?u16 = 120,
     refresh_interval_ns: u64 = default_refresh_interval_ns,
 }) Progress {
+    const io = std.testing.io;
     return .{
         .gpa = std.testing.allocator,
-        .file = std.fs.File.stdout(),
+        .io = io,
+        .file = std.Io.File.stdout(),
         .use_ansi = false,
         .width_columns = options.width_columns,
         .hidden = false,
@@ -719,7 +743,7 @@ fn testProgress(kind: Progress.Kind, options: struct {
             .finished = false,
             .clear_on_finish = false,
         },
-        .timer = startTimer(),
+        .timer = MonoTimer.zero(),
         .last_render_elapsed_ns = null,
     };
 }

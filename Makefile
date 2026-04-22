@@ -17,7 +17,7 @@ clean:
 	rm -rf zig-out .zig-cache
 
 test:
-	zig build test --summary all
+	zig build test --summary all --test-timeout 10s
 
 ci: fmt test
 

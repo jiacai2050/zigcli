@@ -12,7 +12,6 @@ const log = std.log;
 const mem = std.mem;
 const print = std.debug.print;
 const Allocator = mem.Allocator;
-const Child = std.process.Child;
 const ArrayList = std.ArrayList;
 
 const Args = struct {
@@ -46,15 +45,19 @@ const Args = struct {
 
 var args: Args = undefined;
 var cache_dirname: []const u8 = undefined;
-var cache_dep_dir: fs.Dir = undefined;
-var thread_pool: std.Thread.Pool = undefined;
+var cache_dep_dir: std.Io.Dir = undefined;
 var fetched_packages = std.StringHashMapUnmanaged(void){};
 var easy: curl.Easy = undefined;
+var g_io: std.Io = undefined;
 
-pub fn main() !void {
+pub fn main(init: std.process.Init) !void {
     const allocator = std.heap.page_allocator;
+    const io = init.io;
+    g_io = io;
     const opt = try structargs.parse(
         allocator,
+        io,
+        init.minimal.args,
         Args,
         .{
             .argument_prompt = "[package-dir or url]",
@@ -64,17 +67,17 @@ pub fn main() !void {
     defer opt.deinit();
 
     if (opt.positional_arguments.len == 0) {
-        const stdout = std.fs.File.stdout();
+        const stdout = std.Io.File.stdout();
         var buf: [1024]u8 = undefined;
-        var writer = stdout.writer(&buf);
+        var writer = stdout.writer(io, &buf);
         try opt.printHelp(&writer.interface);
         try writer.interface.flush();
         return;
     }
     // Init global vars
     args = opt.options;
-    const ca_bundle = try curl.allocCABundle(allocator);
-    defer ca_bundle.deinit();
+    var ca_bundle = try curl.allocCABundle(allocator, io);
+    defer ca_bundle.deinit(allocator);
     easy = try curl.Easy.init(.{
         .default_timeout_ms = args.timeout * 1000,
         .default_user_agent = "zigfetch",
@@ -82,9 +85,9 @@ pub fn main() !void {
     });
 
     {
-        cache_dirname = try resolveGlobalCacheDir(allocator);
+        cache_dirname = try resolveGlobalCacheDir(allocator, init.environ_map);
         const p_dirname = try std.fmt.allocPrint(allocator, "{s}/p", .{cache_dirname});
-        cache_dep_dir = fs.openDirAbsolute(p_dirname, .{}) catch |e| switch (e) {
+        cache_dep_dir = std.Io.Dir.openDirAbsolute(io, p_dirname, .{}) catch |e| switch (e) {
             error.FileNotFound => {
                 log.err("{s} not exists, please create it first!", .{p_dirname});
                 return e;
@@ -92,8 +95,6 @@ pub fn main() !void {
             else => return e,
         };
     }
-    try thread_pool.init(.{ .allocator = allocator });
-    defer thread_pool.deinit();
 
     const url_or_path = opt.positional_arguments[0];
     defer allocator.free(cache_dirname);
@@ -109,7 +110,7 @@ pub fn main() !void {
     }
 }
 
-fn calcHash(allocator: Allocator, dir: fs.Dir, root_dirname: []const u8, deleteIgnore: bool) anyerror![]const u8 {
+fn calcHash(allocator: Allocator, dir: std.Io.Dir, root_dirname: []const u8, deleteIgnore: bool) anyerror![]const u8 {
     var manifest = try loadManifest(allocator, dir);
     defer if (manifest) |*m| m.deinit(allocator);
 
@@ -155,8 +156,8 @@ fn calcHash(allocator: Allocator, dir: fs.Dir, root_dirname: []const u8, deleteI
                 },
                 .path => |local_path| {
                     log.info("Cache from dir dep: {s}", .{local_path});
-                    var local_dir = try dir.openDir(local_path, .{ .iterate = true });
-                    defer local_dir.close();
+                    var local_dir = try dir.openDir(g_io, local_path, .{ .iterate = true });
+                    defer local_dir.close(g_io);
 
                     _ = try cachePackageFromLocal(allocator, local_dir);
                 },
@@ -171,8 +172,8 @@ fn handleDir(allocator: Allocator, path: []const u8) !void {
     log.info("Cache from dir: {s}", .{path});
     try fetched_packages.put(allocator, path, {});
 
-    var dir = try fs.cwd().openDir(path, .{ .iterate = true });
-    defer dir.close();
+    var dir = try std.Io.Dir.cwd().openDir(g_io, path, .{ .iterate = true });
+    defer dir.close(g_io);
 
     const hash = try cachePackageFromLocal(allocator, dir);
     print("{s}", .{hash});
@@ -180,7 +181,7 @@ fn handleDir(allocator: Allocator, path: []const u8) !void {
 
 fn cachePackageFromLocal(
     allocator: Allocator,
-    dir: fs.Dir,
+    dir: std.Io.Dir,
 ) anyerror![]const u8 {
     const hash = try calcHash(allocator, dir, "", false);
     return hash;
@@ -200,7 +201,7 @@ fn cachePackageFromUrl(
 ) anyerror![]const u8 {
     log.info("Cache from url: {s}", .{url});
     if (expected_hash) |hash| blk: {
-        cache_dep_dir.access(hash, .{}) catch {
+        cache_dep_dir.access(g_io, hash, .{}) catch {
             break :blk;
         };
         // If reach here, it means it already in global caches
@@ -212,21 +213,21 @@ fn cachePackageFromUrl(
 
     const tmp_dirname = try makeTmpDir(allocator);
     defer allocator.free(tmp_dirname);
-    defer fs.deleteTreeAbsolute(tmp_dirname) catch |e| {
+    defer std.Io.Dir.cwd().deleteTree(g_io, tmp_dirname) catch |e| {
         if (args.verbose) {
             log.err("Delete dir({s}) failed, err:{any}", .{ tmp_dirname, e });
         }
     };
 
-    var out_dir = try fs.openDirAbsolute(tmp_dirname, .{ .iterate = true });
-    defer out_dir.close();
+    var out_dir = try std.Io.Dir.openDirAbsolute(g_io, tmp_dirname, .{ .iterate = true });
+    defer out_dir.close(g_io);
 
     // This is the directory we need to strip.
     const sub_dirname = try fetchPackage(allocator, url, out_dir);
     defer allocator.free(sub_dirname);
 
-    var sub_dir = try out_dir.openDir(sub_dirname, .{ .iterate = true });
-    defer sub_dir.close();
+    var sub_dir = try out_dir.openDir(g_io, sub_dirname, .{ .iterate = true });
+    defer sub_dir.close(g_io);
     const src_dirname = try fs.path.join(allocator, &[_][]const u8{ tmp_dirname, sub_dirname });
     defer allocator.free(src_dirname);
     const actual_hash = try calcHash(allocator, sub_dir, sub_dirname, true);
@@ -292,7 +293,7 @@ fn cachePackageFromGit(
 
     log.info("Fetch from git, repo_url:{s}, commit_id:{s}...", .{ repo_url, commit_id });
     if (expected_hash) |hash| blk: {
-        cache_dep_dir.access(hash, .{}) catch {
+        cache_dep_dir.access(g_io, hash, .{}) catch {
             break :blk;
         };
         if (args.verbose) {
@@ -301,14 +302,14 @@ fn cachePackageFromGit(
         return hash;
     }
 
-    const rand_int = std.crypto.random.int(u64);
+    const rand_int = randomU64();
     const tmp_dirname = try std.fmt.allocPrint(allocator, "{s}{s}zigfetch-{s}", .{
         cache_dirname,
         fs.path.sep_str,
         Manifest.hex64(rand_int),
     });
     defer allocator.free(tmp_dirname);
-    defer fs.deleteTreeAbsolute(tmp_dirname) catch |e| {
+    defer std.Io.Dir.cwd().deleteTree(g_io, tmp_dirname) catch |e| {
         log.err("Delete dir({s}) failed, err:{any}", .{ tmp_dirname, e });
     };
     const clone_argv = [_][]const u8{
@@ -333,13 +334,13 @@ fn cachePackageFromGit(
     });
     defer allocator.free(git_dirname);
 
-    fs.deleteTreeAbsolute(git_dirname) catch |e| {
+    std.Io.Dir.cwd().deleteTree(g_io, git_dirname) catch |e| {
         log.err("Delete dir({s}) failed, err:{any}", .{ tmp_dirname, e });
         return error.DeleteDotGit;
     };
 
-    var dir = try fs.openDirAbsolute(tmp_dirname, .{ .iterate = true });
-    defer dir.close();
+    var dir = try std.Io.Dir.openDirAbsolute(g_io, tmp_dirname, .{ .iterate = true });
+    defer dir.close(g_io);
     const actual_hash = try calcHash(allocator, dir, "", true);
     if (expected_hash) |expected| {
         if (args.@"skip-check") {
@@ -359,20 +360,20 @@ fn cachePackageFromGit(
 }
 
 fn execShell(allocator: Allocator, argv: []const []const u8) !void {
-    var child = std.process.Child.init(argv, allocator);
-    if (!args.verbose) {
-        child.stdout_behavior = .Pipe;
-        child.stderr_behavior = .Pipe;
-    }
-    const term = try child.spawnAndWait();
-    switch (term) {
-        .Exited => |code| {
-            if (code != 0) {
-                return error.ExecShellFailed;
+    const run_result = try std.process.run(allocator, g_io, .{
+        .argv = argv,
+    });
+    defer allocator.free(run_result.stdout);
+    defer allocator.free(run_result.stderr);
+    switch (run_result.term) {
+        .exited => |code| if (code != 0) {
+            if (run_result.stderr.len > 0) {
+                log.err("Exec shell failed, stderr: {s}", .{run_result.stderr});
             }
+            return error.ExecShellFailed;
         },
         else => {
-            log.err("Exec git clone failed, term:{any}", .{term});
+            log.err("Exec shell failed, term:{any}", .{run_result.term});
             return error.ExecShellFailed;
         },
     }
@@ -390,10 +391,10 @@ fn moveToCache(allocator: Allocator, src_dir: []const u8, hex: []const u8) !void
         return;
     }
 
-    try fs.renameAbsolute(src_dir, dst);
+    try std.Io.Dir.renameAbsolute(src_dir, dst, g_io);
 }
 
-fn fetchPackage(allocator: Allocator, url: [:0]const u8, out_dir: fs.Dir) ![]const u8 {
+fn fetchPackage(allocator: Allocator, url: [:0]const u8, out_dir: std.Io.Dir) ![]const u8 {
     try easy.setFollowLocation(true);
     try easy.setVerbose(args.verbose);
 
@@ -443,14 +444,10 @@ fn fetchPackage(allocator: Allocator, url: [:0]const u8, out_dir: fs.Dir) ![]con
                 return try unpackTarball(allocator, out_dir, &dcp.reader);
             },
             .TarXz => {
-                // XZ decompressor needs a reader that implements the old API.
-                var stream = std.io.fixedBufferStream(body);
-                var dcp = try std.compress.xz.decompress(allocator, stream.reader());
+                const xz_buf = try allocator.alloc(u8, 4096);
+                var dcp = try std.compress.xz.Decompress.init(&reader, allocator, xz_buf);
                 defer dcp.deinit();
-                var rdr = dcp.reader();
-                var buf: [1024]u8 = undefined;
-                var new_api = rdr.adaptToNewApi(&buf);
-                return try unpackTarball(allocator, out_dir, &new_api.new_interface);
+                return try unpackTarball(allocator, out_dir, &dcp.reader);
             },
             .TarZst => {
                 const buf = try allocator.alloc(u8, std.compress.zstd.default_window_len + std.compress.zstd.block_size_max);
@@ -467,46 +464,45 @@ fn fetchPackage(allocator: Allocator, url: [:0]const u8, out_dir: fs.Dir) ![]con
     }
 }
 
-fn loadManifest(allocator: Allocator, pkg_dir: fs.Dir) !?Manifest {
-    const file = pkg_dir.openFile(Manifest.basename, .{}) catch |err| switch (err) {
+fn loadManifest(allocator: Allocator, pkg_dir: std.Io.Dir) !?Manifest {
+    const file = pkg_dir.openFile(g_io, Manifest.basename, .{}) catch |err| switch (err) {
         error.FileNotFound => return null,
         else => return err,
     };
-    defer file.close();
-    const bytes = try file.readToEndAllocOptions(
-        allocator,
-        Manifest.max_bytes,
-        null,
-        .@"1",
-        0,
-    );
+    defer file.close(g_io);
+    var file_reader = file.reader(g_io, &.{});
+    const bytes = try file_reader.interface.allocRemaining(allocator, .limited(Manifest.max_bytes));
+    defer allocator.free(bytes);
+    const bytes_z = try allocator.dupeZ(u8, bytes);
+    defer allocator.free(bytes_z);
 
-    const ast = try std.zig.Ast.parse(allocator, bytes, .zon);
+    const ast = try std.zig.Ast.parse(allocator, bytes_z, .zon);
     const manifest = try Manifest.parse(allocator, ast, .{
         .allow_missing_paths_field = true,
     });
     return manifest;
 }
 
-fn unzip(allocator: Allocator, out_dir: fs.Dir, src: []const u8) ![]const u8 {
-    const rand_int = std.crypto.random.int(u64);
+fn unzip(allocator: Allocator, out_dir: std.Io.Dir, src: []const u8) ![]const u8 {
+    const rand_int = randomU64();
     const tmp_file = try fs.path.join(allocator, &[_][]const u8{
         cache_dirname, &Manifest.hex64(rand_int),
     });
     defer allocator.free(tmp_file);
 
-    const zip_file = try fs.createFileAbsolute(tmp_file, .{
+    const zip_file = try std.Io.Dir.createFileAbsolute(g_io, tmp_file, .{
         .exclusive = true,
         .read = true,
     });
-    defer zip_file.close();
-    defer fs.deleteFileAbsolute(tmp_file) catch {};
+    defer zip_file.close(g_io);
+    defer std.Io.Dir.deleteFileAbsolute(g_io, tmp_file) catch {};
 
-    try zip_file.writeAll(src);
+    var zip_writer = zip_file.writer(g_io, &.{});
+    try zip_writer.interface.writeAll(src);
 
     var diagnostics: std.zip.Diagnostics = .{ .allocator = allocator };
     var buf: [4096]u8 = undefined;
-    var reader = zip_file.reader(&buf);
+    var reader = zip_file.reader(g_io, &buf);
     std.zip.extract(out_dir, &reader, .{
         .allow_backslashes = true,
         .diagnostics = &diagnostics,
@@ -520,9 +516,9 @@ fn unzip(allocator: Allocator, out_dir: fs.Dir, src: []const u8) ![]const u8 {
     return diagnostics.root_dir;
 }
 
-fn unpackTarball(allocator: Allocator, out_dir: fs.Dir, reader: *std.Io.Reader) ![]const u8 {
+fn unpackTarball(allocator: Allocator, out_dir: std.Io.Dir, reader: *std.Io.Reader) ![]const u8 {
     var diagnostics: std.tar.Diagnostics = .{ .allocator = allocator };
-    std.tar.pipeToFileSystem(out_dir, reader, .{
+    std.tar.extract(g_io, out_dir, reader, .{
         .diagnostics = &diagnostics,
         .strip_components = 0,
         .mode_mode = .ignore,
@@ -575,7 +571,7 @@ const ComputedHash = struct {
 
 fn computeHash(
     allocator: Allocator,
-    root_dir: fs.Dir,
+    root_dir: std.Io.Dir,
     root_dirname: []const u8,
     filter: Filter,
     deleteIgnore: bool,
@@ -598,12 +594,7 @@ fn computeHash(
     {
         // The final hash will be a hash of each file hashed independently. This
         // allows hashing in parallel.
-        var wait_group: std.Thread.WaitGroup = .{};
-        // `computeHash` is called from a worker thread so there must not be
-        // any waiting without working or a deadlock could occur.
-        defer thread_pool.waitAndWork(&wait_group);
-
-        while (walker.next() catch |err| {
+        while (walker.next(g_io) catch |err| {
             log.err(
                 "unable to walk temporary directory '{s}': {s}",
                 .{ root_dirname, @errorName(err) },
@@ -629,7 +620,7 @@ fn computeHash(
                     .fs_path = fs_path,
                     .failure = undefined, // to be populated by the worker
                 };
-                thread_pool.spawnWg(&wait_group, workerDeleteFile, .{ root_dir, deleted_file });
+                deleted_file.failure = deleteFileFallible(root_dir, deleted_file);
                 try deleted_files.append(allocator, deleted_file);
                 continue;
             }
@@ -657,7 +648,7 @@ fn computeHash(
                 .failure = undefined, // to be populated by the worker
                 .size = undefined, // to be populated by the worker
             };
-            thread_pool.spawnWg(&wait_group, workerHashFile, .{ root_dir, hashed_file });
+            hashed_file.failure = hashFileFallible(root_dir, hashed_file);
             try all_files.append(allocator, hashed_file);
         }
     }
@@ -675,7 +666,7 @@ fn computeHash(
         var i: usize = 0;
         while (i < sus_dirs.count()) : (i += 1) {
             const sus_dir = sus_dirs.keys()[i];
-            root_dir.deleteDir(sus_dir) catch |err| switch (err) {
+            root_dir.deleteDir(g_io, sus_dir) catch |err| switch (err) {
                 error.DirNotEmpty => continue,
                 error.FileNotFound => continue,
                 else => |e| {
@@ -754,11 +745,11 @@ const HashedFile = struct {
     size: u64,
 
     const Error =
-        fs.File.OpenError ||
-        fs.File.ReadError ||
-        fs.File.StatError ||
-        fs.File.ChmodError ||
-        fs.Dir.ReadLinkError;
+        std.Io.File.OpenError ||
+        std.Io.File.Reader.Error ||
+        std.Io.File.StatError ||
+        error{ReadFailed} ||
+        std.Io.Dir.ReadLinkError;
 
     const Kind = enum { file, link };
 
@@ -773,8 +764,8 @@ const DeletedFile = struct {
     failure: Error!void,
 
     const Error =
-        fs.Dir.DeleteFileError ||
-        fs.Dir.DeleteDirError;
+        std.Io.Dir.DeleteFileError ||
+        std.Io.Dir.DeleteDirError;
 };
 
 /// Strips root directory name from file system path.
@@ -788,15 +779,15 @@ fn stripRoot(fs_path: []const u8, root_dir: []const u8) []const u8 {
     return fs_path;
 }
 
-fn workerHashFile(dir: fs.Dir, hashed_file: *HashedFile) void {
+fn workerHashFile(dir: std.Io.Dir, hashed_file: *HashedFile) void {
     hashed_file.failure = hashFileFallible(dir, hashed_file);
 }
 
-fn workerDeleteFile(dir: fs.Dir, deleted_file: *DeletedFile) void {
+fn workerDeleteFile(dir: std.Io.Dir, deleted_file: *DeletedFile) void {
     deleted_file.failure = deleteFileFallible(dir, deleted_file);
 }
 
-fn hashFileFallible(dir: fs.Dir, hashed_file: *HashedFile) HashedFile.Error!void {
+fn hashFileFallible(dir: std.Io.Dir, hashed_file: *HashedFile) HashedFile.Error!void {
     var buf: [8000]u8 = undefined;
     var hasher = Manifest.Hash.init(.{});
     hasher.update(hashed_file.normalized_path);
@@ -804,13 +795,14 @@ fn hashFileFallible(dir: fs.Dir, hashed_file: *HashedFile) HashedFile.Error!void
 
     switch (hashed_file.kind) {
         .file => {
-            var file = try dir.openFile(hashed_file.fs_path, .{});
-            defer file.close();
+            var file = try dir.openFile(g_io, hashed_file.fs_path, .{});
+            defer file.close(g_io);
             // Hard-coded false executable bit: https://github.com/ziglang/zig/issues/17463
             hasher.update(&.{ 0, 0 });
             var file_header: FileHeader = .{};
+            var file_reader = file.reader(g_io, &.{});
             while (true) {
-                const bytes_read = try file.read(&buf);
+                const bytes_read = file_reader.interface.readSliceShort(&buf) catch return error.ReadFailed;
                 if (bytes_read == 0) break;
                 file_size += bytes_read;
                 hasher.update(buf[0..bytes_read]);
@@ -821,7 +813,8 @@ fn hashFileFallible(dir: fs.Dir, hashed_file: *HashedFile) HashedFile.Error!void
             }
         },
         .link => {
-            const link_name = try dir.readLink(hashed_file.fs_path, &buf);
+            const link_len = try dir.readLink(g_io, hashed_file.fs_path, &buf);
+            const link_name = buf[0..link_len];
             if (fs.path.sep != canonical_sep) {
                 // Package hashes are intended to be consistent across
                 // platforms which means we must normalize path separators
@@ -835,16 +828,17 @@ fn hashFileFallible(dir: fs.Dir, hashed_file: *HashedFile) HashedFile.Error!void
     hashed_file.size = file_size;
 }
 
-fn deleteFileFallible(dir: fs.Dir, deleted_file: *DeletedFile) DeletedFile.Error!void {
-    try dir.deleteFile(deleted_file.fs_path);
+fn deleteFileFallible(dir: std.Io.Dir, deleted_file: *DeletedFile) DeletedFile.Error!void {
+    try dir.deleteFile(g_io, deleted_file.fs_path);
 }
 
-fn setExecutable(file: fs.File) !void {
-    if (!std.fs.has_executable_bit) return;
+fn setExecutable(file: std.Io.File) !void {
+    if (!comptime std.Io.File.Permissions.has_executable_bit) return;
 
+    const stat = try file.stat(g_io);
     const S = std.posix.S;
-    const mode = fs.File.default_mode | S.IXUSR | S.IXGRP | S.IXOTH;
-    try file.chmod(mode);
+    const mode = stat.permissions.toMode() | S.IXUSR | S.IXGRP | S.IXOTH;
+    try file.setPermissions(g_io, .fromMode(mode));
 }
 
 // Detects executable header: ELF magic header or shebang line.
@@ -884,9 +878,9 @@ fn normalizePath(bytes: []u8) void {
 }
 
 fn dumpHashInfo(all_files: []const *const HashedFile) !void {
-    const stdout = std.fs.File.stdout();
+    const stdout = std.Io.File.stdout();
     var buf: [1024]u8 = undefined;
-    var writer = stdout.writer(&buf);
+    var writer = stdout.writer(g_io, &buf);
     for (all_files) |hashed_file| {
         try writer.interface.print("{s}: {x}: {s}\n", .{
             @tagName(hashed_file.kind),
@@ -899,23 +893,30 @@ fn dumpHashInfo(all_files: []const *const HashedFile) !void {
 }
 
 /// Caller owns returned memory.
-pub fn resolveGlobalCacheDir(allocator: Allocator) ![]u8 {
+pub fn resolveGlobalCacheDir(allocator: Allocator, environ_map: *const std.process.Environ.Map) ![]u8 {
     if (builtin.os.tag == .wasi)
         @compileError("on WASI the global cache dir must be resolved with preopens");
 
-    if (try std.zig.EnvVar.ZIG_GLOBAL_CACHE_DIR.get(allocator)) |value| return value;
+    if (std.zig.EnvVar.ZIG_GLOBAL_CACHE_DIR.get(environ_map)) |value| {
+        return allocator.dupe(u8, value);
+    }
 
     const appname = "zig";
 
-    if (builtin.os.tag != .windows) {
-        if (std.zig.EnvVar.XDG_CACHE_HOME.getPosix()) |cache_root| {
+    if (builtin.os.tag == .windows) {
+        if (std.zig.EnvVar.LOCALAPPDATA.get(environ_map)) |cache_root| {
             return fs.path.join(allocator, &[_][]const u8{ cache_root, appname });
-        } else if (std.zig.EnvVar.HOME.getPosix()) |home| {
-            return fs.path.join(allocator, &[_][]const u8{ home, ".cache", appname });
         }
+        return error.EnvironmentVariableMissing;
     }
 
-    return fs.getAppDataDir(allocator, appname);
+    if (std.zig.EnvVar.XDG_CACHE_HOME.get(environ_map)) |cache_root| {
+        return fs.path.join(allocator, &[_][]const u8{ cache_root, appname });
+    } else if (std.zig.EnvVar.HOME.get(environ_map)) |home| {
+        return fs.path.join(allocator, &[_][]const u8{ home, ".cache", appname });
+    }
+
+    return error.EnvironmentVariableMissing;
 }
 
 const MimeType = enum {
@@ -940,21 +941,21 @@ fn guessMimeType(url: []const u8) ?MimeType {
 
 /// Caller own returned memory
 fn makeTmpDir(allocator: Allocator) ![]const u8 {
-    const rand_int = std.crypto.random.int(u64);
+    const rand_int = randomU64();
     const tmp_dirname = try std.fmt.allocPrint(allocator, "{s}{s}zigfetch-{s}", .{
         cache_dirname,
         fs.path.sep_str,
         Manifest.hex64(rand_int),
     });
 
-    try fs.makeDirAbsolute(tmp_dirname);
+    try std.Io.Dir.createDirAbsolute(g_io, tmp_dirname, .default_dir);
     return tmp_dirname;
 }
 // Recursive directory copy.
-fn recursiveDirectoryCopy(allocator: Allocator, dir: fs.Dir, tmp_dir: fs.Dir) anyerror!void {
+fn recursiveDirectoryCopy(allocator: Allocator, dir: std.Io.Dir, tmp_dir: std.Io.Dir) anyerror!void {
     var it = try dir.walk(allocator);
     defer it.deinit();
-    while (try it.next()) |entry| {
+    while (try it.next(g_io)) |entry| {
         switch (entry.kind) {
             .directory => {}, // omit empty directories
             .file => {
@@ -962,24 +963,26 @@ fn recursiveDirectoryCopy(allocator: Allocator, dir: fs.Dir, tmp_dir: fs.Dir) an
                     entry.path,
                     tmp_dir,
                     entry.path,
+                    g_io,
                     .{},
                 ) catch |err| switch (err) {
                     error.FileNotFound => {
-                        if (fs.path.dirname(entry.path)) |dirname| try tmp_dir.makePath(dirname);
-                        try dir.copyFile(entry.path, tmp_dir, entry.path, .{});
+                        if (fs.path.dirname(entry.path)) |dirname| try tmp_dir.createDirPath(g_io, dirname);
+                        try dir.copyFile(entry.path, tmp_dir, entry.path, g_io, .{});
                     },
                     else => |e| return e,
                 };
             },
             .sym_link => {
                 var buf: [fs.MAX_PATH_BYTES]u8 = undefined;
-                const link_name = try dir.readLink(entry.path, &buf);
+                const link_len = try dir.readLink(g_io, entry.path, &buf);
+                const link_name = buf[0..link_len];
                 // TODO: if this would create a symlink to outside
                 // the destination directory, fail with an error instead.
-                tmp_dir.symLink(link_name, entry.path, .{}) catch |err| switch (err) {
+                tmp_dir.symLink(g_io, link_name, entry.path, .{}) catch |err| switch (err) {
                     error.FileNotFound => {
-                        if (fs.path.dirname(entry.path)) |dirname| try tmp_dir.makePath(dirname);
-                        try tmp_dir.symLink(link_name, entry.path, .{});
+                        if (fs.path.dirname(entry.path)) |dirname| try tmp_dir.createDirPath(g_io, dirname);
+                        try tmp_dir.symLink(g_io, link_name, entry.path, .{});
                     },
                     else => |e| return e,
                 };
@@ -991,10 +994,16 @@ fn recursiveDirectoryCopy(allocator: Allocator, dir: fs.Dir, tmp_dir: fs.Dir) an
 
 // Returns true if path exists
 fn checkFileExists(path: []const u8) !bool {
-    fs.cwd().access(path, .{}) catch |e| switch (e) {
+    std.Io.Dir.accessAbsolute(g_io, path, .{}) catch |e| switch (e) {
         error.FileNotFound => return false,
         else => return e,
     };
 
     return true;
+}
+
+fn randomU64() u64 {
+    var bytes: [8]u8 = undefined;
+    std.Io.randomSecure(g_io, &bytes) catch unreachable;
+    return std.mem.readInt(u64, &bytes, .little);
 }

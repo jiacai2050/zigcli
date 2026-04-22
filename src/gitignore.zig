@@ -4,7 +4,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const List = std.ArrayList;
-const fs = std.fs;
+const Io = std.Io;
 const testing = std.testing;
 
 const PatternError = error{
@@ -386,8 +386,8 @@ pub const GitignoreStack = struct {
     /// `rel_dir` (relative to the walk root; pass `""` for the root directory).
     /// Returns true if a layer was pushed, false if no `.gitignore` was found.
     /// The caller must call `pop()` for every true return when leaving the directory.
-    pub fn tryPushDir(self: *GitignoreStack, dir: fs.Dir, rel_dir: []const u8, allocator: Allocator) !bool {
-        const content = dir.readFileAlloc(allocator, ".gitignore", 1024 * 1024) catch |e| switch (e) {
+    pub fn tryPushDir(self: *GitignoreStack, io: Io, dir: Io.Dir, rel_dir: []const u8, allocator: Allocator) !bool {
+        const content = dir.readFileAlloc(io, ".gitignore", allocator, .limited(1024 * 1024)) catch |e| switch (e) {
             error.FileNotFound => return false,
             else => return e,
         };

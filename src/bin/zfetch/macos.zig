@@ -4,6 +4,8 @@ const std = @import("std");
 const common = @import("common.zig");
 const mem = std.mem;
 const fmt = std.fmt;
+const Io = std.Io;
+const Environ = std.process.Environ;
 
 const c = @cImport({
     @cInclude("sys/time.h");
@@ -12,16 +14,32 @@ const c = @cImport({
     @cInclude("mach/mach_host.h");
     @cInclude("mach/mach_init.h");
     @cInclude("mach/vm_statistics.h");
-    @cInclude("CoreGraphics/CoreGraphics.h");
-    @cInclude("CoreFoundation/CoreFoundation.h");
+    // CoreGraphics headers use Objective-C block typedefs that arocc can't
+    // translate. Manual externs for the 6 CG symbols we use are declared below.
     @cInclude("IOKit/ps/IOPowerSources.h");
     @cInclude("IOKit/ps/IOPSKeys.h");
 });
 
+// Minimal CoreGraphics bindings — declared manually because @cImport of
+// <CoreGraphics/CoreGraphics.h> fails under arocc.
+const CGDirectDisplayID = u32;
+const CGDisplayModeRef = ?*anyopaque;
+const CGError = i32;
+extern "c" fn CGGetActiveDisplayList(
+    maxDisplays: u32,
+    activeDisplays: [*]CGDirectDisplayID,
+    displayCount: *u32,
+) CGError;
+extern "c" fn CGDisplayCopyDisplayMode(display: CGDirectDisplayID) CGDisplayModeRef;
+extern "c" fn CGDisplayModeRelease(mode: CGDisplayModeRef) void;
+extern "c" fn CGDisplayModeGetWidth(mode: CGDisplayModeRef) usize;
+extern "c" fn CGDisplayModeGetHeight(mode: CGDisplayModeRef) usize;
+extern "c" fn CGDisplayModeGetRefreshRate(mode: CGDisplayModeRef) f64;
+
 pub const getHostname = common.getHostname;
 pub const getKernel = common.getKernel;
 
-pub fn getOs(allocator: mem.Allocator) ![]const u8 {
+pub fn getOs(_: Io, allocator: mem.Allocator) ![]const u8 {
     var version_buf: [64]u8 = undefined;
     var version_size: usize = version_buf.len;
     if (c.sysctlbyname(
@@ -33,7 +51,7 @@ pub fn getOs(allocator: mem.Allocator) ![]const u8 {
     ) != 0) {
         return "macOS";
     }
-    const version = mem.trimRight(
+    const version = mem.trimEnd(
         u8,
         version_buf[0..version_size],
         &[_]u8{0},
@@ -41,7 +59,7 @@ pub fn getOs(allocator: mem.Allocator) ![]const u8 {
     return fmt.allocPrint(allocator, "macOS {s}", .{version});
 }
 
-pub fn getCpu(allocator: mem.Allocator) ![]const u8 {
+pub fn getCpu(_: Io, allocator: mem.Allocator) ![]const u8 {
     var cpu_buf: [256]u8 = undefined;
     var cpu_size: usize = cpu_buf.len;
     if (c.sysctlbyname(
@@ -53,7 +71,7 @@ pub fn getCpu(allocator: mem.Allocator) ![]const u8 {
     ) != 0) {
         return "Unknown";
     }
-    const brand = mem.trimRight(
+    const brand = mem.trimEnd(
         u8,
         cpu_buf[0..cpu_size],
         &[_]u8{0},
@@ -110,7 +128,7 @@ pub fn getCpu(allocator: mem.Allocator) ![]const u8 {
     return allocator.dupe(u8, brand);
 }
 
-pub fn getHost(allocator: mem.Allocator) ![]const u8 {
+pub fn getHost(_: Io, allocator: mem.Allocator) ![]const u8 {
     var model_buf: [128]u8 = undefined;
     var model_size: usize = model_buf.len;
     if (c.sysctlbyname(
@@ -122,7 +140,7 @@ pub fn getHost(allocator: mem.Allocator) ![]const u8 {
     ) != 0) {
         return "Mac";
     }
-    const model = mem.trimRight(
+    const model = mem.trimEnd(
         u8,
         model_buf[0..model_size],
         &[_]u8{0},
@@ -134,10 +152,10 @@ pub fn getDiskMounts() []const [:0]const u8 {
     return &[_][:0]const u8{"/"};
 }
 
-pub fn getResolution(allocator: mem.Allocator) ![]const u8 {
-    var display_ids: [8]c.CGDirectDisplayID = undefined;
+pub fn getResolution(_: Io, allocator: mem.Allocator) ![]const u8 {
+    var display_ids: [8]CGDirectDisplayID = undefined;
     var display_count: u32 = 0;
-    if (c.CGGetActiveDisplayList(
+    if (CGGetActiveDisplayList(
         display_ids.len,
         &display_ids,
         &display_count,
@@ -147,13 +165,13 @@ pub fn getResolution(allocator: mem.Allocator) ![]const u8 {
 
     var parts: std.ArrayList(u8) = .empty;
     for (display_ids[0..display_count]) |did| {
-        const mode = c.CGDisplayCopyDisplayMode(did);
+        const mode = CGDisplayCopyDisplayMode(did);
         if (mode == null) continue;
-        defer c.CGDisplayModeRelease(mode);
+        defer CGDisplayModeRelease(mode);
 
-        const w: u32 = @intCast(c.CGDisplayModeGetWidth(mode));
-        const h: u32 = @intCast(c.CGDisplayModeGetHeight(mode));
-        const hz = c.CGDisplayModeGetRefreshRate(mode);
+        const w: u32 = @intCast(CGDisplayModeGetWidth(mode));
+        const h: u32 = @intCast(CGDisplayModeGetHeight(mode));
+        const hz = CGDisplayModeGetRefreshRate(mode);
 
         if (parts.items.len > 0) {
             try parts.appendSlice(allocator, ", ");
@@ -177,7 +195,7 @@ pub fn getResolution(allocator: mem.Allocator) ![]const u8 {
     return if (parts.items.len > 0) parts.items else "Unknown";
 }
 
-pub fn getBattery(allocator: mem.Allocator) ![]const u8 {
+pub fn getBattery(_: Io, allocator: mem.Allocator) ![]const u8 {
     const info = c.IOPSCopyPowerSourcesInfo();
     defer _ = c.CFRelease(info);
     const list = c.IOPSCopyPowerSourcesList(info);
@@ -197,9 +215,9 @@ pub fn getBattery(allocator: mem.Allocator) ![]const u8 {
     );
     defer _ = c.CFRelease(key_cap);
     const val_cap = c.CFDictionaryGetValue(desc, key_cap);
-    if (val_cap != null) {
+    if (val_cap) |v| {
         _ = c.CFNumberGetValue(
-            @ptrCast(val_cap),
+            @ptrCast(@alignCast(v)),
             c.kCFNumberSInt32Type,
             &capacity,
         );
@@ -213,9 +231,9 @@ pub fn getBattery(allocator: mem.Allocator) ![]const u8 {
     );
     defer _ = c.CFRelease(key_chg);
     const val_chg = c.CFDictionaryGetValue(desc, key_chg);
-    if (val_chg != null) {
+    if (val_chg) |v| {
         is_charging = c.CFBooleanGetValue(
-            @ptrCast(val_chg),
+            @ptrCast(@alignCast(v)),
         ) != 0;
     }
 
@@ -225,7 +243,7 @@ pub fn getBattery(allocator: mem.Allocator) ![]const u8 {
     });
 }
 
-pub fn getTheme() []const u8 {
+pub fn getTheme(_: Io, _: *const Environ.Map) []const u8 {
     const key = c.CFStringCreateWithCString(
         null,
         "AppleInterfaceStyle",
@@ -244,6 +262,7 @@ pub fn getTheme() []const u8 {
 }
 
 pub fn getMemory(
+    _: Io,
     allocator: mem.Allocator,
     bytes_per_page: u64,
 ) ![]const u8 {
@@ -312,7 +331,7 @@ pub fn getMemory(
     );
 }
 
-pub fn getUptime(allocator: mem.Allocator) ![]const u8 {
+pub fn getUptime(io: Io, allocator: mem.Allocator) ![]const u8 {
     var boot_time: c.struct_timeval = undefined;
     var boot_time_size: usize = @sizeOf(c.struct_timeval);
     if (c.sysctlbyname(
@@ -324,33 +343,26 @@ pub fn getUptime(allocator: mem.Allocator) ![]const u8 {
     ) != 0) {
         return "Unknown";
     }
-    const now_s: i64 = std.time.timestamp();
+    const now_s: i64 = Io.Clock.now(.real, io).toSeconds();
     const boot_s: i64 = @intCast(boot_time.tv_sec);
     if (now_s < boot_s) return "Unknown";
     const uptime_s: u64 = @intCast(now_s - boot_s);
     return common.formatUptime(allocator, uptime_s);
 }
 
-pub fn getPackages(allocator: mem.Allocator) ![]const u8 {
+pub fn getPackages(io: Io, allocator: mem.Allocator) ![]const u8 {
     const brew_paths = [_][]const u8{
         "/opt/homebrew/Cellar",
         "/usr/local/Cellar",
     };
     for (brew_paths) |brew_path| {
-        var dir = std.fs.openDirAbsolute(
-            brew_path,
-            .{ .iterate = true },
-        ) catch continue;
-        defer dir.close();
+        var dir = std.Io.Dir.cwd().openDir(io, brew_path, .{ .iterate = true }) catch continue;
+        defer dir.close(io);
+        var it = dir.iterate();
         var count: u32 = 0;
-        var iter = dir.iterate();
-        while (try iter.next()) |_| count += 1;
+        while (try it.next(io)) |_| count += 1;
         if (count > 0) {
-            return fmt.allocPrint(
-                allocator,
-                "{d} (brew)",
-                .{count},
-            );
+            return fmt.allocPrint(allocator, "{d} (brew)", .{count});
         }
         break; // Only use the first found path.
     }

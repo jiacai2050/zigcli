@@ -11,8 +11,7 @@ const structargs = zigcli.structargs;
 const util = @import("util.zig");
 const gitignore = zigcli.gitignore;
 const StringUtil = util.StringUtil;
-const process = std.process;
-const fs = std.fs;
+const Io = std.Io;
 const mem = std.mem;
 const testing = std.testing;
 const fmt = std.fmt;
@@ -75,13 +74,21 @@ pub const WalkOptions = struct {
     };
 };
 
-pub fn main() anyerror!void {
+const OwnedEntry = struct {
+    name: []const u8,
+    kind: Io.File.Kind,
+};
+
+pub fn main(init: std.process.Init) anyerror!void {
     var gpa = util.Allocator.instance;
     defer gpa.deinit();
     const allocator = gpa.allocator();
+    const io = init.io;
 
     const opt = try structargs.parse(
         allocator,
+        io,
+        init.minimal.args,
         WalkOptions,
         .{
             .argument_prompt = "[directory]",
@@ -95,24 +102,23 @@ pub fn main() anyerror!void {
     else
         opt.positional_arguments[0];
 
-    const stdout = std.fs.File.stdout();
+    const stdout = Io.File.stdout();
     var buf: [1024]u8 = undefined;
-    var writer = stdout.writer(&buf);
+    var writer = stdout.writer(io, &buf);
 
     try writer.interface.writeAll(root_dir);
     try writer.interface.writeAll("\n");
 
-    var dir = try fs.cwd().openDir(root_dir, .{ .iterate = true });
-    defer dir.close();
+    var dir = try Io.Dir.cwd().openDir(io, root_dir, .{ .iterate = true });
+    defer dir.close(io);
 
     var gi_stack = gitignore.GitignoreStack.init();
     defer gi_stack.deinit(allocator);
     if (!opt.options.@"no-gitignore") {
-        _ = try gi_stack.tryPushDir(dir, "", allocator);
+        _ = try gi_stack.tryPushDir(io, dir, "", allocator);
     }
 
-    var iter = dir.iterate();
-    const ret = try walk(allocator, opt.options, &gi_stack, &iter, &writer.interface, "", "", 1);
+    const ret = try walk(io, allocator, opt.options, &gi_stack, dir, &writer.interface, "", "", 1);
 
     var summary_buf: [64]u8 = undefined;
     const summary = try std.fmt.bufPrint(&summary_buf, "\n{d} directories, {d} files\n", .{
@@ -158,12 +164,13 @@ const WalkResult = struct {
 };
 
 fn walk(
+    io: Io,
     /// Long-lived allocator for GitignoreStack patterns and data that outlives this call.
     allocator: mem.Allocator,
     walk_ctx: WalkOptions,
     gi_stack: *gitignore.GitignoreStack,
-    iter: *fs.Dir.Iterator,
-    writer: *std.Io.Writer,
+    dir: Io.Dir,
+    writer: *Io.Writer,
     prefix: []const u8,
     /// Path of current directory relative to walk root, e.g. "" or "src/bin"
     rel_dir: []const u8,
@@ -182,9 +189,10 @@ fn walk(
         }
     }
 
-    var files: std.ArrayList(fs.Dir.Entry) = .empty;
+    var files: std.ArrayList(OwnedEntry) = .empty;
 
-    while (try iter.next()) |entry| {
+    var iter = dir.iterate();
+    while (try iter.next(io)) |entry| {
         if (walk_ctx.directory) {
             if (entry.kind != .directory) {
                 continue;
@@ -208,8 +216,8 @@ fn walk(
         try files.append(local, .{ .name = dupe_name, .kind = entry.kind });
     }
 
-    std.sort.heap(fs.Dir.Entry, files.items, {}, struct {
-        fn lessThan(ctx: void, a: fs.Dir.Entry, b: fs.Dir.Entry) bool {
+    std.sort.heap(OwnedEntry, files.items, {}, struct {
+        fn lessThan(ctx: void, a: OwnedEntry, b: OwnedEntry) bool {
             _ = ctx;
 
             // file < directory
@@ -226,7 +234,7 @@ fn walk(
         }
     }.lessThan);
 
-    var buf: [fs.max_path_bytes]u8 = undefined;
+    var buf: [Io.Dir.max_path_bytes]u8 = undefined;
     for (files.items, 0..) |entry, i| {
         try writer.writeAll(prefix);
 
@@ -238,7 +246,7 @@ fn walk(
         try writer.writeAll(entry.name);
 
         if (walk_ctx.size) {
-            const stat = try iter.dir.statFile(entry.name);
+            const stat = try dir.statFile(io, entry.name, .{});
             try writer.writeAll(" [");
             try writer.writeAll(try StringUtil.humanSize(local, stat.size));
             try writer.writeAll("]");
@@ -247,9 +255,8 @@ fn walk(
             .directory => {
                 try writer.writeAll("\n");
                 ret.directories += 1;
-                var sub_dir = try iter.dir.openDir(entry.name, .{ .iterate = true });
-                defer sub_dir.close();
-                var sub_iter_dir = sub_dir.iterate();
+                var sub_dir = try dir.openDir(io, entry.name, .{ .iterate = true });
+                defer sub_dir.close(io);
 
                 const new_prefix =
                     if (i < files.items.len - 1)
@@ -264,16 +271,17 @@ fn walk(
 
                 // Push gitignore layer using the long-lived allocator (patterns outlive this call)
                 const layer_pushed = if (!walk_ctx.@"no-gitignore")
-                    try gi_stack.tryPushDir(sub_dir, new_rel_dir, allocator)
+                    try gi_stack.tryPushDir(io, sub_dir, new_rel_dir, allocator)
                 else
                     false;
                 defer if (layer_pushed) gi_stack.pop(allocator);
 
-                ret.add(try walk(allocator, walk_ctx, gi_stack, &sub_iter_dir, writer, new_prefix, new_rel_dir, level + 1));
+                ret.add(try walk(io, allocator, walk_ctx, gi_stack, sub_dir, writer, new_prefix, new_rel_dir, level + 1));
             },
             .sym_link => {
                 ret.files += 1;
-                const linked_name = try iter.dir.readLink(entry.name, &buf);
+                const n = try dir.readLink(io, entry.name, &buf);
+                const linked_name = buf[0..n];
                 try writer.writeAll(" -> ");
                 try writer.writeAll(linked_name);
                 try writer.writeAll("\n");

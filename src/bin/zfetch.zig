@@ -20,12 +20,14 @@ const platform = switch (builtin.os.tag) {
 
 const Format = enum { text, json };
 
-pub fn main() !void {
+pub fn main(init: std.process.Init) !void {
     var gpa = util.Allocator.instance;
     defer gpa.deinit();
     const allocator = gpa.allocator();
+    const io = init.io;
+    const env = init.environ_map;
 
-    const opt = try structargs.parse(allocator, struct {
+    const opt = try structargs.parse(allocator, io, init.minimal.args, struct {
         help: bool = false,
         version: bool = false,
         all: bool = false,
@@ -53,12 +55,14 @@ pub fn main() !void {
     defer arena.deinit();
     const arena_alloc = arena.allocator();
 
-    const stdout = std.fs.File.stdout();
+    const stdout = std.Io.File.stdout();
     const is_tty = term.isTty(stdout);
     var output_buf: [8192]u8 = undefined;
-    var writer = stdout.writer(&output_buf);
+    var writer = stdout.writer(io, &output_buf);
 
     try printInfo(
+        io,
+        env,
         arena_alloc,
         &writer.interface,
         opt.options.all,
@@ -91,16 +95,18 @@ const SysInfo = struct {
 
 /// Collects all system information via platform-specific backends.
 fn collectInfo(
+    io: std.Io,
+    env: *const std.process.Environ.Map,
     allocator: mem.Allocator,
     show_all: bool,
 ) !SysInfo {
     const hostname = try platform.getHostname(allocator);
     const kernel = try platform.getKernel(allocator);
 
-    const username = std.posix.getenv("USER") orelse
-        std.posix.getenv("USERNAME") orelse "unknown";
+    const username = env.get("USER") orelse
+        env.get("USERNAME") orelse "unknown";
 
-    const shell_path = std.posix.getenv("SHELL") orelse "unknown";
+    const shell_path = env.get("SHELL") orelse "unknown";
     const last_slash = mem.lastIndexOfScalar(u8, shell_path, '/');
     const shell = if (last_slash) |idx|
         shell_path[idx + 1 ..]
@@ -112,22 +118,22 @@ fn collectInfo(
     return .{
         .username = username,
         .hostname = hostname,
-        .os = try platform.getOs(allocator),
+        .os = try platform.getOs(io, allocator),
         .arch = @tagName(builtin.cpu.arch),
-        .host = try platform.getHost(allocator),
+        .host = try platform.getHost(io, allocator),
         .kernel = kernel,
-        .uptime = try platform.getUptime(allocator),
+        .uptime = try platform.getUptime(io, allocator),
         .shell = if (show_all)
-            try common.getShellVersion(allocator, shell)
+            try common.getShellVersion(io, allocator, shell)
         else
             shell,
-        .terminal = common.getTerminal(),
-        .resolution = try platform.getResolution(allocator),
-        .theme = platform.getTheme(),
-        .cpu = try platform.getCpu(allocator),
-        .memory = try platform.getMemory(allocator, bytes_per_page),
+        .terminal = common.getTerminal(env),
+        .resolution = try platform.getResolution(io, allocator),
+        .theme = platform.getTheme(io, env),
+        .cpu = try platform.getCpu(io, allocator),
+        .memory = try platform.getMemory(io, allocator, bytes_per_page),
         .disk = try common.getDiskMounts(allocator, platform.getDiskMounts()),
-        .battery = try platform.getBattery(allocator),
+        .battery = try platform.getBattery(io, allocator),
         .page = try fmt.allocPrint(
             allocator,
             "{d} KiB",
@@ -135,7 +141,7 @@ fn collectInfo(
         ),
         .local_ip = try common.getLocalIp(allocator),
         .packages = if (show_all)
-            try platform.getPackages(allocator)
+            try platform.getPackages(io, allocator)
         else
             null,
     };
@@ -286,13 +292,15 @@ fn logoVisualWidth(line: []const u8) usize {
 
 /// Prints all system information to the writer.
 fn printInfo(
+    io: std.Io,
+    env: *const std.process.Environ.Map,
     allocator: mem.Allocator,
     writer: *std.Io.Writer,
     show_all: bool,
     json: bool,
     color: bool,
 ) !void {
-    const info = try collectInfo(allocator, show_all);
+    const info = try collectInfo(io, env, allocator, show_all);
 
     if (json) {
         try writer.print("{f}\n", .{std.json.fmt(info, .{})});
