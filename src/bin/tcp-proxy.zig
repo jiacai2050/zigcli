@@ -120,8 +120,8 @@ const Proxy = struct {
     fn run(self: Proxy, io: std.Io) void {
         var group: std.Io.Group = .init;
         if (is_linux) {
-            group.async(io, copyStreamSplice, .{ self.source.handle, self.remote.handle });
-            group.async(io, copyStreamSplice, .{ self.remote.handle, self.source.handle });
+            group.async(io, copyStreamSplice, .{ self.source.socket.handle, self.remote.socket.handle });
+            group.async(io, copyStreamSplice, .{ self.remote.socket.handle, self.source.socket.handle });
         } else {
             const half = self.buf.len / 2;
             group.async(io, copyStream, .{ io, self.source, self.remote, self.buf[0..half] });
@@ -138,8 +138,8 @@ const Proxy = struct {
         const pipe_rc = std.os.linux.pipe2(&pipe_fds, .{ .CLOEXEC = true });
         if (pipe_rc != 0) return;
         defer {
-            std.posix.close(pipe_fds[0]);
-            std.posix.close(pipe_fds[1]);
+            _ = std.os.linux.close(pipe_fds[0]);
+            _ = std.os.linux.close(pipe_fds[1]);
         }
         while (true) {
             const n = spliceFd(src, pipe_fds[1], std.math.maxInt(u31), SPLICE_F_MOVE | SPLICE_F_NONBLOCK);
@@ -159,6 +159,5 @@ const Proxy = struct {
         self.source.close(io);
         self.remote.close(io);
         if (!is_linux) self.allocator.free(self.buf);
-
     }
 };
