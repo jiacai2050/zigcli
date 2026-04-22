@@ -151,11 +151,13 @@ const Proxy = struct {
     }
 
     // Linux zero-copy path: dedicated pipe pair per direction + splice(2).
+    // src→pipe is non-blocking; pipe→dst is blocking (mirrors main branch behavior).
     fn copyStreamSplice(fds: [2]std.posix.fd_t, src: std.posix.fd_t, dst: std.posix.fd_t) void {
         while (true) {
             const rc = spliceFd(src, fds[1], std.math.maxInt(u31), SPLICE_F_MOVE | SPLICE_F_NONBLOCK);
-            if (rc <= 0) {
-                if (rc < 0) std.log.err("Read stream into pipe failed, err:{d}", .{-rc});
+            if (rc == 0) return; // EOF
+            if (rc < 0) {
+                std.log.err("Read stream into pipe failed, err:{d}", .{-rc});
                 return;
             }
             const rc2 = spliceFd(fds[0], dst, @intCast(rc), SPLICE_F_MOVE);
