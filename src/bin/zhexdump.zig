@@ -128,21 +128,15 @@ pub fn main(init: std.process.Init) anyerror!void {
 
     // Apply --skip by consuming and discarding bytes.
     if (options.skip) |skip| {
-        var skip_buf: [128]u8 = undefined;
-        var skipped: usize = 0;
-        while (skipped < skip) {
-            const to_skip = @min(skip - skipped, skip_buf.len);
-            const n = try reader.interface.readSliceShort(skip_buf[0..to_skip]);
-            if (n == 0) break;
-            skipped += n;
-        }
+        _ = try reader.interface.discardShort(skip);
     }
 
     // Determine max bytes to read.
     const max_bytes: ?usize = options.length;
 
     var stdout = std.Io.File.stdout();
-    var writer = stdout.writer(init.io, &.{});
+    var writer_buf: [4096]u8 = undefined;
+    var writer = stdout.writer(init.io, &writer_buf);
 
     var row_buf: [16]u8 = undefined;
     var offset: u64 = options.skip orelse 0;
@@ -158,6 +152,7 @@ pub fn main(init: std.process.Init) anyerror!void {
         offset += n;
         total_read += n;
     }
+    try writer.interface.flush();
 }
 
 const testing = std.testing;
