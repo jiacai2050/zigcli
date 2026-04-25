@@ -85,8 +85,9 @@ fn printColorTable(writer: *std.Io.Writer, use_color: bool) !void {
     for (entries) |e| {
         if (use_color) try writer.writeAll(e.color.toEscapeCode());
         try writer.writeAll(e.symbol);
+        try writer.print(" {s}", .{e.label});
         if (use_color) try writer.writeAll(color_reset);
-        try writer.print(" {s}\n", .{e.label});
+        try writer.writeAll("\n");
     }
 }
 
