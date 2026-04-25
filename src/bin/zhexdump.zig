@@ -53,10 +53,9 @@ fn printRow(
     // Offset column.
     try writer.print("{x:0>8}  ", .{offset});
 
-    // Hex bytes: 4 groups of 4, double-space between the two halves.
+    // Hex bytes: 4 groups of 4, double-space between each group.
     for (0..16) |i| {
-        if (i == 8) try writer.writeAll(" "); // extra space between halves
-        if (i > 0 and i % 4 == 0 and i != 8) try writer.writeAll(" "); // space between groups within a half
+        if (i > 0 and i % 4 == 0) try writer.writeAll(" "); // extra space between groups
         if (i < bytes.len) {
             const b = bytes[i];
             if (use_color) {
@@ -160,13 +159,15 @@ test "printRow no color simple" {
     const bytes = "Hello, World!\n\x00\xff";
     try printRow(&aw.writer, 0, bytes, false);
     const out = aw.written();
-    // offset
+    // exact full output check
+    try testing.expectEqualStrings(
+        "00000000  48 65 6c 6c  6f 2c 20 57  6f 72 6c 64  21 0a 00 ff  |Hello, World!...|\n",
+        out,
+    );
+    // meaningful substring checks
     try testing.expect(std.mem.startsWith(u8, out, "00000000  "));
-    // hex bytes present
     try testing.expect(std.mem.indexOf(u8, out, "48 65 6c 6c") != null);
-    // ASCII panel
     try testing.expect(std.mem.indexOf(u8, out, "|Hello, World!") != null);
-    // non-printable shown as dot
     try testing.expect(std.mem.indexOf(u8, out, "..") != null);
 }
 
@@ -176,9 +177,27 @@ test "printRow no color short last row" {
     const bytes = "Hi";
     try printRow(&aw.writer, 0x10, bytes, false);
     const out = aw.written();
+    // exact full output check
+    try testing.expectEqualStrings(
+        "00000010  48 69                                               |Hi              |\n",
+        out,
+    );
+    // meaningful substring checks
     try testing.expect(std.mem.startsWith(u8, out, "00000010  "));
-    // ASCII panel is always 16 chars wide (padded with spaces for short rows)
     try testing.expect(std.mem.indexOf(u8, out, "|Hi") != null);
-    // output ends with "|\n"
     try testing.expect(std.mem.endsWith(u8, out, "|\n"));
+}
+
+test "printRow color wraps bytes with escape codes" {
+    var aw: std.Io.Writer.Allocating = .init(testing.allocator);
+    defer aw.deinit();
+    const bytes = "\x00A"; // null byte (bright_black) + 'A' (green)
+    try printRow(&aw.writer, 0, bytes, true);
+    const out = aw.written();
+    // Both escape code prefix and reset must appear
+    try testing.expect(std.mem.indexOf(u8, out, "\x1b[") != null); // some escape code present
+    try testing.expect(std.mem.indexOf(u8, out, "\x1b[0m") != null); // reset present
+    // Hex values still present within the escape sequences
+    try testing.expect(std.mem.indexOf(u8, out, "00") != null);
+    try testing.expect(std.mem.indexOf(u8, out, "41") != null);
 }
