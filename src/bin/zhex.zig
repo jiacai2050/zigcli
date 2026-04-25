@@ -40,24 +40,35 @@ const Options = struct {
 // hexyl uses \x1b[39m (default foreground reset) not \x1b[0m (full reset).
 const color_reset = "\x1b[39m";
 
+// Maps a byte to its display color, matching hexyl's default ANSI color scheme:
+//   bright_black — null byte, visually suppressed
+//   green        — ASCII control chars and whitespace (0x01-0x20, 0x7F)
+//   cyan         — printable ASCII (0x21-0x7E)
+//   yellow       — non-ASCII bytes (0x80-0xFF, high bit set)
 fn byteColor(byte: u8) term.Style.Color {
     return switch (byte) {
         0x00 => .bright_black,
-        0x01...0x20, 0x7F => .green, // control chars, whitespace
+        0x01...0x20, 0x7F => .green,
         0x21...0x7E => .cyan,
         0x80...0xFF => .yellow,
     };
 }
 
-// Maps a byte to its hexyl-style character panel representation (Default table).
-// Returns null for printable ASCII (0x21-0x7E): caller should write the byte directly.
+// Maps a byte to its character panel symbol, following hexyl's Default character table.
+// Returns null for printable ASCII (0x21-0x7E): caller writes the byte directly to
+// avoid returning a slice pointing to a local variable (dangling reference).
+//   ⋄  (U+22C4) — null byte
+//   ' '          — space, rendered as-is to keep the panel visually aligned
+//   _            — ASCII whitespace: tab/LF/FF/CR (0x09, 0x0A, 0x0C, 0x0D)
+//   •  (U+2022) — other ASCII control characters
+//   ×  (U+00D7) — non-ASCII bytes
 fn byteChar(byte: u8) ?[]const u8 {
     return switch (byte) {
         0x00 => "⋄",
         0x20 => " ",
-        0x09, 0x0A, 0x0C, 0x0D => "_", // Rust is_ascii_whitespace: tab, LF, FF, CR
+        0x09, 0x0A, 0x0C, 0x0D => "_",
         0x01...0x08, 0x0B, 0x0E...0x1F, 0x7F => "•",
-        0x21...0x7E => null, // printable ASCII: write the byte itself
+        0x21...0x7E => null,
         0x80...0xFF => "×",
     };
 }
