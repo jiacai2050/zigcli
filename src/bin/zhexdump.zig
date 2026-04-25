@@ -1,6 +1,7 @@
 //! zhexdump: color-coded hex dump of files or stdin, matching hexyl's output format.
 
 const std = @import("std");
+const assert = std.debug.assert;
 const zigcli = @import("zigcli");
 const structargs = zigcli.structargs;
 const term = zigcli.term;
@@ -38,8 +39,7 @@ const color_reset = "\x1b[39m";
 fn byteColor(byte: u8) term.Style.Color {
     return switch (byte) {
         0x00 => .bright_black,
-        0x09, 0x0A, 0x0D, 0x20 => .green,
-        0x01...0x08, 0x0B, 0x0C, 0x0E...0x1F, 0x7F => .green,
+        0x01...0x20, 0x7F => .green, // control chars, whitespace
         0x21...0x7E => .cyan,
         0x80...0xFF => .yellow,
     };
@@ -68,6 +68,14 @@ fn printFooter(writer: *std.Io.Writer) !void {
     try writer.writeAll("└────────┴─────────────────────────┴─────────────────────────┴────────┴────────┘\n");
 }
 
+// Returns true if the color for byte at index i differs from the previous byte in the panel.
+// Always true at panel boundaries (i == 0, i == 8) so the first byte always sets its color.
+fn colorChangedAt(bytes: []const u8, i: usize) bool {
+    assert(i < bytes.len);
+    if (i == 0 or i == 8) return true;
+    return byteColor(bytes[i]) != byteColor(bytes[i - 1]);
+}
+
 // │00000000│ xx xx xx xx xx xx xx xx ┊ xx xx xx xx xx xx xx xx │charchar┊charchar│
 fn printRow(
     writer: *std.Io.Writer,
@@ -75,6 +83,8 @@ fn printRow(
     bytes: []const u8,
     use_color: bool,
 ) !void {
+    assert(bytes.len > 0);
+    assert(bytes.len <= 16);
     // Left border + offset.
     try writer.writeAll("│");
     if (use_color) try writer.writeAll(term.Style.Color.bright_black.toEscapeCode());
@@ -93,19 +103,9 @@ fn printRow(
         try writer.writeAll(" ");
         if (i < bytes.len) {
             const b = bytes[i];
-            if (use_color) {
-                const color = byteColor(b);
-                // Only emit color code if different from previous byte's color.
-                const prev_color = if (i == 0 or i == 8)
-                    null
-                else
-                    byteColor(bytes[i - 1]);
-                if (prev_color == null or color != prev_color.?)
-                    try writer.writeAll(color.toEscapeCode());
-                try writer.print("{x:0>2}", .{b});
-            } else {
-                try writer.print("{x:0>2}", .{b});
-            }
+            if (use_color and colorChangedAt(bytes, i))
+                try writer.writeAll(byteColor(b).toEscapeCode());
+            try writer.print("{x:0>2}", .{b});
         } else {
             try writer.writeAll("  ");
         }
@@ -126,15 +126,8 @@ fn printRow(
         }
         if (i < bytes.len) {
             const b = bytes[i];
-            if (use_color) {
-                const color = byteColor(b);
-                const prev_color = if (i == 0 or i == 8)
-                    null
-                else
-                    byteColor(bytes[i - 1]);
-                if (prev_color == null or color != prev_color.?)
-                    try writer.writeAll(color.toEscapeCode());
-            }
+            if (use_color and colorChangedAt(bytes, i))
+                try writer.writeAll(byteColor(b).toEscapeCode());
             if (byteChar(b)) |ch| {
                 try writer.writeAll(ch);
             } else {
