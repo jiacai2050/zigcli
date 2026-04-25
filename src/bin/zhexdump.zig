@@ -44,6 +44,56 @@ fn byteColor(byte: u8) term.Style.Color {
     };
 }
 
+fn printRow(
+    writer: *std.Io.Writer,
+    offset: u64,
+    bytes: []const u8,
+    use_color: bool,
+) !void {
+    // Offset column.
+    try writer.print("{x:0>8}  ", .{offset});
+
+    // Hex bytes: 4 groups of 4, double-space between the two halves.
+    for (0..16) |i| {
+        if (i == 8) try writer.writeAll(" "); // extra space between halves
+        if (i > 0 and i % 4 == 0 and i != 8) try writer.writeAll(" "); // space between groups within a half
+        if (i < bytes.len) {
+            const b = bytes[i];
+            if (use_color) {
+                const color = byteColor(b);
+                try writer.writeAll(color.toEscapeCode());
+                try writer.print("{x:0>2}", .{b});
+                try writer.writeAll(term.Style.Color.reset);
+            } else {
+                try writer.print("{x:0>2}", .{b});
+            }
+        } else {
+            try writer.writeAll("  "); // padding for short last row
+        }
+        if (i < 15) try writer.writeAll(" ");
+    }
+
+    // ASCII panel.
+    try writer.writeAll("  |");
+    for (0..16) |i| {
+        if (i < bytes.len) {
+            const b = bytes[i];
+            const ch: u8 = if (b >= 0x20 and b <= 0x7E) b else '.';
+            if (use_color) {
+                const color = byteColor(b);
+                try writer.writeAll(color.toEscapeCode());
+                try writer.writeByte(ch);
+                try writer.writeAll(term.Style.Color.reset);
+            } else {
+                try writer.writeByte(ch);
+            }
+        } else {
+            try writer.writeAll(" ");
+        }
+    }
+    try writer.writeAll("|\n");
+}
+
 pub fn main(init: std.process.Init) anyerror!void {
     var gpa = util.Allocator.instance;
     defer gpa.deinit();
@@ -102,4 +152,33 @@ test "byteColor high bytes" {
     try testing.expectEqual(term.Style.Color.bright_blue, byteColor(0xEF));
     try testing.expectEqual(term.Style.Color.magenta, byteColor(0xF0));
     try testing.expectEqual(term.Style.Color.magenta, byteColor(0xFE));
+}
+
+test "printRow no color simple" {
+    var aw: std.Io.Writer.Allocating = .init(testing.allocator);
+    defer aw.deinit();
+    const bytes = "Hello, World!\n\x00\xff";
+    try printRow(&aw.writer, 0, bytes, false);
+    const out = aw.written();
+    // offset
+    try testing.expect(std.mem.startsWith(u8, out, "00000000  "));
+    // hex bytes present
+    try testing.expect(std.mem.indexOf(u8, out, "48 65 6c 6c") != null);
+    // ASCII panel
+    try testing.expect(std.mem.indexOf(u8, out, "|Hello, World!") != null);
+    // non-printable shown as dot
+    try testing.expect(std.mem.indexOf(u8, out, "..") != null);
+}
+
+test "printRow no color short last row" {
+    var aw: std.Io.Writer.Allocating = .init(testing.allocator);
+    defer aw.deinit();
+    const bytes = "Hi";
+    try printRow(&aw.writer, 0x10, bytes, false);
+    const out = aw.written();
+    try testing.expect(std.mem.startsWith(u8, out, "00000010  "));
+    // ASCII panel is always 16 chars wide (padded with spaces for short rows)
+    try testing.expect(std.mem.indexOf(u8, out, "|Hi") != null);
+    // output ends with "|\n"
+    try testing.expect(std.mem.endsWith(u8, out, "|\n"));
 }
