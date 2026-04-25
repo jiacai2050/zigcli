@@ -10,6 +10,7 @@ const Options = struct {
     length: ?usize = null,
     skip: ?usize = null,
     @"no-color": bool = false,
+    color: bool = false,
     help: bool = false,
     version: bool = false,
 
@@ -25,10 +26,14 @@ const Options = struct {
         .length = "Only read N bytes.",
         .skip = "Skip N bytes from the start.",
         .@"no-color" = "Disable color output.",
+        .color = "Force color output even when not a TTY.",
         .help = "Print help information.",
         .version = "Print version.",
     };
 };
+
+// hexyl uses \x1b[39m (default foreground reset) not \x1b[0m (full reset).
+const color_reset = "\x1b[39m";
 
 fn byteColor(byte: u8) term.Style.Color {
     return switch (byte) {
@@ -41,13 +46,14 @@ fn byteColor(byte: u8) term.Style.Color {
 }
 
 // Maps a byte to its hexyl-style character panel representation (Default table).
-fn byteChar(byte: u8) []const u8 {
+// Returns null for printable ASCII (0x21-0x7E): caller should write the byte directly.
+fn byteChar(byte: u8) ?[]const u8 {
     return switch (byte) {
         0x00 => "⋄",
         0x20 => " ",
         0x09, 0x0A, 0x0C, 0x0D => "_", // Rust is_ascii_whitespace: tab, LF, FF, CR
         0x01...0x08, 0x0B, 0x0E...0x1F, 0x7F => "•",
-        0x21...0x7E => &[_]u8{byte},
+        0x21...0x7E => null, // printable ASCII: write the byte itself
         0x80...0xFF => "×",
     };
 }
@@ -73,22 +79,30 @@ fn printRow(
     try writer.writeAll("│");
     if (use_color) try writer.writeAll(term.Style.Color.bright_black.toEscapeCode());
     try writer.print("{x:0>8}", .{offset});
-    if (use_color) try writer.writeAll(term.Style.Color.reset);
+    if (use_color) try writer.writeAll(color_reset);
     try writer.writeAll("│");
 
     // Hex panels: two panels of 8 bytes, separated by ┊.
+    // hexyl optimization: emit color code only on color change, reset once per panel.
     for (0..16) |i| {
         if (i == 8) {
-            // Inner separator between the two 8-byte panels.
+            // End of first panel: reset, then inner separator.
+            if (use_color) try writer.writeAll(color_reset);
             try writer.writeAll(" ┊");
         }
         try writer.writeAll(" ");
         if (i < bytes.len) {
             const b = bytes[i];
             if (use_color) {
-                try writer.writeAll(byteColor(b).toEscapeCode());
+                const color = byteColor(b);
+                // Only emit color code if different from previous byte's color.
+                const prev_color = if (i == 0 or i == 8)
+                    null
+                else
+                    byteColor(bytes[i - 1]);
+                if (prev_color == null or color != prev_color.?)
+                    try writer.writeAll(color.toEscapeCode());
                 try writer.print("{x:0>2}", .{b});
-                try writer.writeAll(term.Style.Color.reset);
             } else {
                 try writer.print("{x:0>2}", .{b});
             }
@@ -96,28 +110,42 @@ fn printRow(
             try writer.writeAll("  ");
         }
     }
+    // End of second panel: reset.
+    if (use_color) try writer.writeAll(color_reset);
     try writer.writeAll(" ");
 
     // Separator before char panel.
     try writer.writeAll("│");
 
     // Char panels: two panels of 8 chars, separated by ┊.
+    // Same optimization: color code only on change, reset once per panel.
     for (0..16) |i| {
-        if (i == 8) try writer.writeAll("┊");
+        if (i == 8) {
+            if (use_color) try writer.writeAll(color_reset);
+            try writer.writeAll("┊");
+        }
         if (i < bytes.len) {
             const b = bytes[i];
-            const ch = byteChar(b);
             if (use_color) {
-                try writer.writeAll(byteColor(b).toEscapeCode());
+                const color = byteColor(b);
+                const prev_color = if (i == 0 or i == 8)
+                    null
+                else
+                    byteColor(bytes[i - 1]);
+                if (prev_color == null or color != prev_color.?)
+                    try writer.writeAll(color.toEscapeCode());
+            }
+            if (byteChar(b)) |ch| {
                 try writer.writeAll(ch);
-                try writer.writeAll(term.Style.Color.reset);
             } else {
-                try writer.writeAll(ch);
+                try writer.writeByte(b);
             }
         } else {
             try writer.writeAll(" ");
         }
     }
+    // End of second char panel: reset.
+    if (use_color) try writer.writeAll(color_reset);
 
     // Right border.
     try writer.writeAll("│\n");
@@ -141,7 +169,8 @@ pub fn main(init: std.process.Init) anyerror!void {
     defer opt.deinit();
 
     const options = opt.options;
-    const use_color = !options.@"no-color" and term.isTty(std.Io.File.stdout());
+    const use_color = !options.@"no-color" and
+        (options.color or term.isTty(std.Io.File.stdout()));
 
     // Open input: file arg or stdin.
     var file: std.Io.File = if (opt.positional_arguments.len > 0) blk: {
@@ -194,7 +223,15 @@ pub fn main(init: std.process.Init) anyerror!void {
 
         if (is_repeat) {
             if (!squeezing) {
-                try writer.interface.writeAll("│*       │                         ┊                         │        ┊        │\n");
+                if (use_color) {
+                    try writer.interface.writeAll("│" ++ "\x1b[90m" ++ "*" ++ "\x1b[39m" ++
+                        "       │                        " ++ "\x1b[39m" ++
+                        " ┊                        " ++ "\x1b[39m" ++
+                        " │        " ++ "\x1b[39m" ++
+                        "┊        " ++ "\x1b[39m" ++ "│\n");
+                } else {
+                    try writer.interface.writeAll("│*       │                         ┊                         │        ┊        │\n");
+                }
                 squeezing = true;
             }
         } else {
@@ -250,15 +287,16 @@ test "byteColor high bytes" {
 }
 
 test "byteChar categories" {
-    try testing.expectEqualStrings("⋄", byteChar(0x00));
-    try testing.expectEqualStrings(" ", byteChar(0x20));
-    try testing.expectEqualStrings("_", byteChar(0x0A));
-    try testing.expectEqualStrings("_", byteChar(0x09));
-    try testing.expectEqualStrings("•", byteChar(0x01));
-    try testing.expectEqualStrings("•", byteChar(0x7F));
-    try testing.expectEqualStrings("A", byteChar(0x41));
-    try testing.expectEqualStrings("×", byteChar(0x80));
-    try testing.expectEqualStrings("×", byteChar(0xFF));
+    try testing.expectEqualStrings("⋄", byteChar(0x00).?);
+    try testing.expectEqualStrings(" ", byteChar(0x20).?);
+    try testing.expectEqualStrings("_", byteChar(0x0A).?);
+    try testing.expectEqualStrings("_", byteChar(0x09).?);
+    try testing.expectEqualStrings("_", byteChar(0x0C).?); // form feed
+    try testing.expectEqualStrings("•", byteChar(0x01).?);
+    try testing.expectEqualStrings("•", byteChar(0x7F).?);
+    try testing.expect(byteChar(0x41) == null); // 'A' — printable, write byte directly
+    try testing.expectEqualStrings("×", byteChar(0x80).?);
+    try testing.expectEqualStrings("×", byteChar(0xFF).?);
 }
 
 test "printRow no color simple" {
@@ -295,7 +333,7 @@ test "printRow color wraps bytes with escape codes" {
     try printRow(&aw.writer, 0, bytes, true);
     const out = aw.written();
     try testing.expect(std.mem.indexOf(u8, out, "\x1b[") != null);
-    try testing.expect(std.mem.indexOf(u8, out, "\x1b[0m") != null);
+    try testing.expect(std.mem.indexOf(u8, out, "\x1b[39m") != null); // fg reset
     try testing.expect(std.mem.indexOf(u8, out, "00") != null);
     try testing.expect(std.mem.indexOf(u8, out, "41") != null);
 }
