@@ -109,6 +109,55 @@ pub fn main(init: std.process.Init) anyerror!void {
         },
     );
     defer opt.deinit();
+
+    const options = opt.options;
+    const use_color = !options.@"no-color" and term.isTty(std.Io.File.stdout());
+
+    // Open input: file arg or stdin.
+    var file: std.Io.File = if (opt.positional_arguments.len > 0) blk: {
+        break :blk try std.Io.Dir.cwd().openFile(
+            init.io,
+            opt.positional_arguments[0],
+            .{},
+        );
+    } else std.Io.File.stdin();
+    defer if (opt.positional_arguments.len > 0) file.close(init.io);
+
+    var reader_buf: [4096]u8 = undefined;
+    var reader = file.reader(init.io, &reader_buf);
+
+    // Apply --skip by consuming and discarding bytes.
+    if (options.skip) |skip| {
+        var skip_buf: [128]u8 = undefined;
+        var skipped: usize = 0;
+        while (skipped < skip) {
+            const to_skip = @min(skip - skipped, skip_buf.len);
+            const n = try reader.interface.readSliceShort(skip_buf[0..to_skip]);
+            if (n == 0) break;
+            skipped += n;
+        }
+    }
+
+    // Determine max bytes to read.
+    const max_bytes: ?usize = options.length;
+
+    var stdout = std.Io.File.stdout();
+    var writer = stdout.writer(init.io, &.{});
+
+    var row_buf: [16]u8 = undefined;
+    var offset: u64 = options.skip orelse 0;
+    var total_read: usize = 0;
+
+    while (true) {
+        const remaining = if (max_bytes) |max| max - total_read else 16;
+        if (remaining == 0) break;
+        const to_read = @min(16, remaining);
+        const n = try reader.interface.readSliceShort(row_buf[0..to_read]);
+        if (n == 0) break;
+        try printRow(&writer.interface, offset, row_buf[0..n], use_color);
+        offset += n;
+        total_read += n;
+    }
 }
 
 const testing = std.testing;
