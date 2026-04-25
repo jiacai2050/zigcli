@@ -45,8 +45,8 @@ fn byteChar(byte: u8) []const u8 {
     return switch (byte) {
         0x00 => "⋄",
         0x20 => " ",
-        0x09, 0x0A, 0x0D => "_",
-        0x01...0x08, 0x0B, 0x0C, 0x0E...0x1F, 0x7F => "•",
+        0x09, 0x0A, 0x0C, 0x0D => "_", // Rust is_ascii_whitespace: tab, LF, FF, CR
+        0x01...0x08, 0x0B, 0x0E...0x1F, 0x7F => "•",
         0x21...0x7E => &[_]u8{byte},
         0x80...0xFF => "×",
     };
@@ -168,9 +168,12 @@ pub fn main(init: std.process.Init) anyerror!void {
     var writer = stdout.writer(init.io, &writer_buf);
 
     var row_buf: [16]u8 = undefined;
+    var prev_buf: [16]u8 = undefined;
+    var prev_len: usize = 0;
     var offset: u64 = options.skip orelse 0;
     var total_read: usize = 0;
     var has_output = false;
+    var squeezing = false;
 
     while (true) {
         const remaining = if (max_bytes) |max| max - total_read else 16;
@@ -178,11 +181,29 @@ pub fn main(init: std.process.Init) anyerror!void {
         const to_read = @min(16, remaining);
         const n = try reader.interface.readSliceShort(row_buf[0..to_read]);
         if (n == 0) break;
+
         if (!has_output) {
             try printHeader(&writer.interface);
             has_output = true;
         }
-        try printRow(&writer.interface, offset, row_buf[0..n], use_color);
+
+        // Squeezing: collapse consecutive identical full rows into │*       │
+        const is_full_row = n == 16;
+        const is_repeat = is_full_row and prev_len == 16 and
+            std.mem.eql(u8, row_buf[0..16], prev_buf[0..16]);
+
+        if (is_repeat) {
+            if (!squeezing) {
+                try writer.interface.writeAll("│*       │                         ┊                         │        ┊        │\n");
+                squeezing = true;
+            }
+        } else {
+            squeezing = false;
+            try printRow(&writer.interface, offset, row_buf[0..n], use_color);
+        }
+
+        @memcpy(prev_buf[0..n], row_buf[0..n]);
+        prev_len = n;
         offset += n;
         total_read += n;
     }
