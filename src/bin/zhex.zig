@@ -1,4 +1,4 @@
-//! zhexdump: color-coded hex dump of files or stdin, matching hexyl's output format.
+//! zhex: color-coded hex dump of files or stdin, matching hexyl's output format.
 
 const std = @import("std");
 const assert = std.debug.assert;
