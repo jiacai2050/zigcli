@@ -12,6 +12,8 @@ const Options = struct {
     skip: ?usize = null,
     @"no-color": bool = false,
     color: bool = false,
+    @"no-squeezing": bool = false,
+    @"print-color-table": bool = false,
     help: bool = false,
     version: bool = false,
 
@@ -28,6 +30,8 @@ const Options = struct {
         .skip = "Skip N bytes from the start.",
         .@"no-color" = "Disable color output.",
         .color = "Force color output even when not a TTY.",
+        .@"no-squeezing" = "Do not squeeze consecutive identical rows.",
+        .@"print-color-table" = "Print a color reference table and exit.",
         .help = "Print help information.",
         .version = "Print version.",
     };
@@ -66,6 +70,24 @@ fn printHeader(writer: *std.Io.Writer) !void {
 // └────────┴─────────────────────────┴─────────────────────────┴────────┴────────┘
 fn printFooter(writer: *std.Io.Writer) !void {
     try writer.writeAll("└────────┴─────────────────────────┴─────────────────────────┴────────┴────────┘\n");
+}
+
+fn printColorTable(writer: *std.Io.Writer, use_color: bool) !void {
+    try writer.writeAll("zhexdump color reference:\n\n");
+    const Entry = struct { symbol: []const u8, color: term.Style.Color, label: []const u8 };
+    const entries = [_]Entry{
+        .{ .symbol = "⋄", .color = .bright_black, .label = "NULL bytes (0x00)" },
+        .{ .symbol = "a", .color = .cyan, .label = "ASCII printable characters (0x21 - 0x7E)" },
+        .{ .symbol = "_", .color = .green, .label = "ASCII whitespace (0x09 - 0x0D, 0x20)" },
+        .{ .symbol = "•", .color = .green, .label = "ASCII control characters (except NULL and whitespace)" },
+        .{ .symbol = "×", .color = .yellow, .label = "Non-ASCII bytes (0x80 - 0xFF)" },
+    };
+    for (entries) |e| {
+        if (use_color) try writer.writeAll(e.color.toEscapeCode());
+        try writer.writeAll(e.symbol);
+        if (use_color) try writer.writeAll(color_reset);
+        try writer.print(" {s}\n", .{e.label});
+    }
 }
 
 // Returns true if the color for byte at index i differs from the previous byte in the panel.
@@ -165,6 +187,15 @@ pub fn main(init: std.process.Init) anyerror!void {
     const use_color = !options.@"no-color" and
         (options.color or term.isTty(std.Io.File.stdout()));
 
+    if (options.@"print-color-table") {
+        var stdout = std.Io.File.stdout();
+        var writer_buf: [4096]u8 = undefined;
+        var writer = stdout.writer(init.io, &writer_buf);
+        try printColorTable(&writer.interface, use_color);
+        try writer.interface.flush();
+        return;
+    }
+
     // Open input: file arg or stdin.
     var file: std.Io.File = if (opt.positional_arguments.len > 0) blk: {
         break :blk try std.Io.Dir.cwd().openFile(
@@ -211,7 +242,8 @@ pub fn main(init: std.process.Init) anyerror!void {
 
         // Squeezing: collapse consecutive identical full rows into │*       │
         const is_full_row = n == 16;
-        const is_repeat = is_full_row and prev_len == 16 and
+        const is_repeat = !options.@"no-squeezing" and
+            is_full_row and prev_len == 16 and
             std.mem.eql(u8, row_buf[0..16], prev_buf[0..16]);
 
         if (is_repeat) {
