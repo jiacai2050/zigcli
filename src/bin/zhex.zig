@@ -94,7 +94,7 @@ fn printColorTable(writer: *std.Io.Writer, use_color: bool) !void {
         .{ .symbol = "×", .color = .yellow, .label = "Non-ASCII bytes (0x80 - 0xFF)" },
     };
     for (entries) |e| {
-        if (use_color) try writer.writeAll(e.color.toEscapeCode());
+        if (use_color) try writer.print("{f}", .{e.color});
         try writer.writeAll(e.symbol);
         try writer.print(" {s}", .{e.label});
         if (use_color) try writer.writeAll(color_reset);
@@ -121,7 +121,7 @@ fn printRow(
     assert(bytes.len <= 16);
     // Left border + offset.
     try writer.writeAll("│");
-    if (use_color) try writer.writeAll(term.Style.Color.bright_black.toEscapeCode());
+    if (use_color) try writer.print("{f}", .{term.Style.Color.bright_black});
     try writer.print("{x:0>8}", .{offset});
     if (use_color) try writer.writeAll(color_reset);
     try writer.writeAll("│");
@@ -138,7 +138,7 @@ fn printRow(
         if (i < bytes.len) {
             const b = bytes[i];
             if (use_color and colorChangedAt(bytes, i))
-                try writer.writeAll(byteColor(b).toEscapeCode());
+                try writer.print("{f}", .{byteColor(b)});
             try writer.print("{x:0>2}", .{b});
         } else {
             try writer.writeAll("  ");
@@ -161,7 +161,7 @@ fn printRow(
         if (i < bytes.len) {
             const b = bytes[i];
             if (use_color and colorChangedAt(bytes, i))
-                try writer.writeAll(byteColor(b).toEscapeCode());
+                try writer.print("{f}", .{byteColor(b)});
             if (byteChar(b)) |ch| {
                 try writer.writeAll(ch);
             } else {
@@ -261,13 +261,19 @@ pub fn main(init: std.process.Init) anyerror!void {
         if (is_repeat) {
             if (!squeezing) {
                 if (use_color) {
-                    try writer.interface.writeAll("│" ++ "\x1b[90m" ++ "*" ++ "\x1b[39m" ++
-                        "       │                        " ++ "\x1b[39m" ++
-                        " ┊                        " ++ "\x1b[39m" ++
-                        " │        " ++ "\x1b[39m" ++
-                        "┊        " ++ "\x1b[39m" ++ "│\n");
+                    try writer.interface.writeAll(
+                        "│" ++ "\x1b[90m" ++ "*" ++ "\x1b[39m" ++ " " ** 7 ++ // offset (8)
+                            "│" ++ " " ** 25 ++ "┊" ++ " " ** 25 ++ // hex panels (25+┊+25)
+                            "│" ++ " " ** 8 ++ "┊" ++ " " ** 8 ++ // char panels (8+┊+8)
+                            "│\n",
+                    );
                 } else {
-                    try writer.interface.writeAll("│*       │                         ┊                         │        ┊        │\n");
+                    try writer.interface.writeAll(
+                        "│" ++ "*" ++ " " ** 7 ++ // offset (8)
+                            "│" ++ " " ** 25 ++ "┊" ++ " " ** 25 ++ // hex panels (25+┊+25)
+                            "│" ++ " " ** 8 ++ "┊" ++ " " ** 8 ++ // char panels (8+┊+8)
+                            "│\n",
+                    );
                 }
                 squeezing = true;
             }
