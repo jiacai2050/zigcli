@@ -79,9 +79,9 @@ pub const Style = struct {
         }
 
         /// Writes `text` with this foreground color and resets styling afterwards.
-        pub fn writeString(self: Color, writer: *std.Io.Writer, text: []const u8) !void {
-            try writer.writeAll(self.toEscapeCode());
-            try writer.writeAll(text);
+        pub fn writeString(self: Color, writer: *std.Io.Writer, comptime fmt: []const u8, args: anytype) !void {
+            try self.format(writer);
+            try writer.print(fmt, args);
             try writer.writeAll(Color.reset);
         }
     };
@@ -192,7 +192,7 @@ test "term color write string" {
     var allocating: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer allocating.deinit();
 
-    try Style.Color.green.writeString(&allocating.writer, "ok");
+    try Style.Color.green.writeString(&allocating.writer, "{s}", .{"ok"});
 
     try std.testing.expectEqualStrings("\x1b[32mok\x1b[0m", allocating.written());
 }
@@ -207,7 +207,7 @@ test "term style write string" {
         .fg = .green,
         .bg = .black,
     };
-    try style.writeString(&allocating.writer, "{s}", "ok");
+    try style.writeString(&allocating.writer, "{s}", .{"ok"});
 
     try std.testing.expectEqualStrings(
         "\x1b[1m\x1b[3m\x1b[32m\x1b[40mok\x1b[0m",

@@ -314,7 +314,7 @@ pub fn Table(comptime len: usize) type {
                     .fg = cell.fg,
                     .bg = cell.bg,
                 };
-                try style.writeString(writer, "{s}", text);
+                try style.writeString(writer, "{s}", .{text});
 
                 for (0..right_spaces) |_| try writer.writeAll(" ");
             }
