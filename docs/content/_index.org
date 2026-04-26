@@ -24,7 +24,7 @@
 
 This repository keeps both sides together. If you are writing your own Zig tool, add =zigcli= as
 a dependency and import the packages you need. If you only want ready-made binaries such as =tree=,
-=loc=, =pretty-csv=, or =cowsay=, install the release package and run them directly.
+=loc=, =pretty-csv=, =hexdump=, or =cowsay=, install the release package and run them directly.
 
 #+begin_quote
 The =main= branch targets *Zig 0.16.0*.
@@ -63,6 +63,7 @@ Some highlights:
 - =loc= counts lines of code across languages
 - =tree= prints directory trees with optional filtering
 - =pretty-csv= renders CSV and TSV files as aligned tables
+- =hexdump= prints a color-coded hex dump of files or stdin, with optional C include output
 - =zfetch= prints system information
 - =cowsay=, =repeat=, and other small terminal utilities round out the collection
 

@@ -1,6 +1,19 @@
 # Changelog
 
-## Unreleased
+## v0.6.1 (2026-04-26)
+
+### New Programs
+- **hexdump**: Color-coded hex dump of files or stdin
+  - Bytes colored by semantic category: null (bright black), control/whitespace (green), printable ASCII (cyan), non-ASCII (yellow)
+  - `--color <always|auto|never>`: defaults to `auto` (detects TTY)
+  - `--include` / `-i`: output a C include file (`unsigned char name[] = {...}`)
+  - `--no-squeezing`: disable collapsing of consecutive identical rows
+  - `--print-color-table`: print the color reference table and exit
+  - Broken pipe (e.g. `| head`) handled gracefully
+
+### Improvements
+- **term**: `Color` and `Style` now implement `format(writer)` for use with `"{f}"` in `writer.print`
+- **term**: `writeString` updated to use `comptime fmt` and `args` (matching `writer.print` style)
 
 ## v0.6.0 (2026-04-22)
 
