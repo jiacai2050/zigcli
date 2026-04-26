@@ -336,55 +336,58 @@ test "byteChar categories" {
     try testing.expectEqualStrings("×", byteChar(0xFF).?);
 }
 
-test "printRow no color simple" {
+test "printRow no color full row" {
     var aw: std.Io.Writer.Allocating = .init(testing.allocator);
     defer aw.deinit();
-    const bytes = "Hello, World!\n\x00\xff";
-    try printRow(&aw.writer, 0, bytes, false);
-    const out = aw.written();
-    try testing.expect(std.mem.startsWith(u8, out, "│00000000│"));
-    try testing.expect(std.mem.indexOf(u8, out, "48 65 6c 6c") != null);
-    try testing.expect(std.mem.indexOf(u8, out, "┊") != null);
-    try testing.expect(std.mem.indexOf(u8, out, "Hello, W") != null); // split across ┊
-    try testing.expect(std.mem.indexOf(u8, out, "orld!_") != null);
-    try testing.expect(std.mem.indexOf(u8, out, "⋄") != null); // null byte
-    try testing.expect(std.mem.indexOf(u8, out, "×") != null); // 0xff
-    try testing.expect(std.mem.indexOf(u8, out, "_") != null); // newline
+    // "Hello, World!\n\x00\xff" is exactly 16 bytes.
+    try printRow(&aw.writer, 0, "Hello, World!\n\x00\xff", false);
+    try testing.expectEqualStrings(
+        "│00000000│ 48 65 6c 6c 6f 2c 20 57 ┊ 6f 72 6c 64 21 0a 00 ff │Hello, W┊orld!_⋄×│\n",
+        aw.written(),
+    );
 }
 
 test "printRow no color short last row" {
     var aw: std.Io.Writer.Allocating = .init(testing.allocator);
     defer aw.deinit();
-    const bytes = "Hi";
-    try printRow(&aw.writer, 0x10, bytes, false);
-    const out = aw.written();
-    try testing.expect(std.mem.startsWith(u8, out, "│00000010│"));
-    try testing.expect(std.mem.indexOf(u8, out, "Hi") != null);
-    try testing.expect(std.mem.endsWith(u8, out, "│\n"));
+    try printRow(&aw.writer, 0x10, "Hi", false);
+    try testing.expectEqualStrings(
+        "│00000010│ 48 69                   ┊                         │Hi      ┊        │\n",
+        aw.written(),
+    );
 }
 
-test "printRow color wraps bytes with escape codes" {
+test "printRow color full row" {
+    // \x00 (bright_black=\x1b[90m) + 'A' (cyan=\x1b[36m), rest padding.
+    // Colors only emitted on change; each panel resets with \x1b[39m at its end.
     var aw: std.Io.Writer.Allocating = .init(testing.allocator);
     defer aw.deinit();
-    const bytes = "\x00A"; // null byte (bright_black) + 'A' (cyan)
-    try printRow(&aw.writer, 0, bytes, true);
-    const out = aw.written();
-    try testing.expect(std.mem.indexOf(u8, out, "\x1b[") != null);
-    try testing.expect(std.mem.indexOf(u8, out, "\x1b[39m") != null); // fg reset
-    try testing.expect(std.mem.indexOf(u8, out, "00") != null);
-    try testing.expect(std.mem.indexOf(u8, out, "41") != null);
+    try printRow(&aw.writer, 0, "\x00A", true);
+    try testing.expectEqualStrings(
+        "│\x1b[90m00000000\x1b[39m│" ++
+            " \x1b[90m00 \x1b[36m41                  \x1b[39m" ++
+            " ┊                        \x1b[39m" ++
+            " │\x1b[90m⋄\x1b[36mA      \x1b[39m┊        \x1b[39m│\n",
+        aw.written(),
+    );
 }
 
 test "printHeader" {
     var aw: std.Io.Writer.Allocating = .init(testing.allocator);
     defer aw.deinit();
     try printHeader(&aw.writer);
-    try testing.expect(std.mem.startsWith(u8, aw.written(), "┌────────┬"));
+    try testing.expectEqualStrings(
+        "┌────────┬─────────────────────────┬─────────────────────────┬────────┬────────┐\n",
+        aw.written(),
+    );
 }
 
 test "printFooter" {
     var aw: std.Io.Writer.Allocating = .init(testing.allocator);
     defer aw.deinit();
     try printFooter(&aw.writer);
-    try testing.expect(std.mem.startsWith(u8, aw.written(), "└────────┴"));
+    try testing.expectEqualStrings(
+        "└────────┴─────────────────────────┴─────────────────────────┴────────┴────────┘\n",
+        aw.written(),
+    );
 }
