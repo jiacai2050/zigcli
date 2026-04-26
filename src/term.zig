@@ -78,7 +78,7 @@ pub const Style = struct {
             try writer.writeAll(self.toEscapeCode());
         }
 
-        /// Writes `text` with this foreground color and resets styling afterwards.
+        /// Formats `fmt` with `args`, wraps the output with this foreground color, and resets afterwards.
         pub fn writeString(self: Color, writer: *std.Io.Writer, comptime fmt: []const u8, args: anytype) !void {
             try self.format(writer);
             try writer.print(fmt, args);
@@ -117,7 +117,7 @@ pub const Style = struct {
         if (self.bg) |bg_color| try writer.writeAll(bg_color.toBgEscapeCode());
     }
 
-    /// Writes `text` wrapped with this style.
+    /// Formats `fmt` with `args`, wraps the output with this style, and resets afterwards.
     pub fn writeString(self: Style, writer: *std.Io.Writer, comptime fmt: []const u8, args: anytype) !void {
         try self.format(writer);
         try writer.print(fmt, args);

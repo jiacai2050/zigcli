@@ -144,7 +144,7 @@ fn buildBinaries(
         "pretty-csv",
         "zfetch",
         "progress-it",
-        "zhex",
+        "hexdump",
     }) |name| {
         try buildBinary(
             b,

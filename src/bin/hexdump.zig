@@ -1,4 +1,10 @@
-//! zhex: color-coded hex dump of files or stdin, matching hexyl's output format.
+//! hexdump: color-coded hex dump of files or stdin.
+//!
+//! Bytes are colored by semantic category:
+//!   bright_black — null (0x00)
+//!   green        — ASCII control chars and whitespace (0x01-0x20, 0x7F)
+//!   cyan         — printable ASCII (0x21-0x7E)
+//!   yellow       — non-ASCII (0x80-0xFF)
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -14,6 +20,7 @@ const Options = struct {
     color: bool = false,
     @"no-squeezing": bool = false,
     @"print-color-table": bool = false,
+    include: bool = false,
     help: bool = false,
     version: bool = false,
 
@@ -21,6 +28,7 @@ const Options = struct {
         .length = .n,
         .skip = .s,
         .@"no-color" = .C,
+        .include = .i,
         .help = .h,
         .version = .v,
     };
@@ -32,19 +40,16 @@ const Options = struct {
         .color = "Force color output even when not a TTY.",
         .@"no-squeezing" = "Do not squeeze consecutive identical rows.",
         .@"print-color-table" = "Print a color reference table and exit.",
+        .include = "Output a C include file (like xxd -i).",
         .help = "Print help information.",
         .version = "Print version.",
     };
 };
 
-// hexyl uses \x1b[39m (default foreground reset) not \x1b[0m (full reset).
+// Use default foreground reset (\x1b[39m) rather than full reset (\x1b[0m)
+// so that background colors set by the terminal theme are preserved.
 const color_reset = "\x1b[39m";
 
-// Maps a byte to its display color, matching hexyl's default ANSI color scheme:
-//   bright_black — null byte, visually suppressed
-//   green        — ASCII control chars and whitespace (0x01-0x20, 0x7F)
-//   cyan         — printable ASCII (0x21-0x7E)
-//   yellow       — non-ASCII bytes (0x80-0xFF, high bit set)
 fn byteColor(byte: u8) term.Style.Color {
     return switch (byte) {
         0x00 => .bright_black,
@@ -71,6 +76,57 @@ fn byteChar(byte: u8) ?[]const u8 {
         0x21...0x7E => null,
         0x80...0xFF => "×",
     };
+}
+
+// Converts a filename (e.g. "11.jpeg") to a valid C identifier (e.g. "_11_jpeg").
+fn filenameToCIdent(buf: []u8, name: []const u8) []u8 {
+    var len: usize = 0;
+    for (name) |c| {
+        const out: u8 = switch (c) {
+            'a'...'z', 'A'...'Z', '0'...'9' => c,
+            else => '_',
+        };
+        if (len < buf.len) {
+            buf[len] = out;
+            len += 1;
+        }
+    }
+    return buf[0..len];
+}
+
+fn printInclude(
+    gpa: std.mem.Allocator,
+    reader: *std.Io.Reader,
+    writer: *std.Io.Writer,
+    var_name: []const u8,
+    max_bytes: ?usize,
+) !usize {
+    // Read all bytes first so we know the total and can omit the trailing comma.
+    var bytes: std.ArrayListUnmanaged(u8) = .empty;
+    defer bytes.deinit(gpa);
+    var read_buf: [4096]u8 = undefined;
+    while (true) {
+        const remaining = if (max_bytes) |max| max - bytes.items.len else read_buf.len;
+        if (remaining == 0) break;
+        const n = try reader.readSliceShort(read_buf[0..@min(read_buf.len, remaining)]);
+        if (n == 0) break;
+        try bytes.appendSlice(gpa, read_buf[0..n]);
+    }
+
+    const data = bytes.items;
+    try writer.print("unsigned char {s}[] = {{\n", .{var_name});
+    for (data, 0..) |b, i| {
+        if (i % 12 == 0) try writer.writeAll("  ");
+        try writer.print("0x{x:0>2}", .{b});
+        if (i + 1 < data.len) {
+            try writer.writeAll(",");
+            if (i % 12 == 11) try writer.writeAll("\n") else try writer.writeAll(" ");
+        }
+    }
+    if (data.len > 0) try writer.writeAll("\n");
+    try writer.writeAll("};\n");
+    try writer.print("unsigned int {s}_len = {d};\n", .{ var_name, data.len });
+    return data.len;
 }
 
 // ┌────────┬─────────────────────────┬─────────────────────────┬────────┬────────┐
@@ -223,7 +279,12 @@ pub fn main(init: std.process.Init) anyerror!void {
 
     // Apply --skip by consuming and discarding bytes.
     if (options.skip) |skip| {
-        _ = try reader.interface.discardShort(skip);
+        var skipped: usize = 0;
+        while (skipped < skip) {
+            const amt = try reader.interface.discardShort(skip - skipped);
+            if (amt == 0) break;
+            skipped += amt;
+        }
     }
 
     const max_bytes: ?usize = options.length;
@@ -231,6 +292,18 @@ pub fn main(init: std.process.Init) anyerror!void {
     var stdout = std.Io.File.stdout();
     var writer_buf: [4096]u8 = undefined;
     var writer = stdout.writer(init.io, &writer_buf);
+
+    if (options.include) {
+        var ident_buf: [256]u8 = undefined;
+        const raw_name = if (opt.positional_arguments.len > 0)
+            std.fs.path.basename(opt.positional_arguments[0])
+        else
+            "data";
+        const var_name = filenameToCIdent(&ident_buf, raw_name);
+        _ = try printInclude(allocator, &reader.interface, &writer.interface, var_name, max_bytes);
+        try writer.interface.flush();
+        return;
+    }
 
     var row_buf: [16]u8 = undefined;
     var prev_buf: [16]u8 = undefined;

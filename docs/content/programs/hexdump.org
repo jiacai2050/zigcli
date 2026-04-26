@@ -1,10 +1,10 @@
-#+TITLE: zhex
+#+TITLE: hexdump
 #+DATE: 2026-04-25T00:00:00+0800
 #+LASTMOD: 2026-04-25T00:00:00+0800
 #+TYPE: docs
-#+DESCRIPTION: Color-coded hex dump, compatible with hexyl
+#+DESCRIPTION: Color-coded hex dump of files or stdin
 
-=zhex= prints a color-coded hex dump of files or stdin, using the same output format and color scheme as [[https://github.com/sharkdp/hexyl][hexyl]].
+=hexdump= prints a color-coded hex dump of files or stdin.
 
 - Byte categories colored by semantic meaning: null, whitespace, control chars, printable ASCII, non-ASCII.
 - Unicode border and separator characters (=┌─┬─┐=, =┊=).
@@ -17,15 +17,15 @@
 | Category | Bytes | Color |
 |----------+-------+-------|
 | Null | =0x00= | bright black |
-| Whitespace | =0x09 0x0A 0x0C 0x0D 0x20= | green |
-| Other ASCII | =0x01–0x08 0x0B 0x0E–0x1F 0x7F= | green |
+| ASCII whitespace | =0x09 0x0A 0x0C 0x0D 0x20= | green |
+| ASCII control chars | =0x01–0x08 0x0B 0x0E–0x1F 0x7F= | green |
 | Printable ASCII | =0x21–0x7E= | cyan |
 | Non-ASCII | =0x80–0xFF= | yellow |
 
 ** Demo
 
 #+begin_example
-$ echo "Hello, World!" | zhex --no-color
+$ echo "Hello, World!" | hexdump --no-color
 ┌────────┬─────────────────────────┬─────────────────────────┬────────┬────────┐
 │00000000│ 48 65 6c 6c 6f 2c 20 57 ┊ 6f 72 6c 64 21 0a       │Hello, W┊orld!_  │
 └────────┴─────────────────────────┴─────────────────────────┴────────┴────────┘
@@ -39,25 +39,29 @@ $ echo "Hello, World!" | zhex --no-color
 | =--skip= | =-s= | Skip N bytes from the start |
 | =--no-color= | =-C= | Disable color output |
 | =--color= | | Force color output even when not a TTY |
+| =--no-squeezing= | | Print all rows, do not collapse repeated rows |
+| =--print-color-table= | | Print a color reference table and exit |
+| =--version= | =-v= | Print version |
+| =--help= | =-h= | Print help |
 
 ** Examples
 
 *** Dump a file
 #+begin_src bash
-zhex /bin/ls | head -20
+hexdump /bin/ls | head -20
 #+end_src
 
 *** Inspect the first 64 bytes
 #+begin_src bash
-zhex -n 64 file.bin
+hexdump -n 64 file.bin
 #+end_src
 
 *** Skip a header and dump the next 128 bytes
 #+begin_src bash
-zhex -s 16 -n 128 file.bin
+hexdump -s 16 -n 128 file.bin
 #+end_src
 
 *** Pipe from another command
 #+begin_src bash
-curl -s https://example.com | zhex | head -20
+curl -s https://example.com | hexdump | head -20
 #+end_src
