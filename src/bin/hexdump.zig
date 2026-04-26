@@ -13,11 +13,12 @@ const structargs = zigcli.structargs;
 const term = zigcli.term;
 const util = @import("util.zig");
 
+const ColorMode = enum { always, auto, never };
+
 const Options = struct {
     length: ?usize = null,
     skip: ?usize = null,
-    @"no-color": bool = false,
-    color: bool = false,
+    color: ColorMode = .auto,
     @"no-squeezing": bool = false,
     @"print-color-table": bool = false,
     include: bool = false,
@@ -27,7 +28,6 @@ const Options = struct {
     pub const __shorts__ = .{
         .length = .n,
         .skip = .s,
-        .@"no-color" = .C,
         .include = .i,
         .help = .h,
         .version = .v,
@@ -36,8 +36,7 @@ const Options = struct {
     pub const __messages__ = .{
         .length = "Only read N bytes.",
         .skip = "Skip N bytes from the start.",
-        .@"no-color" = "Disable color output.",
-        .color = "Force color output even when not a TTY.",
+        .color = "When to use colors: always, auto, never. Default: auto.",
         .@"no-squeezing" = "Do not squeeze consecutive identical rows.",
         .@"print-color-table" = "Print a color reference table and exit.",
         .include = "Output a C include file (like xxd -i).",
@@ -235,6 +234,13 @@ fn printRow(
 }
 
 pub fn main(init: std.process.Init) anyerror!void {
+    return run(init) catch |err| switch (err) {
+        error.WriteFailed => {}, // broken pipe (e.g. piped to head)
+        else => return err,
+    };
+}
+
+fn run(init: std.process.Init) anyerror!void {
     var gpa = util.Allocator.instance;
     defer gpa.deinit();
     const allocator = gpa.allocator();
@@ -252,8 +258,11 @@ pub fn main(init: std.process.Init) anyerror!void {
     defer opt.deinit();
 
     const options = opt.options;
-    const use_color = !options.@"no-color" and
-        (options.color or term.isTty(std.Io.File.stdout()));
+    const use_color = switch (options.color) {
+        .always => true,
+        .never => false,
+        .auto => term.isTty(std.Io.File.stdout()),
+    };
 
     if (options.@"print-color-table") {
         var stdout = std.Io.File.stdout();

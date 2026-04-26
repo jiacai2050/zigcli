@@ -37,8 +37,7 @@ $ echo "Hello, World!" | hexdump --no-color
 |------+-------+-------------|
 | =--length= | =-n= | Only read N bytes |
 | =--skip= | =-s= | Skip N bytes from the start |
-| =--no-color= | =-C= | Disable color output |
-| =--color= | | Force color output even when not a TTY |
+| =--color= | | When to use colors: =always=, =auto=, =never= (default: =auto=) |
 | =--no-squeezing= | | Print all rows, do not collapse repeated rows |
 | =--print-color-table= | | Print a color reference table and exit |
 | =--version= | =-v= | Print version |
