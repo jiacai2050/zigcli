@@ -314,9 +314,7 @@ pub fn Table(comptime len: usize) type {
                     .fg = cell.fg,
                     .bg = cell.bg,
                 };
-                try style.writePrefix(writer);
-                try writer.writeAll(text);
-                try style.writeSuffix(writer);
+                try style.writeString(writer, "{s}", .{text});
 
                 for (0..right_spaces) |_| try writer.writeAll(" ");
             }
@@ -1006,10 +1004,10 @@ pub const RuntimeTable = struct {
                 .fg = cell.fg,
                 .bg = cell.bg,
             };
-            try style.writePrefix(writer);
-            try writer.writeAll(display.text);
-            if (display.ellipsis) try writer.writeAll("\xe2\x80\xa6");
-            try style.writeSuffix(writer);
+            try style.writeString(writer, "{s}{s}", .{
+                display.text,
+                if (display.ellipsis) "\xe2\x80\xa6" else "",
+            });
             for (0..right_pad) |_| try writer.writeByte(' ');
         }
         try writer.writeAll(

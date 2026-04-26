@@ -72,10 +72,16 @@ pub const Style = struct {
             };
         }
 
-        /// Writes `text` with this foreground color and resets styling afterwards.
-        pub fn writeString(self: Color, writer: *std.Io.Writer, text: []const u8) !void {
+        /// Writes the ANSI escape code for this foreground color.
+        /// Use as `try writer.print("{f}", .{color})`.
+        pub fn format(self: Color, writer: *std.Io.Writer) !void {
             try writer.writeAll(self.toEscapeCode());
-            try writer.writeAll(text);
+        }
+
+        /// Formats `fmt` with `args`, wraps the output with this foreground color, and resets afterwards.
+        pub fn writeString(self: Color, writer: *std.Io.Writer, comptime fmt: []const u8, args: anytype) !void {
+            try self.format(writer);
+            try writer.print(fmt, args);
             try writer.writeAll(Color.reset);
         }
     };
@@ -102,34 +108,20 @@ pub const Style = struct {
         return true;
     }
 
-    /// Writes the ANSI prefix for this style.
-    pub fn writePrefix(self: Style, writer: *std.Io.Writer) !void {
-        if (self.bold) {
-            try writer.writeAll("\x1b[1m");
-        }
-        if (self.italic) {
-            try writer.writeAll("\x1b[3m");
-        }
-        if (self.fg) |fg_color| {
-            try writer.writeAll(fg_color.toEscapeCode());
-        }
-        if (self.bg) |bg_color| {
-            try writer.writeAll(bg_color.toBgEscapeCode());
-        }
+    /// Writes the ANSI escape codes for this style (bold, italic, fg, bg).
+    /// Use as `try writer.print("{f}", .{style})`.
+    pub fn format(self: Style, writer: *std.Io.Writer) !void {
+        if (self.bold) try writer.writeAll("\x1b[1m");
+        if (self.italic) try writer.writeAll("\x1b[3m");
+        if (self.fg) |fg_color| try writer.writeAll(fg_color.toEscapeCode());
+        if (self.bg) |bg_color| try writer.writeAll(bg_color.toBgEscapeCode());
     }
 
-    /// Writes the ANSI suffix for this style.
-    pub fn writeSuffix(self: Style, writer: *std.Io.Writer) !void {
-        if (!self.isPlain()) {
-            try writer.writeAll(Color.reset);
-        }
-    }
-
-    /// Writes `text` wrapped with this style.
-    pub fn writeString(self: Style, writer: *std.Io.Writer, text: []const u8) !void {
-        try self.writePrefix(writer);
-        try writer.writeAll(text);
-        try self.writeSuffix(writer);
+    /// Formats `fmt` with `args`, wraps the output with this style, and resets afterwards.
+    pub fn writeString(self: Style, writer: *std.Io.Writer, comptime fmt: []const u8, args: anytype) !void {
+        try self.format(writer);
+        try writer.print(fmt, args);
+        if (!self.isPlain()) try writer.writeAll(Color.reset);
     }
 };
 
@@ -200,7 +192,7 @@ test "term color write string" {
     var allocating: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer allocating.deinit();
 
-    try Style.Color.green.writeString(&allocating.writer, "ok");
+    try Style.Color.green.writeString(&allocating.writer, "{s}", .{"ok"});
 
     try std.testing.expectEqualStrings("\x1b[32mok\x1b[0m", allocating.written());
 }
@@ -215,7 +207,7 @@ test "term style write string" {
         .fg = .green,
         .bg = .black,
     };
-    try style.writeString(&allocating.writer, "ok");
+    try style.writeString(&allocating.writer, "{s}", .{"ok"});
 
     try std.testing.expectEqualStrings(
         "\x1b[1m\x1b[3m\x1b[32m\x1b[40mok\x1b[0m",

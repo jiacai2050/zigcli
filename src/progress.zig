@@ -645,7 +645,7 @@ fn writeWithOptionalStyle(
     use_ansi: bool,
 ) !void {
     if (use_ansi) {
-        try style.writeString(writer, text);
+        try style.writeString(writer, "{s}", .{text});
     } else {
         try writer.writeAll(text);
     }
