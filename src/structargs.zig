@@ -234,7 +234,7 @@ const MessageHelper = struct {
         try writer.print(format_string, .{switch (@typeInfo(field.type)) {
             .@"enum" => @tagName(default_value),
             .optional => |optional_info| if (@typeInfo(optional_info.child) == .@"enum")
-                @tagName(default_value.?)
+                if (default_value) |v| @tagName(v) else "null"
             else
                 default_value,
             else => default_value,
