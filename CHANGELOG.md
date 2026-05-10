@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.6.2 (2026-05-10)
+
+### Improvements
+- **structargs**: Single `-` is now treated as a positional argument (e.g. `cat -` for stdin)
+
+### Bug Fixes
+- **structargs**: Fixed null optional enum default values causing runtime errors in help text
+
 ## v0.6.1 (2026-04-26)
 
 ### New Programs
