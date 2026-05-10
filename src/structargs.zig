@@ -692,6 +692,11 @@ fn OptionParser(
                             state = .arguments;
                             continue;
                         }
+                        if (std.mem.eql(u8, argument, "-")) {
+                            state = .arguments;
+                            argument_index.* -= 1;
+                            continue;
+                        }
                         if (!std.mem.startsWith(u8, argument, "-")) {
                             state = .arguments;
                             argument_index.* -= 1;
@@ -1227,6 +1232,29 @@ test "parse/positional arguments" {
         \\      --a INTEGER                  (default: 1)
         \\
     , aw.written());
+}
+
+test "parse/single dash as positional argument" {
+    const gpa = std.testing.allocator;
+    const io = std.testing.io;
+    var input_arguments = [_][:0]u8{
+        try gpa.dupeZ(u8, "awesome-cli"),
+        try gpa.dupeZ(u8, "-"),
+        try gpa.dupeZ(u8, "file.txt"),
+    };
+    defer for (input_arguments) |argument| {
+        gpa.free(argument);
+    };
+    var parser = OptionParser(struct {
+        a: u8 = 1,
+    }).init(gpa, io);
+    const result = try parser.parse(&input_arguments, .{});
+    defer result.deinit();
+
+    try std.testing.expectEqual(result.options.a, 1);
+    try std.testing.expectEqual(result.positional_arguments.len, 2);
+    try std.testing.expectEqualStrings("-", result.positional_arguments[0]);
+    try std.testing.expectEqualStrings("file.txt", result.positional_arguments[1]);
 }
 
 test "parse/print_help_and_exit false" {
