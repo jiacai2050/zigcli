@@ -507,8 +507,47 @@ pub fn getResolutionFromDrm(io: Io, allocator: mem.Allocator) ![]const u8 {
             try parts.appendSlice(allocator, ", ");
         }
         try parts.appendSlice(allocator, mode_str);
+
+        // Try to get refresh rate from EDID
+        const refresh_hz = getRefreshFromEdid(io, &path_buf, entry.name);
+        if (refresh_hz > 0) {
+            const hz_str = fmt.allocPrint(allocator, " @ {d}Hz", .{refresh_hz}) catch continue;
+            try parts.appendSlice(allocator, hz_str);
+        }
     }
     return if (parts.items.len > 0) parts.items else "Unknown";
+}
+
+/// Parse refresh rate from EDID. Checks Monitor Range Limits descriptor
+/// for max vertical rate first (preferred for VRR/high-refresh panels),
+/// then falls back to computing from the first Detailed Timing Descriptor.
+fn getRefreshFromEdid(io: Io, path_buf: *[256]u8, connector_name: []const u8) u32 {
+    const edid_path = fmt.bufPrint(path_buf, "/sys/class/drm/{s}/edid", .{connector_name}) catch return 0;
+    var edid_buf: [128]u8 = undefined;
+    const edid_n = readAbsoluteIntoBuf(io, edid_path, &edid_buf) orelse return 0;
+    if (edid_n < 128) return 0;
+
+    // Check descriptor blocks at offsets 54, 72, 90, 108 for Monitor Range Limits (tag 0xFD).
+    // Its max vertical rate (byte 6 within descriptor) gives the panel's native max refresh.
+    for ([_]usize{ 54, 72, 90, 108 }) |off| {
+        if (edid_buf[off] == 0 and edid_buf[off + 1] == 0 and edid_buf[off + 3] == 0xFD) {
+            const max_v = edid_buf[off + 6];
+            if (max_v > 0) return max_v;
+        }
+    }
+
+    // Fall back to first DTD refresh rate calculation.
+    const dtd = edid_buf[54..72];
+    const pixel_clock: u32 = @as(u32, dtd[0]) | (@as(u32, dtd[1]) << 8);
+    if (pixel_clock == 0) return 0;
+    const h_active: u32 = @as(u32, dtd[2]) | (@as(u32, dtd[4] >> 4) << 8);
+    const h_blank: u32 = @as(u32, dtd[3]) | (@as(u32, dtd[4] & 0x0f) << 8);
+    const v_active: u32 = @as(u32, dtd[5]) | (@as(u32, dtd[7] >> 4) << 8);
+    const v_blank: u32 = @as(u32, dtd[6]) | (@as(u32, dtd[7] & 0x0f) << 8);
+    const h_total = h_active + h_blank;
+    const v_total = v_active + v_blank;
+    if (h_total == 0 or v_total == 0) return 0;
+    return (pixel_clock * 10000 + h_total * v_total / 2) / (h_total * v_total);
 }
 
 /// Counts dpkg packages from /var/lib/dpkg/info.
