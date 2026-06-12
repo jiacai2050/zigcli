@@ -123,10 +123,7 @@ fn collectInfo(
         .host = try platform.getHost(io, allocator),
         .kernel = kernel,
         .uptime = try platform.getUptime(io, allocator),
-        .shell = if (show_all)
-            try common.getShellVersion(io, allocator, shell)
-        else
-            shell,
+        .shell = try common.getShellVersion(io, allocator, shell),
         .terminal = common.getTerminal(env),
         .resolution = try platform.getResolution(io, allocator),
         .theme = platform.getTheme(io, env),

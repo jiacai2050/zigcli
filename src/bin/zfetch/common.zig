@@ -21,16 +21,35 @@ const c = @cImport({
 });
 
 fn readAbsoluteAlloc(io: Io, allocator: mem.Allocator, path: []const u8, max_bytes: usize) ![]u8 {
-    var file = try std.Io.Dir.cwd().openFile(io, path, .{});
+    var file = std.Io.Dir.cwd().openFile(io, path, .{}) catch return error.ReadFailed;
     defer file.close(io);
     var file_reader = file.reader(io, &.{});
-    return file_reader.interface.allocRemaining(allocator, .limited(max_bytes));
+
+    // This doesn't work because it can't read /proc files that report 0 size, even if they have data to read.
+    // https://codeberg.org/ziglang/zig/issues/31946
+    // return file_reader.interface.readAlloc(allocator, max_bytes);
+
+    var result = try std.ArrayList(u8).initCapacity(allocator, 4096);
+    errdefer result.deinit(allocator);
+
+    while (result.items.len < max_bytes) {
+        const remaining = max_bytes - result.items.len;
+        const chunk_size = @min(remaining, 4096);
+        const buf = try result.addManyAsSlice(allocator, chunk_size);
+        const n = file_reader.interface.readSliceShort(buf) catch {
+            result.shrinkRetainingCapacity(result.items.len - chunk_size);
+            break;
+        };
+        result.shrinkRetainingCapacity(result.items.len - chunk_size + n);
+        if (n < chunk_size) break;
+    }
+    return try result.toOwnedSlice(allocator);
 }
 
 fn readAbsoluteIntoBuf(io: Io, path: []const u8, buf: []u8) ?usize {
     var file = std.Io.Dir.cwd().openFile(io, path, .{}) catch return null;
     defer file.close(io);
-    var file_reader = file.reader(io, &.{});
+    var file_reader = file.reader(io, &[0]u8{}); // empty buffer for reader interface
     return file_reader.interface.readSliceShort(buf) catch null;
 }
 
@@ -369,7 +388,7 @@ pub fn getThemeFromGtk(io: Io, env: *const Environ.Map) []const u8 {
 
     for (config_files) |suffix| {
         const path = fmt.bufPrint(&buf, "{s}{s}", .{ home, suffix }) catch continue;
-        var read_buf: [4096]u8 = undefined;
+        var read_buf: [32768]u8 = undefined;
         const n = readAbsoluteIntoBuf(io, path, &read_buf) orelse continue;
         for (needles) |needle| {
             if (mem.indexOf(u8, read_buf[0..n], needle) != null) return "Dark";
@@ -513,6 +532,11 @@ pub fn getResolutionFromDrm(io: Io, allocator: mem.Allocator) ![]const u8 {
         if (refresh_hz > 0) {
             const hz_str = fmt.allocPrint(allocator, " @ {d}Hz", .{refresh_hz}) catch continue;
             try parts.appendSlice(allocator, hz_str);
+        }
+
+        // Optional: add (built-in) indicator for internal displays
+        if (mem.indexOf(u8, entry.name, "eDP") != null or mem.indexOf(u8, entry.name, "LVDS") != null) {
+            try parts.appendSlice(allocator, " (built-in)");
         }
     }
     return if (parts.items.len > 0) parts.items else "Unknown";
