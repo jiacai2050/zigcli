@@ -25,9 +25,9 @@ const c = @cImport({
 const CGDirectDisplayID = u32;
 const CGDisplayModeRef = ?*anyopaque;
 const CGError = i32;
-extern "c" fn CGGetActiveDisplayList(
+extern "c" fn CGGetOnlineDisplayList(
     maxDisplays: u32,
-    activeDisplays: [*]CGDirectDisplayID,
+    onlineDisplays: ?[*]CGDirectDisplayID,
     displayCount: *u32,
 ) CGError;
 extern "c" fn CGDisplayCopyDisplayMode(display: CGDirectDisplayID) CGDisplayModeRef;
@@ -35,6 +35,7 @@ extern "c" fn CGDisplayModeRelease(mode: CGDisplayModeRef) void;
 extern "c" fn CGDisplayModeGetWidth(mode: CGDisplayModeRef) usize;
 extern "c" fn CGDisplayModeGetHeight(mode: CGDisplayModeRef) usize;
 extern "c" fn CGDisplayModeGetRefreshRate(mode: CGDisplayModeRef) f64;
+extern "c" fn CGDisplayIsBuiltin(display: CGDirectDisplayID) c.boolean_t;
 
 pub const getHostname = common.getHostname;
 pub const getKernel = common.getKernel;
@@ -153,11 +154,19 @@ pub fn getDiskMounts() []const [:0]const u8 {
 }
 
 pub fn getResolution(_: Io, allocator: mem.Allocator) ![]const u8 {
-    var display_ids: [8]CGDirectDisplayID = undefined;
     var display_count: u32 = 0;
-    if (CGGetActiveDisplayList(
-        display_ids.len,
-        &display_ids,
+    if (CGGetOnlineDisplayList(
+        0,
+        null,
+        &display_count,
+    ) != 0 or display_count == 0) {
+        return "Unknown";
+    }
+
+    const display_ids = try allocator.alloc(CGDirectDisplayID, display_count);
+    if (CGGetOnlineDisplayList(
+        display_count,
+        display_ids.ptr,
         &display_count,
     ) != 0 or display_count == 0) {
         return "Unknown";
@@ -190,6 +199,9 @@ pub fn getResolution(_: Io, allocator: mem.Allocator) ![]const u8 {
                 .{ w, h },
             );
             try parts.appendSlice(allocator, entry);
+        }
+        if (CGDisplayIsBuiltin(did) != 0) {
+            try parts.appendSlice(allocator, " (built-in)");
         }
     }
     return if (parts.items.len > 0) parts.items else "Unknown";
