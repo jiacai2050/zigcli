@@ -18,6 +18,10 @@ pub fn getCpu(io: Io, allocator: mem.Allocator) ![]const u8 {
     return common.getCpuFromProc(io, allocator);
 }
 
+pub fn getGpu(io: Io, allocator: mem.Allocator) ![]const u8 {
+    return common.getGpuFromDrm(io, allocator);
+}
+
 pub fn getHost(io: Io, allocator: mem.Allocator) ![]const u8 {
     return common.getHostFromDmi(io, allocator, "Linux");
 }

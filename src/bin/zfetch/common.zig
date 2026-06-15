@@ -446,6 +446,132 @@ pub fn getMemoryFromProc(io: Io, allocator: mem.Allocator) ![]const u8 {
     );
 }
 
+fn isDrmCardName(name: []const u8) bool {
+    if (!mem.startsWith(u8, name, "card")) return false;
+    if (name.len == "card".len) return false;
+    for (name["card".len..]) |ch| {
+        if (ch < '0' or ch > '9') return false;
+    }
+    return true;
+}
+
+fn trimHexPrefix(value: []const u8) []const u8 {
+    const trimmed = mem.trim(u8, value, " \n\r\t");
+    if (mem.startsWith(u8, trimmed, "0x")) return trimmed[2..];
+    if (mem.startsWith(u8, trimmed, "0X")) return trimmed[2..];
+    return trimmed;
+}
+
+fn pciVendorName(vendor_id: []const u8) []const u8 {
+    if (mem.eql(u8, vendor_id, "1002")) return "AMD";
+    if (mem.eql(u8, vendor_id, "1022")) return "AMD";
+    if (mem.eql(u8, vendor_id, "10de")) return "NVIDIA";
+    if (mem.eql(u8, vendor_id, "8086")) return "Intel";
+    if (mem.eql(u8, vendor_id, "1414")) return "Microsoft";
+    if (mem.eql(u8, vendor_id, "1af4")) return "Virtio";
+    if (mem.eql(u8, vendor_id, "1234")) return "QEMU";
+    return "Unknown";
+}
+
+fn findPciDeviceName(
+    io: Io,
+    allocator: mem.Allocator,
+    vendor_id: []const u8,
+    device_id: []const u8,
+) ?[]const u8 {
+    const pci_id_paths = [_][]const u8{
+        "/usr/share/hwdata/pci.ids",
+        "/usr/share/misc/pci.ids",
+        "/usr/share/pci.ids",
+    };
+
+    for (pci_id_paths) |path| {
+        const content = readAbsoluteAlloc(io, allocator, path, 8 * 1024 * 1024) catch continue;
+        var in_vendor = false;
+        var iter = mem.splitScalar(u8, content, '\n');
+        while (iter.next()) |line| {
+            if (line.len == 0 or line[0] == '#') continue;
+
+            if (line[0] != '\t') {
+                if (line.len >= 4 and mem.eql(u8, line[0..4], vendor_id)) {
+                    in_vendor = true;
+                } else if (in_vendor) {
+                    break;
+                }
+                continue;
+            }
+
+            if (!in_vendor) continue;
+            if (line.len < 6 or line[1] == '\t') continue;
+            if (!mem.eql(u8, line[1..5], device_id)) continue;
+            return mem.trim(u8, line[5..], " \t");
+        }
+    }
+
+    return null;
+}
+
+/// Reads GPU info from DRM sysfs.
+pub fn getGpuFromDrm(io: Io, allocator: mem.Allocator) ![]const u8 {
+    var drm_dir = std.Io.Dir.openDirAbsolute(io, "/sys/class/drm", .{ .iterate = true }) catch
+        return "Unknown";
+    defer drm_dir.close(io);
+
+    var parts: std.ArrayList(u8) = .empty;
+    var seen: [16]struct { vendor: [4]u8, device: [4]u8 } = undefined;
+    var seen_count: usize = 0;
+
+    var iter = drm_dir.iterate();
+    while (try iter.next(io)) |entry| {
+        if (!isDrmCardName(entry.name)) continue;
+
+        var path_buf: [256]u8 = undefined;
+        const vendor_path = fmt.bufPrint(&path_buf, "/sys/class/drm/{s}/device/vendor", .{entry.name}) catch continue;
+        var vendor_buf: [16]u8 = undefined;
+        const vendor_n = readAbsoluteIntoBuf(io, vendor_path, &vendor_buf) orelse continue;
+        const vendor_id = trimHexPrefix(vendor_buf[0..vendor_n]);
+        if (vendor_id.len != 4) continue;
+
+        const device_path = fmt.bufPrint(&path_buf, "/sys/class/drm/{s}/device/device", .{entry.name}) catch continue;
+        var device_buf: [16]u8 = undefined;
+        const device_n = readAbsoluteIntoBuf(io, device_path, &device_buf) orelse continue;
+        const device_id = trimHexPrefix(device_buf[0..device_n]);
+        if (device_id.len != 4) continue;
+
+        var duplicate = false;
+        for (seen[0..seen_count]) |item| {
+            if (mem.eql(u8, &item.vendor, vendor_id) and mem.eql(u8, &item.device, device_id)) {
+                duplicate = true;
+                break;
+            }
+        }
+        if (duplicate) continue;
+        if (seen_count < seen.len) {
+            @memcpy(&seen[seen_count].vendor, vendor_id);
+            @memcpy(&seen[seen_count].device, device_id);
+            seen_count += 1;
+        }
+
+        const vendor = pciVendorName(vendor_id);
+        const device_name = findPciDeviceName(io, allocator, vendor_id, device_id);
+        if (parts.items.len > 0) {
+            try parts.appendSlice(allocator, ", ");
+        }
+        if (device_name) |name| {
+            const entry_text = try fmt.allocPrint(allocator, "{s} {s}", .{ vendor, name });
+            try parts.appendSlice(allocator, entry_text);
+        } else if (!mem.eql(u8, vendor, "Unknown")) {
+            const entry_text = try fmt.allocPrint(allocator, "{s} GPU ({s}:{s})", .{ vendor, vendor_id, device_id });
+            try parts.appendSlice(allocator, entry_text);
+        } else {
+            const entry_text = try fmt.allocPrint(allocator, "GPU ({s}:{s})", .{ vendor_id, device_id });
+            try parts.appendSlice(allocator, entry_text);
+        }
+    }
+
+    return if (parts.items.len > 0) parts.items else "Unknown";
+}
+
 /// Reads CPU info from /proc/cpuinfo.
 pub fn getCpuFromProc(io: Io, allocator: mem.Allocator) ![]const u8 {
     const content = readAbsoluteAlloc(io, allocator, "/proc/cpuinfo", max_read_bytes) catch return "Unknown";

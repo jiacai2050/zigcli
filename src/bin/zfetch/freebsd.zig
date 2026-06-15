@@ -60,6 +60,10 @@ pub fn getCpu(_: Io, allocator: mem.Allocator) ![]const u8 {
     );
 }
 
+pub fn getGpu(_: Io, _: mem.Allocator) ![]const u8 {
+    return "Unknown";
+}
+
 pub fn getHost(io: Io, allocator: mem.Allocator) ![]const u8 {
     // Try DMI first (works on x86 FreeBSD).
     return common.getHostFromDmi(io, allocator, "FreeBSD");

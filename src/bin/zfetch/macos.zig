@@ -129,6 +129,10 @@ pub fn getCpu(_: Io, allocator: mem.Allocator) ![]const u8 {
     return allocator.dupe(u8, brand);
 }
 
+pub fn getGpu(_: Io, _: mem.Allocator) ![]const u8 {
+    return "Unknown";
+}
+
 pub fn getHost(_: Io, allocator: mem.Allocator) ![]const u8 {
     var model_buf: [128]u8 = undefined;
     var model_size: usize = model_buf.len;
