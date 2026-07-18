@@ -29,15 +29,19 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest]
-        targets:
-          - "aarch64-linux"
-          - "x86_64-linux"
-          - "x86_64-macos"
-          - "x86_64-windows"
-          - "aarch64-windows"
-          - "x86_64-freebsd"
-          - "aarch64-freebsd"
+        include:
+          - os: ubuntu-latest
+            target: aarch64-linux
+          - os: ubuntu-latest
+            target: x86_64-linux
+          - os: ubuntu-latest
+            target: x86_64-macos
+          - os: ubuntu-latest
+            target: aarch64-windows
+          - os: ubuntu-latest
+            target: x86_64-freebsd
+          - os: ubuntu-latest
+            target: aarch64-freebsd
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
@@ -45,18 +49,20 @@ jobs:
       - uses: mlugg/setup-zig@v2
       - name: Set env(release)
         if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
         run: |
           echo "RELEASE_VERSION=${{  github.ref_name }}" >> $GITHUB_ENV
           echo "OUT_DIR=/tmp/zigcli" >> $GITHUB_ENV
       - name: Set env(dev)
         if: "!startsWith(github.ref, 'refs/tags/')"
+        shell: bash
         run: |
           echo "RELEASE_VERSION=nightly" >> $GITHUB_ENV
           echo "OUT_DIR=/tmp/zigcli" >> $GITHUB_ENV
-      - name: Build(Ubuntu)
-        if: matrix.os == 'ubuntu-latest'
+      - name: Build
+        shell: bash
         run: |
-          export TARGET="${{ matrix.targets }}"
+          export TARGET="${{ matrix.target }}"
           bash .github/release-single.sh
       - name: Release
         uses: softprops/action-gh-release@v2
@@ -67,7 +73,45 @@ jobs:
         if: "!startsWith(github.ref, 'refs/tags/')"
         uses: actions/upload-artifact@v4
         with:
-          name: zigcli-${{ matrix.os }}-${{ matrix.targets }}
+          name: zigcli-${{ matrix.os }}-${{ matrix.target }}
+          path: ${{ env.OUT_DIR }}
+
+  upload-assets-win:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - uses: mlugg/setup-zig@v2
+      - name: Set env(release)
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          "RELEASE_VERSION=${{ github.ref_name }}" >> $env:GITHUB_ENV
+          "OUT_DIR=$env:TEMP\zigcli" >> $env:GITHUB_ENV
+      - name: Set env(dev)
+        if: "!startsWith(github.ref, 'refs/tags/')"
+        run: |
+          "RELEASE_VERSION=nightly" >> $env:GITHUB_ENV
+          "OUT_DIR=$env:TEMP\zigcli" >> $env:GITHUB_ENV
+      - name: Build(Windows)
+        run: |
+          $git_commit = git rev-parse --short HEAD
+          $build_date = Get-Date -Format "yyyy-MM-ddTHH:mm:ssK"
+          New-Item -ItemType Directory -Force -Path $env:OUT_DIR
+          zig build -Doptimize=ReleaseSafe `
+          -Dgit_commit=$git_commit -Dbuild_date=$build_date -Dversion=$env:RELEASE_VERSION
+          Remove-Item zig-out/bin/*demo
+          Copy-Item LICENSE, README.org zig-out
+          Compress-Archive -Path zig-out/* -DestinationPath "$env:OUT_DIR/zigcli-$env:RELEASE_VERSION-x86_64-windows.zip"
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: ${{ env.OUT_DIR }}/*
+      - name: Upload
+        if: "!startsWith(github.ref, 'refs/tags/')"
+        uses: actions/upload-artifact@v4
+        with:
+          name: zigcli-windows-latest
           path: ${{ env.OUT_DIR }}
 
   upload-assets-mac:
