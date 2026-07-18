@@ -65,6 +65,7 @@ Some highlights:
 - =pretty-csv= renders CSV and TSV files as aligned tables
 - =hexdump= prints a color-coded hex dump of files or stdin, with optional C include output
 - =zfetch= prints system information
+- =procscope= samples CPU, RSS, and power usage for a macOS process
 - =cowsay=, =repeat=, and other small terminal utilities round out the collection
 
 The programs and packages are developed in the same repository, so the binaries can also serve as

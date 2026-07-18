@@ -1,0 +1,63 @@
+#+TITLE: procscope
+#+DATE: 2026-07-18T10:22:32+0800
+#+LASTMOD: 2026-07-18T22:31:38+0800
+#+TYPE: docs
+#+DESCRIPTION: Stream per-process CPU time, memory, thread, fault, and energy counters on macOS.
+
+=procscope= continuously prints process snapshots by default. Use =--count 1=
+to emit a single sample and exit.
+
+- cumulative CPU time split into total, user, and system time
+- resident and virtual memory sizes, in bytes by default
+- thread counts, page faults, page-ins, and context switches
+- cumulative process energy consumed
+
+It uses =proc_pidinfo(PROC_PIDTASKINFO)= for CPU and memory, and
+=proc_pid_rusage(RUSAGE_INFO_V6)= for energy counters.
+
+#+begin_src bash :results verbatim :exports results :wrap example :dir ../../..
+./zig-out/bin/procscope -h
+#+end_src
+
+** Example
+
+#+begin_src bash
+./zig-out/bin/procscope --count 1 12345
+./zig-out/bin/procscope --human --count 5 12345
+./zig-out/bin/procscope --interval 1 --count 5 12345
+#+end_src
+
+#+begin_example
+Process ID: 12345
+Command Line: /usr/bin/python3 script.py --port 8080
+CPU(s)     USER(s)    SYS(s)     RSS(bytes)    VIRT(bytes)   TH       FAULTS     PAGEINS   CSW        ENERGY(mJ)
+18.764     15.932     2.832      103809024     1930428416    4/12     4248       19        10668      511.200
+18.781     15.947     2.834      103809024     1930428416    4/12     4250       19        10692      511.742
+
+Process ID: 12345
+Command Line: /usr/bin/python3 script.py --port 8080
+CPU(s)     USER(s)    SYS(s)     RSS           VIRT          TH       FAULTS     PAGEINS   CSW        ENERGY(mJ)
+18.764     15.932     2.832      99.0MiB       1.8GiB        4/12     4248       19        10668      511.200
+#+end_example
+
+** Key flags
+
+| Flag                | Description                                      |
+|---------------------+--------------------------------------------------|
+| =-H, --human=       | Format memory sizes with adaptive units          |
+| =-i, --interval=    | Delay in seconds between successive samples      |
+| =-n, --count=       | Number of samples to print, =0= means infinite   |
+
+** Metric meanings
+
+- =Command Line=: argv reconstructed from =KERN_PROCARGS2= when available; otherwise the executable path is shown.
+- =CPU(s)=: cumulative CPU time charged to the process since it started.
+- =USER(s)=: cumulative user-space CPU time charged to the process since it started.
+- =SYS(s)=: cumulative kernel-space CPU time charged to the process since it started.
+- =RSS=: physical memory currently resident for this process; =--human= switches to adaptive units.
+- =VIRT=: total virtual address space reserved by this process; =--human= switches to adaptive units.
+- =TH=: runnable threads versus all task threads, formatted as =running/total=.
+- =FAULTS=: cumulative page faults since the process started.
+- =PAGEINS=: cumulative page-ins serviced from storage since the process started.
+- =CSW=: cumulative task context switches since the process started.
+- =ENERGY(mJ)=: cumulative process energy counter from =ri_energy_nj=, shown in millijoules.
