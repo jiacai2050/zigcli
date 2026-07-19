@@ -135,6 +135,7 @@ fn buildBinaries(
         "tree",
         "loc",
         "pidof",
+        "procscope",
         "night-shift",
         "dark-mode",
         "repeat",
@@ -278,7 +279,7 @@ fn sourceSupported(
         }
     }
 
-    if (sourceNameInList(source_name, .{ "pidof", "night-shift", "dark-mode" })) {
+    if (sourceNameInList(source_name, .{ "pidof", "procscope", "night-shift", "dark-mode" })) {
         // those programs depend on macOS-only APIs, and don't support cross compile.
         if (host_os != .macos or target_os != .macos) {
             return false;
@@ -351,6 +352,17 @@ fn configureCompileStep(
     }
 
     if (std.mem.eql(u8, source_name, "pidof")) {
+        module.link_libc = true;
+        return;
+    }
+
+    if (std.mem.eql(u8, source_name, "procscope")) {
+        const translate_c = b.addTranslateC(.{
+            .root_source_file = b.path("src/include/procscope.h"),
+            .target = target,
+            .optimize = optimize,
+        });
+        module.addImport("c_procscope", translate_c.createModule());
         module.link_libc = true;
         return;
     }
