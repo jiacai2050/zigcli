@@ -52,6 +52,8 @@ pub fn searchPids(allocator: std.mem.Allocator, opt: Options, program: []const u
     }
 
     const procList = try allocator.alloc(c.struct_kinfo_proc, procSize / @sizeOf(c.struct_kinfo_proc));
+    defer allocator.free(procList);
+
     // https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man3/sysctl.3.html
     rc = c.sysctl(&mib, mib.len, @ptrCast(procList), &procSize, null, 0);
     if (rc != 0) {
@@ -106,7 +108,9 @@ pub fn main(init: std.process.Init) !void {
     }
 
     const program = opt.positional_arguments[0];
-    const pids = try searchPids(allocator, opt.options, program);
+    var pids = try searchPids(allocator, opt.options, program);
+    defer pids.deinit(allocator);
+
     if (pids.items.len == 0) {
         std.process.exit(1);
     }
