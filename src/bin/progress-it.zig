@@ -420,22 +420,23 @@ fn scanProcMacos(
     pid_filter: ?[]const u32,
     cmd_filter: []const []const u8,
 ) !std.ArrayList(FileInfo) {
-    const c = @cImport({
-        @cInclude("libproc.h");
-        @cInclude("sys/proc_info.h");
-        @cInclude("sys/stat.h");
-    });
+    const c = @import("c");
+    const libproc = @import("./macos_libproc.zig");
+    const proc_listpids = libproc.proc_listpids;
+    const proc_name = libproc.proc_name;
+    const proc_pidinfo = libproc.proc_pidinfo;
+    const proc_pidfdinfo = libproc.proc_pidfdinfo;
 
     var results: std.ArrayList(FileInfo) = .empty;
 
     // Determine the number of bytes needed for the full PID list.
-    const pids_size = c.proc_listpids(c.PROC_ALL_PIDS, 0, null, 0);
+    const pids_size = proc_listpids(c.PROC_ALL_PIDS, 0, null, 0);
     if (pids_size <= 0) return results;
 
     const pid_buf = try allocator.alloc(c.pid_t, @as(usize, @intCast(pids_size)) / @sizeOf(c.pid_t));
     defer allocator.free(pid_buf);
 
-    const actual_pids_size = c.proc_listpids(c.PROC_ALL_PIDS, 0, @ptrCast(pid_buf.ptr), pids_size);
+    const actual_pids_size = proc_listpids(c.PROC_ALL_PIDS, 0, @ptrCast(pid_buf.ptr), pids_size);
     if (actual_pids_size <= 0) return results;
     const pid_count = @as(usize, @intCast(actual_pids_size)) / @sizeOf(c.pid_t);
 
@@ -457,7 +458,7 @@ fn scanProcMacos(
 
         // Read the command name via libproc.
         var name_buf = std.mem.zeroes([256]u8);
-        _ = c.proc_name(pid, @ptrCast(&name_buf), name_buf.len);
+        _ = proc_name(pid, @ptrCast(&name_buf), name_buf.len);
         const comm = mem.sliceTo(&name_buf, 0);
         if (comm.len == 0) continue;
 
@@ -474,7 +475,7 @@ fn scanProcMacos(
         }
 
         // Get the file-descriptor list for this process.
-        const fds_size = c.proc_pidinfo(pid, c.PROC_PIDLISTFDS, 0, null, 0);
+        const fds_size = proc_pidinfo(pid, c.PROC_PIDLISTFDS, 0, null, 0);
         if (fds_size <= 0) continue;
 
         const fd_buf = try allocator.alloc(
@@ -483,7 +484,7 @@ fn scanProcMacos(
         );
         defer allocator.free(fd_buf);
 
-        const actual_fds_size = c.proc_pidinfo(pid, c.PROC_PIDLISTFDS, 0, @ptrCast(fd_buf.ptr), fds_size);
+        const actual_fds_size = proc_pidinfo(pid, c.PROC_PIDLISTFDS, 0, @ptrCast(fd_buf.ptr), fds_size);
         if (actual_fds_size <= 0) continue;
         const fd_count = @as(usize, @intCast(actual_fds_size)) / @sizeOf(c.struct_proc_fdinfo);
 
@@ -493,7 +494,7 @@ fn scanProcMacos(
 
             // Get vnode path info, including the current file seek offset.
             var vnode_info: c.struct_vnode_fdinfowithpath = undefined;
-            const vnode_ret = c.proc_pidfdinfo(
+            const vnode_ret = proc_pidfdinfo(
                 pid,
                 fd_entry.proc_fd,
                 c.PROC_PIDFDVNODEPATHINFO,

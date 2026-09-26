@@ -386,6 +386,14 @@ fn configureCompileStep(
         if (target.result.os.tag == .linux) {
             module.link_libc = true;
             return;
+        } else if (target.result.os.tag == .macos) {
+            const translate_c = b.addTranslateC(.{
+                .root_source_file = b.path("src/include/progress-it.h"),
+                .target = target,
+                .optimize = optimize,
+            });
+            module.addImport("c", translate_c.createModule());
+            return;
         }
     }
 }
