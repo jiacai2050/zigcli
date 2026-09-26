@@ -370,6 +370,11 @@ fn configureCompileStep(
     if (std.mem.eql(u8, source_name, "zfetch")) {
         switch (target.result.os.tag) {
             .macos => {
+                module.addCSourceFile(.{
+                    .file = b.path("src/bin/zfetch/macos_battery.c"),
+                    .flags = &.{},
+                });
+                module.addIncludePath(b.path("src/bin/zfetch"));
                 module.linkFramework("CoreGraphics", .{});
                 module.linkFramework("Foundation", .{});
                 module.linkFramework("IOKit", .{});

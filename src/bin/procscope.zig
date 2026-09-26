@@ -486,13 +486,13 @@ fn writeWatchColumn(writer: *std.Io.Writer, text: []const u8, width: usize) !voi
     }
 }
 
-// test "parsePid rejects zero" {
-//     try testing.expectError(error.InvalidPid, parsePid("0"));
-// }
+test "parsePid rejects zero" {
+    try testing.expectError(error.InvalidPid, parsePid("0"));
+}
 
-// test "parsePid accepts positive pid" {
-//     try testing.expectEqual(@as(c.pid_t, 42), try parsePid("42"));
-// }
+test "parsePid accepts positive pid" {
+    try testing.expectEqual(@as(c.pid_t, 42), try parsePid("42"));
+}
 
 test "validateOptions rejects zero interval" {
     try testing.expectError(error.InvalidInterval, validateOptions(.{

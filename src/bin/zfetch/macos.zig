@@ -14,10 +14,7 @@ const c = @cImport({
     @cInclude("mach/mach_host.h");
     @cInclude("mach/mach_init.h");
     @cInclude("mach/vm_statistics.h");
-    // CoreGraphics headers use Objective-C block typedefs that arocc can't
-    // translate. Manual externs for the 6 CG symbols we use are declared below.
-    @cInclude("IOKit/ps/IOPowerSources.h");
-    @cInclude("IOKit/ps/IOPSKeys.h");
+    @cInclude("CoreFoundation/CoreFoundation.h");
 });
 
 // Minimal CoreGraphics bindings — declared manually because @cImport of
@@ -36,6 +33,7 @@ extern "c" fn CGDisplayModeGetWidth(mode: CGDisplayModeRef) usize;
 extern "c" fn CGDisplayModeGetHeight(mode: CGDisplayModeRef) usize;
 extern "c" fn CGDisplayModeGetRefreshRate(mode: CGDisplayModeRef) f64;
 extern "c" fn CGDisplayIsBuiltin(display: CGDirectDisplayID) c.boolean_t;
+extern "c" fn zfetch_get_battery(buffer: [*]u8, buffer_size: usize) c_int;
 
 pub const getHostname = common.getHostname;
 pub const getKernel = common.getKernel;
@@ -212,51 +210,15 @@ pub fn getResolution(_: Io, allocator: mem.Allocator) ![]const u8 {
 }
 
 pub fn getBattery(_: Io, allocator: mem.Allocator) ![]const u8 {
-    const info = c.IOPSCopyPowerSourcesInfo();
-    defer _ = c.CFRelease(info);
-    const list = c.IOPSCopyPowerSourcesList(info);
-    defer _ = c.CFRelease(list);
-
-    const count = c.CFArrayGetCount(list);
-    if (count == 0) return "No Battery";
-
-    const source = c.CFArrayGetValueAtIndex(list, 0);
-    const desc = c.IOPSGetPowerSourceDescription(info, source);
-
-    var capacity: i32 = 0;
-    const key_cap = c.CFStringCreateWithCString(
-        null,
-        c.kIOPSCurrentCapacityKey,
-        c.kCFStringEncodingUTF8,
+    var battery_buf: [64]u8 = undefined;
+    const battery_len = zfetch_get_battery(
+        &battery_buf,
+        battery_buf.len,
     );
-    defer _ = c.CFRelease(key_cap);
-    const val_cap = c.CFDictionaryGetValue(desc, key_cap);
-    if (val_cap) |v| {
-        _ = c.CFNumberGetValue(
-            @ptrCast(@alignCast(v)),
-            c.kCFNumberSInt32Type,
-            &capacity,
-        );
-    }
-
-    var is_charging = false;
-    const key_chg = c.CFStringCreateWithCString(
-        null,
-        c.kIOPSIsChargingKey,
-        c.kCFStringEncodingUTF8,
-    );
-    defer _ = c.CFRelease(key_chg);
-    const val_chg = c.CFDictionaryGetValue(desc, key_chg);
-    if (val_chg) |v| {
-        is_charging = c.CFBooleanGetValue(
-            @ptrCast(@alignCast(v)),
-        ) != 0;
-    }
-
-    return fmt.allocPrint(allocator, "{d}% [{s}]", .{
-        capacity,
-        if (is_charging) "Charging" else "Discharging",
-    });
+    if (battery_len < 0) return error.BatteryReadFailed;
+    const battery_len_usize = @as(usize, @intCast(battery_len));
+    if (battery_len_usize >= battery_buf.len) return error.BatteryReadFailed;
+    return allocator.dupe(u8, battery_buf[0..battery_len_usize]);
 }
 
 pub fn getTheme(_: Io, _: *const Environ.Map) []const u8 {
