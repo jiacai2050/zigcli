@@ -371,7 +371,7 @@ fn configureCompileStep(
         switch (target.result.os.tag) {
             .macos => {
                 module.addCSourceFile(.{
-                    .file = b.path("src/bin/zfetch/macos_battery.c"),
+                    .file = b.path("src/bin/zfetch/macos.c"),
                     .flags = &.{},
                 });
                 module.addIncludePath(b.path("src/bin/zfetch"));

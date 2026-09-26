@@ -11,10 +11,6 @@ const c = @cImport({
     @cInclude("sys/time.h");
     @cInclude("sys/sysctl.h");
     @cInclude("sys/mount.h");
-    @cInclude("mach/mach_host.h");
-    @cInclude("mach/mach_init.h");
-    @cInclude("mach/vm_statistics.h");
-    @cInclude("CoreFoundation/CoreFoundation.h");
 });
 
 // Minimal CoreGraphics bindings — declared manually because @cImport of
@@ -34,6 +30,13 @@ extern "c" fn CGDisplayModeGetHeight(mode: CGDisplayModeRef) usize;
 extern "c" fn CGDisplayModeGetRefreshRate(mode: CGDisplayModeRef) f64;
 extern "c" fn CGDisplayIsBuiltin(display: CGDirectDisplayID) c.boolean_t;
 extern "c" fn zfetch_get_battery(buffer: [*]u8, buffer_size: usize) c_int;
+extern "c" fn zfetch_is_dark_theme() c_int;
+extern "c" fn zfetch_get_memory(
+    bytes_total: *u64,
+    pages_app: *u64,
+    pages_wired: *u64,
+    pages_compressed: *u64,
+) c_int;
 
 pub const getHostname = common.getHostname;
 pub const getKernel = common.getKernel;
@@ -222,18 +225,7 @@ pub fn getBattery(_: Io, allocator: mem.Allocator) ![]const u8 {
 }
 
 pub fn getTheme(_: Io, _: *const Environ.Map) []const u8 {
-    const key = c.CFStringCreateWithCString(
-        null,
-        "AppleInterfaceStyle",
-        c.kCFStringEncodingUTF8,
-    );
-    defer _ = c.CFRelease(key);
-    const value = c.CFPreferencesCopyAppValue(
-        key,
-        c.kCFPreferencesAnyApplication,
-    );
-    if (value != null) {
-        defer _ = c.CFRelease(value);
+    if (zfetch_is_dark_theme() != 0) {
         return "Dark";
     }
     return "Light";
@@ -245,40 +237,25 @@ pub fn getMemory(
     bytes_per_page: u64,
 ) ![]const u8 {
     var bytes_total: u64 = 0;
-    var size: usize = @sizeOf(u64);
-    if (c.sysctlbyname(
-        "hw.memsize",
+    var pages_app: u64 = 0;
+    var pages_wired: u64 = 0;
+    var pages_compressed: u64 = 0;
+    const memory_result = zfetch_get_memory(
         &bytes_total,
-        &size,
-        null,
-        0,
-    ) != 0) {
+        &pages_app,
+        &pages_wired,
+        &pages_compressed,
+    );
+    if (memory_result < 0) {
         return "Unknown";
     }
-
-    var vm: c.vm_statistics64_data_t = undefined;
-    var vm_count: c.mach_msg_type_number_t =
-        c.HOST_VM_INFO64_COUNT;
-    if (c.host_statistics64(
-        c.mach_host_self(),
-        c.HOST_VM_INFO64,
-        @ptrCast(&vm),
-        &vm_count,
-    ) != 0) {
+    if (memory_result > 0) {
         return fmt.allocPrint(
             allocator,
             "{d} MiB",
             .{bytes_total / (1024 * 1024)},
         );
     }
-
-    const pages_app = @as(u64, vm.internal_page_count) -|
-        @as(u64, vm.purgeable_count);
-    const pages_wired = @as(u64, vm.wire_count);
-    const pages_compressed = @as(
-        u64,
-        vm.compressor_page_count,
-    );
 
     const pages_used = pages_app + pages_wired + pages_compressed;
     const bytes_used = pages_used * bytes_per_page;
