@@ -7,6 +7,10 @@ const util = @import("util.zig");
 const c = @import("c_procscope");
 const fmt = std.fmt;
 const testing = std.testing;
+const libproc = @import("./macos_libproc.zig");
+const proc_pid_rusage = libproc.proc_pid_rusage;
+const proc_pidinfo = libproc.proc_pidinfo;
+const proc_pidpath = libproc.proc_pidpath;
 
 const Options = struct {
     interval: u32 = 1,
@@ -111,7 +115,6 @@ pub fn main(init: std.process.Init) !void {
         identity,
         opt.options,
     );
-    try writer.interface.flush();
 }
 
 fn validateOptions(options: Options) !void {
@@ -175,7 +178,7 @@ fn getProcessIdentity(allocator: std.mem.Allocator, pid: c.pid_t) !ProcessIdenti
 
 fn getExecutablePath(allocator: std.mem.Allocator, pid: c.pid_t) ![]const u8 {
     var path_buf: [c.PROC_PIDPATHINFO_MAXSIZE]u8 = undefined;
-    const path_len = c.proc_pidpath(
+    const path_len = proc_pidpath(
         pid,
         @ptrCast(&path_buf),
         c.PROC_PIDPATHINFO_MAXSIZE,
@@ -317,7 +320,7 @@ fn sampleProcess(pid: c.pid_t) !ProcessSample {
 
 fn sampleTask(pid: c.pid_t) !TaskSample {
     var task_info = std.mem.zeroes(c.struct_proc_taskinfo);
-    const got = c.proc_pidinfo(
+    const got = proc_pidinfo(
         pid,
         c.PROC_PIDTASKINFO,
         0,
@@ -344,7 +347,7 @@ fn sampleTask(pid: c.pid_t) !TaskSample {
 
 fn sampleEnergy(pid: c.pid_t) !u64 {
     var usage_info = std.mem.zeroes(c.struct_rusage_info_v6);
-    const ret = c.proc_pid_rusage(
+    const ret = proc_pid_rusage(
         pid,
         c.RUSAGE_INFO_V6,
         @ptrCast(&usage_info),

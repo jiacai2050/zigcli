@@ -11,13 +11,6 @@ const c = @cImport({
     @cInclude("sys/time.h");
     @cInclude("sys/sysctl.h");
     @cInclude("sys/mount.h");
-    @cInclude("mach/mach_host.h");
-    @cInclude("mach/mach_init.h");
-    @cInclude("mach/vm_statistics.h");
-    // CoreGraphics headers use Objective-C block typedefs that arocc can't
-    // translate. Manual externs for the 6 CG symbols we use are declared below.
-    @cInclude("IOKit/ps/IOPowerSources.h");
-    @cInclude("IOKit/ps/IOPSKeys.h");
 });
 
 // Minimal CoreGraphics bindings — declared manually because @cImport of
@@ -36,6 +29,14 @@ extern "c" fn CGDisplayModeGetWidth(mode: CGDisplayModeRef) usize;
 extern "c" fn CGDisplayModeGetHeight(mode: CGDisplayModeRef) usize;
 extern "c" fn CGDisplayModeGetRefreshRate(mode: CGDisplayModeRef) f64;
 extern "c" fn CGDisplayIsBuiltin(display: CGDirectDisplayID) c.boolean_t;
+extern "c" fn zfetch_get_battery(buffer: [*]u8, buffer_size: usize) c_int;
+extern "c" fn zfetch_is_dark_theme() c_int;
+extern "c" fn zfetch_get_memory(
+    bytes_total: *u64,
+    pages_app: *u64,
+    pages_wired: *u64,
+    pages_compressed: *u64,
+) c_int;
 
 pub const getHostname = common.getHostname;
 pub const getKernel = common.getKernel;
@@ -212,66 +213,19 @@ pub fn getResolution(_: Io, allocator: mem.Allocator) ![]const u8 {
 }
 
 pub fn getBattery(_: Io, allocator: mem.Allocator) ![]const u8 {
-    const info = c.IOPSCopyPowerSourcesInfo();
-    defer _ = c.CFRelease(info);
-    const list = c.IOPSCopyPowerSourcesList(info);
-    defer _ = c.CFRelease(list);
-
-    const count = c.CFArrayGetCount(list);
-    if (count == 0) return "No Battery";
-
-    const source = c.CFArrayGetValueAtIndex(list, 0);
-    const desc = c.IOPSGetPowerSourceDescription(info, source);
-
-    var capacity: i32 = 0;
-    const key_cap = c.CFStringCreateWithCString(
-        null,
-        c.kIOPSCurrentCapacityKey,
-        c.kCFStringEncodingUTF8,
+    var battery_buf: [64]u8 = undefined;
+    const battery_len = zfetch_get_battery(
+        &battery_buf,
+        battery_buf.len,
     );
-    defer _ = c.CFRelease(key_cap);
-    const val_cap = c.CFDictionaryGetValue(desc, key_cap);
-    if (val_cap) |v| {
-        _ = c.CFNumberGetValue(
-            @ptrCast(@alignCast(v)),
-            c.kCFNumberSInt32Type,
-            &capacity,
-        );
-    }
-
-    var is_charging = false;
-    const key_chg = c.CFStringCreateWithCString(
-        null,
-        c.kIOPSIsChargingKey,
-        c.kCFStringEncodingUTF8,
-    );
-    defer _ = c.CFRelease(key_chg);
-    const val_chg = c.CFDictionaryGetValue(desc, key_chg);
-    if (val_chg) |v| {
-        is_charging = c.CFBooleanGetValue(
-            @ptrCast(@alignCast(v)),
-        ) != 0;
-    }
-
-    return fmt.allocPrint(allocator, "{d}% [{s}]", .{
-        capacity,
-        if (is_charging) "Charging" else "Discharging",
-    });
+    if (battery_len < 0) return error.BatteryReadFailed;
+    const battery_len_usize = @as(usize, @intCast(battery_len));
+    if (battery_len_usize >= battery_buf.len) return error.BatteryReadFailed;
+    return allocator.dupe(u8, battery_buf[0..battery_len_usize]);
 }
 
 pub fn getTheme(_: Io, _: *const Environ.Map) []const u8 {
-    const key = c.CFStringCreateWithCString(
-        null,
-        "AppleInterfaceStyle",
-        c.kCFStringEncodingUTF8,
-    );
-    defer _ = c.CFRelease(key);
-    const value = c.CFPreferencesCopyAppValue(
-        key,
-        c.kCFPreferencesAnyApplication,
-    );
-    if (value != null) {
-        defer _ = c.CFRelease(value);
+    if (zfetch_is_dark_theme() != 0) {
         return "Dark";
     }
     return "Light";
@@ -283,40 +237,25 @@ pub fn getMemory(
     bytes_per_page: u64,
 ) ![]const u8 {
     var bytes_total: u64 = 0;
-    var size: usize = @sizeOf(u64);
-    if (c.sysctlbyname(
-        "hw.memsize",
+    var pages_app: u64 = 0;
+    var pages_wired: u64 = 0;
+    var pages_compressed: u64 = 0;
+    const memory_result = zfetch_get_memory(
         &bytes_total,
-        &size,
-        null,
-        0,
-    ) != 0) {
+        &pages_app,
+        &pages_wired,
+        &pages_compressed,
+    );
+    if (memory_result < 0) {
         return "Unknown";
     }
-
-    var vm: c.vm_statistics64_data_t = undefined;
-    var vm_count: c.mach_msg_type_number_t =
-        c.HOST_VM_INFO64_COUNT;
-    if (c.host_statistics64(
-        c.mach_host_self(),
-        c.HOST_VM_INFO64,
-        @ptrCast(&vm),
-        &vm_count,
-    ) != 0) {
+    if (memory_result > 0) {
         return fmt.allocPrint(
             allocator,
             "{d} MiB",
             .{bytes_total / (1024 * 1024)},
         );
     }
-
-    const pages_app = @as(u64, vm.internal_page_count) -|
-        @as(u64, vm.purgeable_count);
-    const pages_wired = @as(u64, vm.wire_count);
-    const pages_compressed = @as(
-        u64,
-        vm.compressor_page_count,
-    );
 
     const pages_used = pages_app + pages_wired + pages_compressed;
     const bytes_used = pages_used * bytes_per_page;

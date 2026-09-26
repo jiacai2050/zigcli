@@ -370,6 +370,11 @@ fn configureCompileStep(
     if (std.mem.eql(u8, source_name, "zfetch")) {
         switch (target.result.os.tag) {
             .macos => {
+                module.addCSourceFile(.{
+                    .file = b.path("src/bin/zfetch/macos.c"),
+                    .flags = &.{},
+                });
+                module.addIncludePath(b.path("src/bin/zfetch"));
                 module.linkFramework("CoreGraphics", .{});
                 module.linkFramework("Foundation", .{});
                 module.linkFramework("IOKit", .{});
@@ -385,6 +390,14 @@ fn configureCompileStep(
     if (std.mem.eql(u8, source_name, "progress-it")) {
         if (target.result.os.tag == .linux) {
             module.link_libc = true;
+            return;
+        } else if (target.result.os.tag == .macos) {
+            const translate_c = b.addTranslateC(.{
+                .root_source_file = b.path("src/include/progress-it.h"),
+                .target = target,
+                .optimize = optimize,
+            });
+            module.addImport("c", translate_c.createModule());
             return;
         }
     }
