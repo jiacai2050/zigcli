@@ -122,8 +122,11 @@ int zfetch_get_memory(
         return 1;
     }
 
-    *pages_app = (uint64_t)vm.internal_page_count -
-        (uint64_t)vm.purgeable_count;
+    const uint64_t internal_pages = (uint64_t)vm.internal_page_count;
+    const uint64_t purgeable_pages = (uint64_t)vm.purgeable_count;
+    *pages_app = internal_pages > purgeable_pages
+        ? internal_pages - purgeable_pages
+        : 0;
     *pages_wired = (uint64_t)vm.wire_count;
     *pages_compressed = (uint64_t)vm.compressor_page_count;
     return 0;

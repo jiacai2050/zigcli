@@ -169,6 +169,7 @@ pub fn getResolution(_: Io, allocator: mem.Allocator) ![]const u8 {
     }
 
     const display_ids = try allocator.alloc(CGDirectDisplayID, display_count);
+    defer allocator.free(display_ids);
     if (CGGetOnlineDisplayList(
         display_count,
         display_ids.ptr,
@@ -178,6 +179,7 @@ pub fn getResolution(_: Io, allocator: mem.Allocator) ![]const u8 {
     }
 
     var parts: std.ArrayList(u8) = .empty;
+    defer parts.deinit(allocator);
     for (display_ids[0..display_count]) |did| {
         const mode = CGDisplayCopyDisplayMode(did);
         if (mode == null) continue;
@@ -190,16 +192,17 @@ pub fn getResolution(_: Io, allocator: mem.Allocator) ![]const u8 {
         if (parts.items.len > 0) {
             try parts.appendSlice(allocator, ", ");
         }
+        var entry_buf: [64]u8 = undefined;
         if (hz > 0) {
-            const entry = try fmt.allocPrint(
-                allocator,
+            const entry = try fmt.bufPrint(
+                &entry_buf,
                 "{d}x{d} @ {d}Hz",
                 .{ w, h, @as(u32, @intFromFloat(hz)) },
             );
             try parts.appendSlice(allocator, entry);
         } else {
-            const entry = try fmt.allocPrint(
-                allocator,
+            const entry = try fmt.bufPrint(
+                &entry_buf,
                 "{d}x{d}",
                 .{ w, h },
             );
@@ -209,7 +212,8 @@ pub fn getResolution(_: Io, allocator: mem.Allocator) ![]const u8 {
             try parts.appendSlice(allocator, " (built-in)");
         }
     }
-    return if (parts.items.len > 0) parts.items else "Unknown";
+    if (parts.items.len == 0) return "Unknown";
+    return try parts.toOwnedSlice(allocator);
 }
 
 pub fn getBattery(_: Io, allocator: mem.Allocator) ![]const u8 {

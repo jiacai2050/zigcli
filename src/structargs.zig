@@ -366,6 +366,8 @@ const MessageHelper = struct {
 
             try writer.writeAll("\n");
         }
+
+        try writer.flush();
     }
 
     pub fn printVersion(self: MessageHelper) !void {
@@ -623,7 +625,6 @@ fn OptionParser(
                             sub_command_name,
                             &stderr_writer.interface,
                         ) catch {};
-                        stderr_writer.interface.flush() catch {};
                         help_was_printed.* = true;
                     }
                 }

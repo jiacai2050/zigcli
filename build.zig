@@ -375,6 +375,7 @@ fn configureCompileStep(
                     .flags = &.{},
                 });
                 module.addIncludePath(b.path("src/bin/zfetch"));
+                module.link_libc = true;
                 module.linkFramework("CoreGraphics", .{});
                 module.linkFramework("Foundation", .{});
                 module.linkFramework("IOKit", .{});
@@ -425,7 +426,7 @@ fn zfetchSupported(
         else => return false,
     }
 
-    // zfetch uses @cImport with OS-specific headers that must exist on the host.
+    // zfetch uses OS-specific headers that must exist on the host.
     if (target_os == .macos) {
         return host_os == .macos;
     } else {
