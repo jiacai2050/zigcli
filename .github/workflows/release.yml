@@ -41,7 +41,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - uses: mlugg/setup-zig@v2
       - name: Set env(release)
         if: startsWith(github.ref, 'refs/tags/')
@@ -78,7 +78,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - uses: mlugg/setup-zig@v2
       - name: Set env(release)
         if: startsWith(github.ref, 'refs/tags/')
@@ -115,3 +115,21 @@ jobs:
         with:
           name: zigcli-${{ matrix.os }}
           path: ${{ env.OUT_DIR }}
+
+  atomgit:
+    needs: [upload-assets, upload-assets-mac]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Sync release to atomgit
+        uses: jiacai2050/atomgit-action@v1
+        with:
+          tag: ${{ github.ref_name }}
+          owner: ${{ github.repository_owner }}
+          repo: ${{ github.event.repository.name }}
+          atomgit_token: ${{ secrets.ATOMGIT_TOKEN }}

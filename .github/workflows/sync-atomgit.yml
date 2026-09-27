@@ -1,0 +1,25 @@
+name: Sync to atomgit
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to sync (e.g. v1.2.0)'
+        required: true
+
+jobs:
+  atomgit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Sync release to atomgit
+        uses: jiacai2050/atomgit-action@v1
+        with:
+          tag: ${{ inputs.tag }}
+          owner: ${{ github.repository_owner }}
+          repo: ${{ github.event.repository.name }}
+          atomgit_token: ${{ secrets.ATOMGIT_TOKEN }}
