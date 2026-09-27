@@ -1,5 +1,32 @@
 # Changelog
 
+## v0.6.3 (2026-09-27)
+
+### New Programs
+- **pstat**: Monitor a macOS process's CPU, memory, thread, context-switch,
+  and energy usage.
+
+### Improvements
+- **zfetch**: Add GPU information on Linux, including PCI device name
+  resolution through hwdata.
+- **zfetch**: Show monitor refresh rates and identify built-in displays in
+  resolution output.
+- **zfetch**: Improve shell detection and reading of `/proc` and theme files.
+- **macOS**: Move incompatible system API calls from Zig translation into a
+  dedicated C module, fixing builds affected by Mach, IOKit, and libproc
+  headers.
+- **pidof**: Improve process-list memory ownership and cleanup.
+
+### Bug Fixes
+- **zfetch**: Fix memory leaks in macOS display enumeration and prevent
+  underflow in macOS memory accounting.
+- **zfetch**: Explicitly link libc for the macOS implementation.
+- **progress-it**: Use the macOS C shim for libproc APIs whose headers cannot
+  be translated reliably.
+
+### Documentation
+- Added documentation for `pstat`.
+
 ## v0.6.2 (2026-05-10)
 
 ### Improvements

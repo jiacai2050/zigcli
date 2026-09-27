@@ -1,10 +1,10 @@
-#+TITLE: procscope
+#+TITLE: pstat
 #+DATE: 2026-07-18T10:22:32+0800
 #+LASTMOD: 2026-07-18T22:31:38+0800
 #+TYPE: docs
 #+DESCRIPTION: Stream per-process CPU time, memory, thread, fault, and energy counters on macOS.
 
-=procscope= continuously prints process snapshots by default. Use =--count 1=
+=pstat= continuously prints process snapshots by default. Use =--count 1=
 to emit a single sample and exit.
 
 - cumulative CPU time split into total, user, and system time
@@ -16,15 +16,15 @@ It uses =proc_pidinfo(PROC_PIDTASKINFO)= for CPU and memory, and
 =proc_pid_rusage(RUSAGE_INFO_V6)= for energy counters.
 
 #+begin_src bash :results verbatim :exports results :wrap example :dir ../../..
-./zig-out/bin/procscope -h
+./zig-out/bin/pstat -h
 #+end_src
 
 ** Example
 
 #+begin_src bash
-./zig-out/bin/procscope --count 1 12345
-./zig-out/bin/procscope --human --count 5 12345
-./zig-out/bin/procscope --interval 1 --count 5 12345
+./zig-out/bin/pstat --count 1 12345
+./zig-out/bin/pstat --human --count 5 12345
+./zig-out/bin/pstat --interval 1 --count 5 12345
 #+end_src
 
 #+begin_example

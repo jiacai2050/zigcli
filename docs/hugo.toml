@@ -13,7 +13,7 @@ github_subdir = 'docs'
 offlineSearch = true
 
 [module]
-proxy = "https://goproxy.cn,direct"
+# proxy = "https://goproxy.cn,direct"
 [[module.imports]]
 path = "github.com/google/docsy"
 
@@ -30,3 +30,6 @@ showLightDarkModeMenu = true
   [markup.highlight]
     style = "pygments"
     linenos = true
+
+[security]
+  allowContent = ['! ^text/html$', '^text/org$', '^text/markdown$']

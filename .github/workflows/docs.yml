@@ -51,7 +51,6 @@ jobs:
           HUGO_ENV: production
         run: |
           npm i -D postcss postcss-cli autoprefixer
-          hugo mod get
           hugo \
             --minify \
             --baseURL "${{ steps.pages.outputs.base_url }}/"

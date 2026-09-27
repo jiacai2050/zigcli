@@ -1,10 +1,10 @@
-//! procscope: monitor CPU, RSS, and energy usage for a macOS process.
+//! pstat: monitor CPU, RSS, and energy usage for a macOS process.
 
 const std = @import("std");
 const zigcli = @import("zigcli");
 const structargs = zigcli.structargs;
 const util = @import("util.zig");
-const c = @import("c_procscope");
+const c = @import("c_pstat");
 const fmt = std.fmt;
 const testing = std.testing;
 const libproc = @import("./macos_libproc.zig");

@@ -62,7 +62,7 @@ Some highlights:
 
 - =loc= counts lines of code across languages
 - =tree= prints directory trees with optional filtering
-- =procscope= samples CPU, RSS, and energy usage for a macOS process
+- =pstat= samples CPU, RSS, and energy usage for a macOS process
 
 The programs and packages are developed in the same repository, so the binaries can also serve as
 examples of how the reusable modules fit together.
