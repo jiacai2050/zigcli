@@ -56,17 +56,22 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest]
-        targets:
-          - x86_64-windows
-          - x86_64-linux
-          - x86_64-macos
-          - aarch64-macos
-          - x86_64-freebsd
-          - aarch64-freebsd
+        include:
+          - os: windows-latest
+            target: x86_64-windows
+          - os: ubuntu-latest
+            target: x86_64-linux
+          - os: ubuntu-latest
+            target: x86_64-macos
+          - os: ubuntu-latest
+            target: aarch64-macos
+          - os: ubuntu-latest
+            target: x86_64-freebsd
+          - os: ubuntu-latest
+            target: aarch64-freebsd
     steps:
       - uses: actions/checkout@v4
       - uses: mlugg/setup-zig@v2
       - name: Build
         run: |
-          zig build -Dtarget=${{ matrix.targets }}
+          zig build -Dtarget=${{ matrix.target }}
