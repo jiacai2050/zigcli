@@ -131,7 +131,7 @@ pub const Separator = struct {
             .dos => dos,
         };
 
-        return sep_table[@intFromEnum(row_pos)][@intFromEnum(col_pos)];
+        return sep_table[@backingInt(row_pos)][@backingInt(col_pos)];
     }
 };
 
@@ -144,7 +144,7 @@ pub fn Table(comptime len: usize) type {
         /// Number of spaces added to both the left and right side of each cell's content.
         padding: usize = 0,
         /// Per-column text alignment; defaults to left-alignment for all columns.
-        column_align: [len]Align = [_]Align{.left} ** len,
+        column_align: [len]Align = @splat(.left),
         /// When true, a separator line is printed between every pair of adjacent data rows.
         row_separator: bool = false,
         /// Render each data row as a vertical key-value block.
@@ -161,7 +161,7 @@ pub fn Table(comptime len: usize) type {
             pub const Options = struct {
                 mode: Separator.Mode = .ascii,
                 padding: usize = 0,
-                column_align: [len]Align = [_]Align{.left} ** len,
+                column_align: [len]Align = @splat(.left),
                 row_separator: bool = false,
                 transpose: bool = false,
             };
@@ -266,7 +266,7 @@ pub fn Table(comptime len: usize) type {
             col_lens: [len]usize,
         ) !void {
             // Track which column positions are absorbed by a spanning cell.
-            var covered = [_]bool{false} ** len;
+            var covered: [len]bool = @splat(false);
 
             for (row, 0..) |cell, col_idx| {
                 if (covered[col_idx]) continue;
@@ -1281,7 +1281,12 @@ test "hspan basic" {
     // Row with span: |a|wide |   (no extra | between "wide" and the right border).
     // The span row must NOT contain "|" between the two spanned columns.
     const span_row_start = std.mem.indexOf(u8, out.written(), "|a|") orelse unreachable;
-    const span_row_end = std.mem.indexOfPos(u8, out.written(), span_row_start, "\n") orelse unreachable;
+    const span_row_end = std.mem.indexOfPos(
+        u8,
+        out.written(),
+        span_row_start,
+        "\n",
+    ) orelse unreachable;
     const span_row = out.written()[span_row_start..span_row_end];
     // The span row should have exactly 3 `|` characters (left, after col 0, right border).
     var pipe_count: usize = 0;
@@ -1313,7 +1318,12 @@ test "hspan of 3 columns" {
     // The span row for Bob should have exactly 3 `|` characters:
     // opening `|`, separator after col 0, and the closing `|`.
     const span_row_start = std.mem.indexOf(u8, out.written(), "|Bob|") orelse unreachable;
-    const span_row_end = std.mem.indexOfPos(u8, out.written(), span_row_start, "\n") orelse unreachable;
+    const span_row_end = std.mem.indexOfPos(
+        u8,
+        out.written(),
+        span_row_start,
+        "\n",
+    ) orelse unreachable;
     const span_row = out.written()[span_row_start..span_row_end];
     var pipe_count: usize = 0;
     for (span_row) |ch| {

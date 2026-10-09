@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Zigcli is a toolkit for building command-line programs in Zig (currently targeting Zig 0.16.0). It provides both reusable Zig packages (modules) and standalone CLI programs.
+Zigcli is a toolkit for building command-line programs in Zig (currently targeting Zig 0.17.0). It provides both reusable Zig packages (modules) and standalone CLI programs.
 
 ## Build Commands
 
@@ -40,7 +40,6 @@ Each `.zig` file in `src/bin/` is a standalone CLI tool. The build system auto-w
 - **tree** — Directory tree viewer
 - **pretty-csv** — Pretty-print CSV/TSV files as aligned tables
 - **zfetch** — System information fetcher (macOS, Linux, FreeBSD)
-- **zigfetch** — URL fetcher (depends on zig-curl)
 - **tcp-proxy** — TCP proxy server (Linux zero-copy via splice)
 - **progress-it** — Port of [progress](https://github.com/Xfennec/progress) (Linux + macOS)
 - **cowsay** — ASCII cow message display
@@ -70,4 +69,4 @@ Demo programs (`structargs-demo`, `pretty-table-demo`) that exercise the modules
 
 ### Dependencies
 
-Single external dependency: **zig-curl** (used only by zigfetch, lazy-loaded).
+Zero external dependencies.

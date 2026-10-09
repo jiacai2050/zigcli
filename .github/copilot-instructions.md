@@ -28,11 +28,10 @@
   - `timeout` is skipped on Windows.
   - `progress-it` only builds on macOS and Linux.
   - `zfetch` has OS-specific behavior and linking.
-  - `zigfetch` depends on the external `zig-curl` package from `build.zig.zon`.
 
 ## Key codebase conventions
 
-- Target the current toolchain declared by the repo, not older assistant docs. `build.zig.zon` currently requires Zig `0.15.2`.
+- Target the current toolchain declared by the repo, not older assistant docs. `build.zig.zon` currently requires Zig `0.17.0`.
 - When changing package exports, update `src/lib.zig` and keep the root import pattern as `const zigcli = @import("zigcli");`.
 - New CLI binaries should follow the existing pattern:
   - import `zigcli` plus `src/bin/util.zig`

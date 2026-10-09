@@ -6,90 +6,7 @@ const std = @import("std");
 const zigcli = @import("zigcli");
 const structargs = zigcli.structargs;
 const util = @import("util.zig");
-const c = @cImport({
-    @cInclude("sys/sysctl.h");
-    @cInclude("unistd.h");
-});
-
-pub const Options = struct {
-    single: bool = false,
-    delimiter: []const u8 = " ",
-    strict: bool = false,
-    user_only: bool = false,
-    version: bool = false,
-    help: bool = false,
-
-    pub const __shorts__ = .{
-        .single = .s,
-        .delimiter = .d,
-        .strict = .S,
-        .user_only = .u,
-        .version = .v,
-        .help = .h,
-    };
-    pub const __messages__ = .{
-        .single = "Only return the first matching pid.",
-        .delimiter = "Delimiter used if more than one PID is shown.",
-        .strict = "Case sensitive when matching program name.",
-        .user_only = "Only show process belonging to current user.",
-        .version = "Print version.",
-        .help = "Print help message.",
-    };
-};
-
-pub fn searchPids(allocator: std.mem.Allocator, opt: Options, program: []const u8) !std.ArrayList(c.pid_t) {
-    var mib = [_]c_int{
-        c.CTL_KERN,
-        c.KERN_PROC,
-        c.KERN_PROC_ALL,
-    };
-    var procSize: usize = 0;
-    // sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp, size_t newlen);
-    var rc = c.sysctl(&mib, mib.len, null, &procSize, null, 0);
-    if (rc != 0) {
-        std.log.err("get proc size, err:{any}", .{std.posix.errno(rc)});
-        return error.sysctl;
-    }
-
-    const procList = try allocator.alloc(c.struct_kinfo_proc, procSize / @sizeOf(c.struct_kinfo_proc));
-    defer allocator.free(procList);
-
-    // https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man3/sysctl.3.html
-    rc = c.sysctl(&mib, mib.len, @ptrCast(procList), &procSize, null, 0);
-    if (rc != 0) {
-        std.log.err("get proc list failed, err:{any}", .{std.posix.errno(rc)});
-        return error.sysctl;
-    }
-
-    // procSize may change between two calls of sysctl, so we cannot iterate
-    // procList directly with for(procList) |proc|.
-    var pids: std.ArrayList(c.pid_t) = .empty;
-    const uid = if (opt.user_only) c.getuid() else null;
-    for (0..procSize / @sizeOf(c.struct_kinfo_proc)) |i| {
-        if (opt.single and pids.items.len == 1) {
-            break;
-        }
-        const proc = procList[i];
-        if (uid) |id| {
-            if (id != proc.kp_eproc.e_pcred.p_ruid) {
-                continue;
-            }
-        }
-
-        const name = std.mem.sliceTo(&proc.kp_proc.p_comm, 0);
-        if (opt.strict) {
-            if (std.mem.eql(u8, name, program)) {
-                try pids.append(allocator, proc.kp_proc.p_pid);
-            }
-        } else {
-            if (std.ascii.eqlIgnoreCase(name, program)) {
-                try pids.append(allocator, proc.kp_proc.p_pid);
-            }
-        }
-    }
-
-    return pids;
-}
+const c = @import("c");
 
 pub fn main(init: std.process.Init) !void {
     var gpa = util.Allocator.instance;
@@ -125,4 +42,89 @@ pub fn main(init: std.process.Init) !void {
         try writer.interface.print("{d}", .{pid});
     }
     try writer.interface.flush();
+}
+
+pub const Options = struct {
+    single: bool = false,
+    delimiter: []const u8 = " ",
+    strict: bool = false,
+    user_only: bool = false,
+    version: bool = false,
+    help: bool = false,
+
+    pub const __shorts__ = .{
+        .single = .s,
+        .delimiter = .d,
+        .strict = .S,
+        .user_only = .u,
+        .version = .v,
+        .help = .h,
+    };
+    pub const __messages__ = .{
+        .single = "Only return the first matching pid.",
+        .delimiter = "Delimiter used if more than one PID is shown.",
+        .strict = "Case sensitive when matching program name.",
+        .user_only = "Only show process belonging to current user.",
+        .version = "Print version.",
+        .help = "Print help message.",
+    };
+};
+
+pub fn searchPids(
+    allocator: std.mem.Allocator,
+    opt: Options,
+    program: []const u8,
+) !std.ArrayList(c.pid_t) {
+    var mib = [_]c_int{
+        c.CTL_KERN,
+        c.KERN_PROC,
+        c.KERN_PROC_ALL,
+    };
+    var proc_size: usize = 0;
+    // sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp, size_t newlen);
+    var rc = c.sysctl(&mib, mib.len, null, &proc_size, null, 0);
+    if (rc != 0) {
+        std.log.err("get proc size, err:{any}", .{std.posix.errno(rc)});
+        return error.sysctl;
+    }
+
+    const kinfo_size = @sizeOf(c.struct_kinfo_proc);
+    const proc_list = try allocator.alloc(c.struct_kinfo_proc, proc_size / kinfo_size);
+    defer allocator.free(proc_list);
+
+    // https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man3/sysctl.3.html
+    rc = c.sysctl(&mib, mib.len, @ptrCast(proc_list), &proc_size, null, 0);
+    if (rc != 0) {
+        std.log.err("get proc list failed, err:{any}", .{std.posix.errno(rc)});
+        return error.sysctl;
+    }
+
+    // proc_size may change between two calls of sysctl, so we cannot iterate
+    // proc_list directly with for(proc_list) |proc|.
+    var pids: std.ArrayList(c.pid_t) = .empty;
+    const uid = if (opt.user_only) c.getuid() else null;
+    for (0..proc_size / kinfo_size) |i| {
+        if (opt.single and pids.items.len == 1) {
+            break;
+        }
+        const proc = proc_list[i];
+        if (uid) |id| {
+            if (id != proc.kp_eproc.e_pcred.p_ruid) {
+                continue;
+            }
+        }
+
+        const name = std.mem.sliceTo(&proc.kp_proc.p_comm, 0);
+        if (opt.strict) {
+            if (std.mem.eql(u8, name, program)) {
+                try pids.append(allocator, proc.kp_proc.p_pid);
+            }
+        } else {
+            if (std.ascii.eqlIgnoreCase(name, program)) {
+                try pids.append(allocator, proc.kp_proc.p_pid);
+            }
+        }
+    }
+
+    return pids;
 }

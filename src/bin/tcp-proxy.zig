@@ -47,7 +47,11 @@ pub fn main(init: std.process.Init) !void {
     }
 
     const bind_addr = try net.IpAddress.resolve(io, opt.options.bind_host, opt.options.local_port);
-    const remote_addr = try net.IpAddress.resolve(io, opt.options.remote_host, opt.options.remote_port);
+    const remote_addr = try net.IpAddress.resolve(
+        io,
+        opt.options.remote_host,
+        opt.options.remote_port,
+    );
     var server = try bind_addr.listen(io, .{
         .kernel_backlog = 128,
         .reuse_address = true,
@@ -118,7 +122,12 @@ const Proxy = struct {
     allocator: mem.Allocator,
     context: CopyContext,
 
-    fn init(allocator: mem.Allocator, source: net.Stream, remote: net.Stream, buf_size: usize) !Proxy {
+    fn init(
+        allocator: mem.Allocator,
+        source: net.Stream,
+        remote: net.Stream,
+        buf_size: usize,
+    ) !Proxy {
         const context: CopyContext = if (is_linux) .{
             .src_to_remote = try createPipe(),
             .remote_to_src = try createPipe(),
@@ -140,11 +149,29 @@ const Proxy = struct {
     fn run(self: Proxy, io: std.Io) void {
         var group: std.Io.Group = .init;
         if (is_linux) {
-            group.async(io, copyStreamSplice, .{ self.context.src_to_remote, self.source.socket.handle, self.remote.socket.handle });
-            group.async(io, copyStreamSplice, .{ self.context.remote_to_src, self.remote.socket.handle, self.source.socket.handle });
+            group.async(io, copyStreamSplice, .{
+                self.context.src_to_remote,
+                self.source.socket.handle,
+                self.remote.socket.handle,
+            });
+            group.async(io, copyStreamSplice, .{
+                self.context.remote_to_src,
+                self.remote.socket.handle,
+                self.source.socket.handle,
+            });
         } else {
-            group.async(io, copyStream, .{ io, self.source, self.remote, self.context.src_to_remote });
-            group.async(io, copyStream, .{ io, self.remote, self.source, self.context.remote_to_src });
+            group.async(io, copyStream, .{
+                io,
+                self.source,
+                self.remote,
+                self.context.src_to_remote,
+            });
+            group.async(io, copyStream, .{
+                io,
+                self.remote,
+                self.source,
+                self.context.remote_to_src,
+            });
         }
         group.await(io) catch {};
         self.deinit(io);
@@ -154,7 +181,12 @@ const Proxy = struct {
     // src→pipe is non-blocking; pipe→dst is blocking (mirrors main branch behavior).
     fn copyStreamSplice(fds: [2]std.posix.fd_t, src: std.posix.fd_t, dst: std.posix.fd_t) void {
         while (true) {
-            const rc = spliceFd(src, fds[1], std.math.maxInt(u31), SPLICE_F_MOVE | SPLICE_F_NONBLOCK);
+            const rc = spliceFd(
+                src,
+                fds[1],
+                std.math.maxInt(u31),
+                SPLICE_F_MOVE | SPLICE_F_NONBLOCK,
+            );
             if (rc == 0) return; // EOF
             if (rc < 0) {
                 std.log.err("Read stream into pipe failed, err:{d}", .{-rc});
@@ -171,7 +203,14 @@ const Proxy = struct {
     fn copyStream(io: std.Io, src: net.Stream, dst: net.Stream, buf: []u8) void {
         var src_reader = src.reader(io, buf);
         var dst_writer = dst.writer(io, &.{});
-        _ = src_reader.interface.streamRemaining(&dst_writer.interface) catch {};
+        if (src_reader.interface.streamRemaining(&dst_writer.interface)) |_| {} else |err| {
+            if (err != error.EndOfStream and
+                err != error.BrokenPipe and
+                err != error.ConnectionResetByPeer)
+            {
+                std.log.err("stream copy failed, err: {any}", .{err});
+            }
+        }
     }
 
     fn deinit(self: Proxy, io: std.Io) void {
@@ -181,7 +220,8 @@ const Proxy = struct {
             closePipe(self.context.src_to_remote);
             closePipe(self.context.remote_to_src);
         } else {
-            self.allocator.free(self.context.src_to_remote.ptr[0 .. self.context.src_to_remote.len + self.context.remote_to_src.len]);
+            const total_len = self.context.src_to_remote.len + self.context.remote_to_src.len;
+            self.allocator.free(self.context.src_to_remote.ptr[0..total_len]);
         }
     }
 };

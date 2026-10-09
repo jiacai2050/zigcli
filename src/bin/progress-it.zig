@@ -214,7 +214,11 @@ fn runOnce(
     const snap1 = try scanProc(io, arena1.allocator(), pid_filter, cmd_filter);
     if (snap1.items.len == 0) return false;
 
-    try std.Io.sleep(io, .{ .nanoseconds = @intCast(options.@"throughput-wait-time" * time.ns_per_s) }, .awake);
+    try std.Io.sleep(
+        io,
+        .{ .nanoseconds = @intCast(options.@"throughput-wait-time" * time.ns_per_s) },
+        .awake,
+    );
 
     var arena2 = std.heap.ArenaAllocator.init(allocator);
     defer arena2.deinit();
@@ -263,7 +267,11 @@ fn scanProcLinux(
 ) !std.ArrayList(FileInfo) {
     var results: std.ArrayList(FileInfo) = .empty;
 
-    var proc_dir = std.Io.Dir.openDirAbsolute(io, "/proc", .{ .iterate = true }) catch return results;
+    var proc_dir = std.Io.Dir.openDirAbsolute(
+        io,
+        "/proc",
+        .{ .iterate = true },
+    ) catch return results;
     defer proc_dir.close(io);
 
     var proc_iter = proc_dir.iterate();
@@ -373,7 +381,11 @@ fn recordFd(
 
     // Read the current file position from /proc/<pid>/fdinfo/<fd>.
     var fdinfo_path_buf: [96]u8 = undefined;
-    const fdinfo_path = fmt.bufPrint(&fdinfo_path_buf, "/proc/{d}/fdinfo/{d}", .{ pid, fd }) catch return;
+    const fdinfo_path = fmt.bufPrint(
+        &fdinfo_path_buf,
+        "/proc/{d}/fdinfo/{d}",
+        .{ pid, fd },
+    ) catch return;
     const fdinfo_file = std.Io.Dir.openFileAbsolute(io, fdinfo_path, .{}) catch return;
     defer fdinfo_file.close(io);
     var fdinfo_file_buf: [256]u8 = undefined;
@@ -433,7 +445,10 @@ fn scanProcMacos(
     const pids_size = proc_listpids(c.PROC_ALL_PIDS, 0, null, 0);
     if (pids_size <= 0) return results;
 
-    const pid_buf = try allocator.alloc(c.pid_t, @as(usize, @intCast(pids_size)) / @sizeOf(c.pid_t));
+    const pid_buf = try allocator.alloc(
+        c.pid_t,
+        @as(usize, @intCast(pids_size)) / @sizeOf(c.pid_t),
+    );
     defer allocator.free(pid_buf);
 
     const actual_pids_size = proc_listpids(c.PROC_ALL_PIDS, 0, @ptrCast(pid_buf.ptr), pids_size);
@@ -484,7 +499,13 @@ fn scanProcMacos(
         );
         defer allocator.free(fd_buf);
 
-        const actual_fds_size = proc_pidinfo(pid, c.PROC_PIDLISTFDS, 0, @ptrCast(fd_buf.ptr), fds_size);
+        const actual_fds_size = proc_pidinfo(
+            pid,
+            c.PROC_PIDLISTFDS,
+            0,
+            @ptrCast(fd_buf.ptr),
+            fds_size,
+        );
         if (actual_fds_size <= 0) continue;
         const fd_count = @as(usize, @intCast(actual_fds_size)) / @sizeOf(c.struct_proc_fdinfo);
 

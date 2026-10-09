@@ -45,10 +45,6 @@ jobs:
         run: |
           zig build
           find zig-out || true
-      - name: zigfetch compare
-        if: matrix.os != 'windows-latest'
-        run: |
-          bash .github/zigfetch.sh
 
   cross-compile:
     timeout-minutes: 10

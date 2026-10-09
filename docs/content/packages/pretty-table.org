@@ -55,9 +55,9 @@ const t = Table(2){
     .padding = 1,
 };
 
-const out = std.fs.File.stdout();
+const out = std.Io.File.stdout();
 var buf: [4096]u8 = undefined;
-var writer = out.writer(&buf);
+var writer = out.writer(io, &buf);
 try writer.interface.print("{f}", .{t});
 try writer.interface.flush();
 #+end_src
@@ -330,12 +330,12 @@ try table.render(writer);
 - =Table(N)=, =Table(N).Owned=, and =RuntimeTable= all implement =format=, so you can print them with ="{f}"=.
 - =RuntimeTable= also keeps an explicit =render(writer)= method.
 
-For Zig 0.15's new I/O API, a common pattern is:
+For the standard I/O API, a common pattern is:
 
 #+begin_src zig
-const out = std.fs.File.stdout();
+const out = std.Io.File.stdout();
 var buf: [4096]u8 = undefined;
-var writer = out.writer(&buf);
+var writer = out.writer(io, &buf);
 
 try writer.interface.print("{f}", .{table});
 try writer.interface.flush();

@@ -5,178 +5,12 @@ const Writer = std.Io.Writer;
 const zigcli = @import("zigcli");
 const structargs = zigcli.structargs;
 const util = @import("util.zig");
-const c = @cImport({
-    @cInclude("objc/objc.h");
-    @cInclude("objc/message.h");
-});
-
-const Time = extern struct {
-    hour: c_int,
-    minute: c_int,
-
-    fn fromString(hhmm: []const u8) !@This() {
-        var iter = std.mem.splitSequence(u8, hhmm, ":");
-        const hour = iter.next() orelse return error.MissingHour;
-        const minute = iter.next() orelse return error.MissingMinute;
-
-        return .{
-            .hour = std.fmt.parseInt(c_int, hour, 10) catch return error.InvalidHour,
-            .minute = std.fmt.parseInt(c_int, minute, 10) catch return error.InvalidMinute,
-        };
-    }
-};
-
-const CustomSchedule = extern struct {
-    from_time: Time,
-    to_time: Time,
-};
-
-const Schedule = union(enum) {
-    // false means schedule is off
-    SunSetToSunRise: bool,
-    Custom: CustomSchedule,
-
-    fn toMode(self: @This()) c_int {
-        return switch (self) {
-            .SunSetToSunRise => |v| if (v) 1 else 0,
-            .Custom => 2,
-        };
-    }
-};
-
-// Refer https://github.com/smudge/nightlight/blob/03595a642f0876388db11b9f5a3bd8261ab178d5/src/macos/status.rs#L21
-const Status = extern struct {
-    active: bool,
-    enabled: bool,
-    sun_schedule_permitted: bool,
-    mode: c_int,
-    custom_schedule: CustomSchedule,
-    disable_flags: c_ulonglong,
-    available: bool,
-
-    const Self = @This();
-
-    fn formatSchedule(self: Self, buf: []u8) ![]const u8 {
-        return switch (self.mode) {
-            0 => "Off",
-            1 => "SunsetToSunrise",
-            2 => try std.fmt.bufPrint(buf, "Custom({d}:{d}-{d}:{d})", .{
-                self.custom_schedule.from_time.hour,
-                self.custom_schedule.from_time.minute,
-                self.custom_schedule.to_time.hour,
-                self.custom_schedule.to_time.minute,
-            }),
-            else => "Unknown",
-        };
-    }
-
-    fn display(self: Self, wtr: *Writer) !void {
-        if (!self.enabled) {
-            try wtr.writeAll("Enabled: off");
-            return;
-        }
-
-        var buf = std.mem.zeroes([32]u8);
-        try wtr.print(
-            \\Enabled: on
-            \\Schedule: {s}
-        , .{try self.formatSchedule(&buf)});
-    }
-};
-
-const Client = struct {
-    inner: c.id,
-    allocator: std.mem.Allocator,
-
-    const Self = @This();
-
-    fn init(allocator: std.mem.Allocator) Self {
-        // https://developer.limneos.net/?ios=14.4&framework=CoreBrightness.framework&header=CBBlueLightClient.h
-        const clazz = c.objc_getClass("CBBlueLightClient");
-        const call: *fn (c.id, c.SEL) callconv(.c) c.id = @ptrCast(@constCast(&c.objc_msgSend));
-
-        return Self{
-            .inner = call(
-                call(@ptrCast(@alignCast(clazz.?)), c.sel_registerName("alloc")),
-                c.sel_registerName("init"),
-            ),
-            .allocator = allocator,
-        };
-    }
-
-    fn getStatus(self: Self) !*Status {
-        const status = try self.allocator.create(Status);
-        const call: *fn (c.id, c.SEL, *Status) callconv(.c) bool =
-            @ptrCast(@constCast(&c.objc_msgSend));
-        const ret = call(self.inner, c.sel_registerName("getBlueLightStatus:"), status);
-        if (!ret) {
-            return error.getBlueLightStatus;
-        }
-
-        return status;
-    }
-
-    fn setSchedule(self: Self, schedule: Schedule) !void {
-        {
-            const call: *fn (c.id, c.SEL, c_int) callconv(.c) bool = @ptrCast(@constCast(&c.objc_msgSend));
-            const ret = call(self.inner, c.sel_registerName("setMode:"), schedule.toMode());
-            if (!ret) {
-                return error.setMode;
-            }
-        }
-
-        switch (schedule) {
-            .SunSetToSunRise => {},
-            .Custom => |custom| {
-                const ptr = try self.allocator.create(CustomSchedule);
-                ptr.* = custom;
-                const call: *fn (c.id, c.SEL, [*c]CustomSchedule) callconv(.c) bool = @ptrCast(@constCast(&c.objc_msgSend));
-                const ret = call(self.inner, c.sel_registerName("setSchedule:"), ptr);
-                if (!ret) {
-                    return error.setSchedule;
-                }
-            },
-        }
-    }
-
-    fn setEnabled(self: Self, enabled: bool) !void {
-        const call: *fn (c.id, c.SEL, bool) callconv(.c) bool = @ptrCast(@constCast(&c.objc_msgSend));
-        const ret = call(self.inner, c.sel_registerName("setEnabled:"), enabled);
-        if (!ret) {
-            return error.getStrength;
-        }
-    }
-
-    fn turnOn(self: Self) !void {
-        return self.setEnabled(true);
-    }
-
-    fn turnOff(self: Self) !void {
-        return self.setEnabled(false);
-    }
-
-    fn getStrength(self: Self) !f32 {
-        var strength: f32 = 0;
-        const call: *fn (c.id, c.SEL, *f32) callconv(.c) bool = @ptrCast(@constCast(&c.objc_msgSend));
-        const ret = call(self.inner, c.sel_registerName("getStrength:"), &strength);
-        if (!ret) {
-            return error.getStrength;
-        }
-
-        return strength;
-    }
-
-    fn setStrength(self: Self, strength: f32) !void {
-        const call: *fn (c.id, c.SEL, f32, bool) callconv(.c) bool = @ptrCast(@constCast(&c.objc_msgSend));
-        const ret = call(self.inner, c.sel_registerName("setStrength:commit:"), strength, true);
-        if (!ret) {
-            return error.setStrength;
-        }
-    }
-
-    fn destroyStatus(self: Self, status: *Status) void {
-        self.allocator.destroy(status);
-    }
+const c = struct {
+    pub const id = ?*anyopaque;
+    pub const SEL = ?*anyopaque;
+    pub extern "c" fn objc_getClass(name: [*:0]const u8) id;
+    pub extern "c" fn sel_registerName(name: [*:0]const u8) SEL;
+    pub extern "c" fn objc_msgSend() void;
 };
 
 const Command = enum {
@@ -315,3 +149,177 @@ pub fn main(init: std.process.Init) !void {
         },
     } // end switch
 }
+
+const Time = extern struct {
+    hour: c_int,
+    minute: c_int,
+
+    fn fromString(hhmm: []const u8) !@This() {
+        var iter = std.mem.splitSequence(u8, hhmm, ":");
+        const hour = iter.next() orelse return error.MissingHour;
+        const minute = iter.next() orelse return error.MissingMinute;
+
+        return .{
+            .hour = std.fmt.parseInt(c_int, hour, 10) catch return error.InvalidHour,
+            .minute = std.fmt.parseInt(c_int, minute, 10) catch return error.InvalidMinute,
+        };
+    }
+};
+
+const CustomSchedule = extern struct {
+    from_time: Time,
+    to_time: Time,
+};
+
+const Schedule = union(enum) {
+    // false means schedule is off
+    SunSetToSunRise: bool,
+    Custom: CustomSchedule,
+
+    fn toMode(self: @This()) c_int {
+        return switch (self) {
+            .SunSetToSunRise => |v| if (v) 1 else 0,
+            .Custom => 2,
+        };
+    }
+};
+
+// Refer https://github.com/smudge/nightlight/blob/03595a642f0876388db11b9f5a3bd8261ab178d5/src/macos/status.rs#L21
+const Status = extern struct {
+    active: bool,
+    enabled: bool,
+    sun_schedule_permitted: bool,
+    mode: c_int,
+    custom_schedule: CustomSchedule,
+    disable_flags: c_ulonglong,
+    available: bool,
+
+    const Self = @This();
+
+    fn formatSchedule(self: Self, buf: []u8) ![]const u8 {
+        return switch (self.mode) {
+            0 => "Off",
+            1 => "SunsetToSunrise",
+            2 => try std.fmt.bufPrint(buf, "Custom({d}:{d}-{d}:{d})", .{
+                self.custom_schedule.from_time.hour,
+                self.custom_schedule.from_time.minute,
+                self.custom_schedule.to_time.hour,
+                self.custom_schedule.to_time.minute,
+            }),
+            else => "Unknown",
+        };
+    }
+
+    fn display(self: Self, wtr: *Writer) !void {
+        if (!self.enabled) {
+            try wtr.writeAll("Enabled: off");
+            return;
+        }
+
+        var buf = std.mem.zeroes([32]u8);
+        try wtr.print(
+            \\Enabled: on
+            \\Schedule: {s}
+        , .{try self.formatSchedule(&buf)});
+    }
+};
+
+const Client = struct {
+    inner: c.id,
+    allocator: std.mem.Allocator,
+
+    const Self = @This();
+
+    fn init(allocator: std.mem.Allocator) Self {
+        // https://developer.limneos.net/?ios=14.4&framework=CoreBrightness.framework&header=CBBlueLightClient.h
+        const clazz = c.objc_getClass("CBBlueLightClient");
+        const call: *fn (c.id, c.SEL) callconv(.c) c.id = @ptrCast(@constCast(&c.objc_msgSend));
+
+        return Self{
+            .inner = call(
+                call(@ptrCast(@alignCast(clazz.?)), c.sel_registerName("alloc")),
+                c.sel_registerName("init"),
+            ),
+            .allocator = allocator,
+        };
+    }
+
+    fn getStatus(self: Self) !*Status {
+        const status = try self.allocator.create(Status);
+        const call: *fn (c.id, c.SEL, *Status) callconv(.c) bool =
+            @ptrCast(@constCast(&c.objc_msgSend));
+        const ret = call(self.inner, c.sel_registerName("getBlueLightStatus:"), status);
+        if (!ret) {
+            return error.getBlueLightStatus;
+        }
+
+        return status;
+    }
+
+    fn setSchedule(self: Self, schedule: Schedule) !void {
+        {
+            const call: *fn (c.id, c.SEL, c_int) callconv(.c) bool =
+                @ptrCast(@constCast(&c.objc_msgSend));
+            const ret = call(self.inner, c.sel_registerName("setMode:"), schedule.toMode());
+            if (!ret) {
+                return error.setMode;
+            }
+        }
+
+        switch (schedule) {
+            .SunSetToSunRise => {},
+            .Custom => |custom| {
+                const ptr = try self.allocator.create(CustomSchedule);
+                ptr.* = custom;
+                const call: *fn (c.id, c.SEL, [*c]CustomSchedule) callconv(.c) bool =
+                    @ptrCast(@constCast(&c.objc_msgSend));
+                const ret = call(self.inner, c.sel_registerName("setSchedule:"), ptr);
+                if (!ret) {
+                    return error.setSchedule;
+                }
+            },
+        }
+    }
+
+    fn setEnabled(self: Self, enabled: bool) !void {
+        const call: *fn (c.id, c.SEL, bool) callconv(.c) bool =
+            @ptrCast(@constCast(&c.objc_msgSend));
+        const ret = call(self.inner, c.sel_registerName("setEnabled:"), enabled);
+        if (!ret) {
+            return error.getStrength;
+        }
+    }
+
+    fn turnOn(self: Self) !void {
+        return self.setEnabled(true);
+    }
+
+    fn turnOff(self: Self) !void {
+        return self.setEnabled(false);
+    }
+
+    fn getStrength(self: Self) !f32 {
+        var strength: f32 = 0;
+        const call: *fn (c.id, c.SEL, *f32) callconv(.c) bool =
+            @ptrCast(@constCast(&c.objc_msgSend));
+        const ret = call(self.inner, c.sel_registerName("getStrength:"), &strength);
+        if (!ret) {
+            return error.getStrength;
+        }
+
+        return strength;
+    }
+
+    fn setStrength(self: Self, strength: f32) !void {
+        const call: *fn (c.id, c.SEL, f32, bool) callconv(.c) bool =
+            @ptrCast(@constCast(&c.objc_msgSend));
+        const ret = call(self.inner, c.sel_registerName("setStrength:commit:"), strength, true);
+        if (!ret) {
+            return error.setStrength;
+        }
+    }
+
+    fn destroyStatus(self: Self, status: *Status) void {
+        self.allocator.destroy(status);
+    }
+};

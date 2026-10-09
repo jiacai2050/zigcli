@@ -7,11 +7,7 @@ const fmt = std.fmt;
 const Io = std.Io;
 const Environ = std.process.Environ;
 
-const c = @cImport({
-    @cInclude("sys/time.h");
-    @cInclude("sys/sysctl.h");
-    @cInclude("sys/mount.h");
-});
+const c = @import("c");
 
 // Minimal CoreGraphics bindings — declared manually because @cImport of
 // <CoreGraphics/CoreGraphics.h> fails under arocc.

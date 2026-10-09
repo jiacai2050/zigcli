@@ -63,40 +63,44 @@ const OptionField = struct {
 fn getOptionLength(comptime Options: type) usize {
     const type_info = @typeInfo(Options);
     if (type_info != .@"struct") {
-        @compileError("Option configuration should be defined using struct, found " ++ @typeName(Options));
+        @compileError(
+            "Option configuration should be defined using struct, found " ++ @typeName(Options),
+        );
     }
 
-    const fields = std.meta.fields(Options);
-    inline for (fields) |field| {
-        if (std.mem.eql(u8, field.name, command_field_name_default)) {
-            return fields.len - 1;
+    const s = type_info.@"struct";
+    inline for (s.field_names) |name| {
+        if (std.mem.eql(u8, name, command_field_name_default)) {
+            return s.field_names.len - 1;
         }
     }
 
-    return fields.len;
+    return s.field_names.len;
 }
 
 fn buildOptionFields(comptime Options: type) [getOptionLength(Options)]OptionField {
     const type_info = @typeInfo(Options);
     if (type_info != .@"struct") {
-        @compileError("Option configuration should be defined using struct, found " ++ @typeName(Options));
+        @compileError(
+            "Option configuration should be defined using struct, found " ++ @typeName(Options),
+        );
     }
 
     var option_fields: [getOptionLength(Options)]OptionField = undefined;
-    const fields = std.meta.fields(Options);
+    const s = type_info.@"struct";
     var current_index: usize = 0;
-    inline for (fields) |field| {
-        if (std.mem.eql(u8, field.name, command_field_name_default)) {
+    inline for (s.field_names, s.field_types, s.field_attrs) |name, field_type, attrs| {
+        if (std.mem.eql(u8, name, command_field_name_default)) {
             continue;
         }
 
-        const long_name = field.name;
-        const option_type = OptionType.from_zig_type(field.type);
+        const long_name = name;
+        const option_type = OptionType.from_zig_type(field_type);
         option_fields[current_index] = .{
             .long_name = long_name,
             .option_type = option_type,
             // Option with default value is set automatically.
-            .is_set = field.default_value_ptr != null,
+            .is_set = attrs.default_value_ptr != null,
         };
         current_index += 1;
     }
@@ -105,24 +109,30 @@ fn buildOptionFields(comptime Options: type) [getOptionLength(Options)]OptionFie
     if (@hasDecl(Options, "__shorts__")) {
         const shorts_type = @TypeOf(Options.__shorts__);
         if (@typeInfo(shorts_type) != .@"struct") {
-            @compileError("__shorts__ should be defined using struct, found " ++ @typeName(shorts_type));
+            @compileError(
+                "__shorts__ should be defined using struct, found " ++ @typeName(shorts_type),
+            );
         }
 
-        const shorts_fields = std.meta.fields(shorts_type);
-        inline for (shorts_fields) |field| {
-            const long_name = field.name;
+        const shorts_struct = @typeInfo(shorts_type).@"struct";
+        inline for (shorts_struct.field_names) |long_name| {
             inline for (&option_fields) |*option_field| {
                 if (std.mem.eql(u8, option_field.long_name, long_name)) {
                     const short_name_literal = @field(Options.__shorts__, long_name);
                     if (@typeInfo(@TypeOf(short_name_literal)) != .enum_literal) {
-                        @compileError("Short option value must be literal enum, found " ++ @typeName(@TypeOf(short_name_literal)));
+                        @compileError(
+                            "Short option value must be literal enum, found " ++
+                                @typeName(@TypeOf(short_name_literal)),
+                        );
                     }
                     option_field.short_name = @tagName(short_name_literal)[0];
 
                     break;
                 }
             } else {
-                @compileError("No such option exists for short name mapping, long_name: " ++ long_name);
+                @compileError(
+                    "No such option exists for short name mapping, long_name: " ++ long_name,
+                );
             }
         }
     }
@@ -131,19 +141,22 @@ fn buildOptionFields(comptime Options: type) [getOptionLength(Options)]OptionFie
     if (@hasDecl(Options, "__messages__")) {
         const messages_type = @TypeOf(Options.__messages__);
         if (@typeInfo(messages_type) != .@"struct") {
-            @compileError("__messages__ should be defined using struct, found " ++ @typeName(messages_type));
+            @compileError(
+                "__messages__ should be defined using struct, found " ++ @typeName(messages_type),
+            );
         }
 
-        const messages_fields = std.meta.fields(messages_type);
-        inline for (messages_fields) |field| {
-            const long_name = field.name;
+        const messages_struct = @typeInfo(messages_type).@"struct";
+        inline for (messages_struct.field_names) |long_name| {
             inline for (&option_fields) |*option_field| {
                 if (std.mem.eql(u8, option_field.long_name, long_name)) {
                     option_field.message = @field(Options.__messages__, long_name);
                     break;
                 }
             } else {
-                @compileError("No such option exists for message mapping, long_name: " ++ long_name);
+                @compileError(
+                    "No such option exists for message mapping, long_name: " ++ long_name,
+                );
             }
         }
     }
@@ -168,7 +181,12 @@ test "build option fields" {
     });
 
     try std.testing.expectEqualDeep([4]OptionField{
-        .{ .long_name = "verbose", .short_name = 'v', .message = "show verbose log", .option_type = .RequiredBool },
+        .{
+            .long_name = "verbose",
+            .short_name = 'v',
+            .message = "show verbose log",
+            .option_type = .RequiredBool,
+        },
         .{ .long_name = "help", .option_type = .Bool },
         .{ .long_name = "timeout", .option_type = .RequiredInt },
         .{ .long_name = "user-agent", .option_type = .String },
@@ -205,16 +223,20 @@ const MessageHelper = struct {
         };
     }
 
-    fn printDefault(comptime field: std.builtin.Type.StructField, writer: *Writer) !void {
-        if (field.default_value_ptr == null) {
-            if (@typeInfo(field.type) != .optional) {
+    fn printDefault(
+        comptime FieldType: type,
+        default_value_ptr: ?*const anyopaque,
+        writer: *Writer,
+    ) !void {
+        if (default_value_ptr == null) {
+            if (@typeInfo(FieldType) != .optional) {
                 try writer.writeAll("(required)");
             }
             return;
         }
 
-        const default_value = @as(*align(1) const field.type, @ptrCast(field.default_value_ptr.?)).*;
-        switch (@typeInfo(field.type)) {
+        const default_value = @as(*align(1) const FieldType, @ptrCast(default_value_ptr.?)).*;
+        switch (@typeInfo(FieldType)) {
             .bool => if (!default_value) return,
             .optional => |optional_info| if (@typeInfo(optional_info.child) == .bool) {
                 if (!(default_value orelse false)) return;
@@ -222,16 +244,16 @@ const MessageHelper = struct {
             else => {},
         }
 
-        const format_string = "(default: " ++ switch (field.type) {
+        const format_string = "(default: " ++ switch (FieldType) {
             []const u8 => "{s}",
             ?[]const u8 => "{?s}",
-            else => if (@typeInfo(NonOptionType(field.type)) == .@"enum")
+            else => if (@typeInfo(NonOptionType(FieldType)) == .@"enum")
                 "{s}"
             else
                 "{any}",
         } ++ ")";
 
-        try writer.print(format_string, .{switch (@typeInfo(field.type)) {
+        try writer.print(format_string, .{switch (@typeInfo(FieldType)) {
             .@"enum" => @tagName(default_value),
             .optional => |optional_info| if (@typeInfo(optional_info.child) == .@"enum")
                 if (default_value) |v| @tagName(v) else "null"
@@ -249,12 +271,13 @@ const MessageHelper = struct {
     ) !void {
         const option_fields = comptime buildOptionFields(Options);
         const sub_command_messages = if (@hasField(Options, command_field_name_default)) blk: {
-            const fields = std.meta.fields(Options);
-            inline for (fields) |field| {
-                if (comptime std.mem.eql(u8, field.name, command_field_name_default)) {
+            const s = @typeInfo(Options).@"struct";
+            inline for (s.field_names, s.field_types) |name, field_type| {
+                if (comptime std.mem.eql(u8, name, command_field_name_default)) {
+                    const u = @typeInfo(field_type).@"union";
                     break :blk subCommandsHelpMsg(
-                        field.type,
-                        std.meta.fields(field.type).len,
+                        field_type,
+                        u.field_names.len,
                     );
                 }
             }
@@ -283,10 +306,20 @@ const MessageHelper = struct {
             try list.append(arena, "[COMMANDS]\n\n COMMANDS:");
             for (messages) |message_wrapper| {
                 if (message_wrapper.name.len <= command_message_offset) {
-                    try list.append(arena, try std.fmt.allocPrint(arena, "  {s:<10} {s}", .{ message_wrapper.name, message_wrapper.message }));
+                    const line = try std.fmt.allocPrint(
+                        arena,
+                        "  {s:<10} {s}",
+                        .{ message_wrapper.name, message_wrapper.message },
+                    );
+                    try list.append(arena, line);
                 } else {
-                    const spaces = " " ** command_message_offset;
-                    try list.append(arena, try std.fmt.allocPrint(arena, "  {s}\n  {s} {s}", .{ message_wrapper.name, spaces, message_wrapper.message }));
+                    const spaces: [command_message_offset]u8 = @splat(' ');
+                    const line = try std.fmt.allocPrint(
+                        arena,
+                        "  {s}\n  {s} {s}",
+                        .{ message_wrapper.name, &spaces, message_wrapper.message },
+                    );
+                    try list.append(arena, line);
                 }
             }
             break :blk try std.mem.join(arena, "\n", list.items);
@@ -311,6 +344,7 @@ const MessageHelper = struct {
         try writer.writeAll(header_string);
 
         const message_offset = 35;
+        const message_offset_spaces: [message_offset]u8 = @splat(' ');
         for (option_fields) |option_field| {
             var current_option_list: std.ArrayList([]const u8) = .empty;
             defer current_option_list.deinit(arena);
@@ -334,7 +368,7 @@ const MessageHelper = struct {
 
             if (blank_count == 0) {
                 try current_option_list.append(arena, "\n");
-                try current_option_list.append(arena, " " ** message_offset);
+                try current_option_list.append(arena, &message_offset_spaces);
             } else while (blank_count > 0) {
                 try current_option_list.append(arena, " ");
                 blank_count -= 1;
@@ -346,19 +380,28 @@ const MessageHelper = struct {
             const first_part_string = try std.mem.join(arena, "", current_option_list.items);
             try writer.writeAll(first_part_string);
 
-            const struct_fields = std.meta.fields(Options);
-            inline for (struct_fields) |field| {
-                if (std.mem.eql(u8, field.name, option_field.long_name)) {
-                    const real_type = NonOptionType(field.type);
+            const struct_fields = @typeInfo(Options).@"struct";
+            inline for (
+                struct_fields.field_names,
+                struct_fields.field_types,
+                struct_fields.field_attrs,
+            ) |name, field_type, attrs| {
+                if (std.mem.eql(u8, name, option_field.long_name)) {
+                    const real_type = NonOptionType(field_type);
                     if (@typeInfo(real_type) == .@"enum") {
-                        const enum_options_string = try std.mem.join(arena, "|", std.meta.fieldNames(real_type));
+                        const enum_options_string = try std.mem.join(
+                            arena,
+                            "|",
+                            std.meta.fieldNames(real_type),
+                        );
                         try writer.writeAll(" (valid: ");
                         try writer.writeAll(enum_options_string);
                         try writer.writeAll(")");
                     }
 
                     try MessageHelper.printDefault(
-                        field,
+                        field_type,
+                        attrs.default_value_ptr,
                         writer,
                     );
                 }
@@ -446,7 +489,9 @@ const OptionType = enum(u32) {
             .optional => |optional_info| return Self.convert(optional_info.child, true),
             .pointer => |pointer_info|
             // Only support []const u8.
-            if (pointer_info.size == .slice and pointer_info.child == u8 and pointer_info.is_const)
+            if (pointer_info.size == .slice and
+                pointer_info.child == u8 and
+                pointer_info.attrs.@"const")
                 .RequiredString
             else {
                 @compileError("Not supported option type:" ++ @typeName(Options));
@@ -456,12 +501,13 @@ const OptionType = enum(u32) {
                 @compileError("Not supported option type:" ++ @typeName(Options));
             },
         };
-        const kind_value = @intFromEnum(base_kind) + if (is_optional) @as(u32, REQUIRED_VERSION_SHIFT) else 0;
-        return @enumFromInt(kind_value);
+        const shift_val: u32 = if (is_optional) REQUIRED_VERSION_SHIFT else 0;
+        const kind_value = @backingInt(base_kind) + shift_val;
+        return @fromBackingInt(@intCast(kind_value));
     }
 
     fn is_required(self: Self) bool {
-        return @intFromEnum(self) < REQUIRED_VERSION_SHIFT;
+        return @backingInt(self) < REQUIRED_VERSION_SHIFT;
     }
 
     fn as_string(self: Self) []const u8 {
@@ -476,7 +522,7 @@ const OptionType = enum(u32) {
 };
 
 test "parse OptionType" {
-    const testcases = [_]std.meta.Tuple(&.{ type, OptionType }){
+    const testcases = [_]@Tuple(&.{ type, OptionType }){
         .{ i32, OptionType.RequiredInt },
         .{ ?u8, OptionType.Int },
         .{ f32, OptionType.RequiredFloat },
@@ -488,7 +534,10 @@ test "parse OptionType" {
     };
 
     inline for (testcases) |testcase| {
-        try std.testing.expectEqual(testcase.@"1", comptime OptionType.from_zig_type(testcase.@"0"));
+        try std.testing.expectEqual(
+            testcase.@"1",
+            comptime OptionType.from_zig_type(testcase.@"0"),
+        );
     }
 }
 
@@ -500,7 +549,9 @@ const MessageSubCommand = struct {
 fn subCommandsHelpMsg(comptime Options: type, comptime length: usize) ?[length]MessageSubCommand {
     const union_type_info = @typeInfo(Options);
     if (union_type_info != .@"union") {
-        @compileError("Sub commands should be defined using Union(enum), found " ++ @typeName(Options));
+        @compileError(
+            "Sub commands should be defined using Union(enum), found " ++ @typeName(Options),
+        );
     }
 
     if (@hasDecl(Options, "__messages__")) {
@@ -509,21 +560,22 @@ fn subCommandsHelpMsg(comptime Options: type, comptime length: usize) ?[length]M
             @compileError("__messages__ should be defined using struct");
         }
 
-        var message_wrappers: [std.meta.fields(messages_type).len]MessageSubCommand = undefined;
-        const messages_fields = std.meta.fields(messages_type);
-        const union_fields = std.meta.fields(Options);
+        const msg_struct = @typeInfo(messages_type).@"struct";
+        const union_info = @typeInfo(Options).@"union";
 
-        inline for (messages_fields, 0..) |message_field, index| {
-            inline for (union_fields) |union_field| {
-                if (comptime std.mem.eql(u8, message_field.name, union_field.name)) {
+        var message_wrappers: [msg_struct.field_names.len]MessageSubCommand = undefined;
+
+        inline for (msg_struct.field_names, 0..) |msg_name, index| {
+            inline for (union_info.field_names) |u_name| {
+                if (comptime std.mem.eql(u8, msg_name, u_name)) {
                     message_wrappers[index] = MessageSubCommand{
-                        .name = message_field.name,
-                        .message = @field(Options.__messages__, message_field.name),
+                        .name = msg_name,
+                        .message = @field(Options.__messages__, msg_name),
                     };
                     break;
                 }
             } else {
-                @compileError("No such sub_cmd exists, name: " ++ message_field.name);
+                @compileError("No such sub_cmd exists, name: " ++ msg_name);
             }
         }
 
@@ -536,21 +588,27 @@ fn subCommandsHelpMsg(comptime Options: type, comptime length: usize) ?[length]M
 fn SubCommandsType(comptime Options: type) type {
     const union_type_info = @typeInfo(Options);
     if (union_type_info != .@"union") {
-        @compileError("Sub commands should be defined using Union(enum), found " ++ @typeName(Options));
+        @compileError(
+            "Sub commands should be defined using Union(enum), found " ++ @typeName(Options),
+        );
     }
 
-    const union_fields = std.meta.fields(Options);
-    var field_names: [union_fields.len][:0]const u8 = undefined;
-    var field_types: [union_fields.len]type = undefined;
-    var field_attrs: [union_fields.len]std.builtin.Type.StructField.Attributes = undefined;
-    inline for (union_fields, 0..) |union_field, index| {
-        if (comptime @typeInfo(union_field.type) != .@"struct") {
-            @compileError("Sub command should be defined using struct, found " ++ @typeName(@typeInfo(union_field.type)));
+    const union_fields = union_type_info.@"union";
+    const len = union_fields.field_names.len;
+    var field_names: [len][:0]const u8 = undefined;
+    var field_types: [len]type = undefined;
+    var field_attrs: [len]std.builtin.Type.Struct.FieldAttributes = undefined;
+    inline for (union_fields.field_names, union_fields.field_types, 0..) |u_name, u_type, index| {
+        if (comptime @typeInfo(u_type) != .@"struct") {
+            @compileError(
+                "Sub command should be defined using struct, found " ++
+                    @typeName(@typeInfo(u_type)),
+            );
         }
 
-        const ParserType = CommandParser(union_field.type);
+        const ParserType = CommandParser(u_type);
         const default_value = ParserType{};
-        field_names[index] = union_field.name;
+        field_names[index] = u_name;
         field_types[index] = ParserType;
         field_attrs[index] = .{
             .default_value_ptr = @ptrCast(&default_value),
@@ -563,10 +621,10 @@ fn CommandParser(comptime Options: type) type {
     return struct {
         option_fields: [getOptionLength(Options)]OptionField = buildOptionFields(Options),
         option_commands: if (@hasField(Options, command_field_name_default)) blk: {
-            const fields = std.meta.fields(Options);
-            for (fields) |field| {
-                if (std.mem.eql(u8, field.name, command_field_name_default)) {
-                    break :blk SubCommandsType(field.type);
+            const s = @typeInfo(Options).@"struct";
+            for (s.field_names, s.field_types) |name, field_type| {
+                if (std.mem.eql(u8, name, command_field_name_default)) {
+                    break :blk SubCommandsType(field_type);
                 }
             } else {
                 unreachable;
@@ -619,7 +677,8 @@ fn OptionParser(
                 if (!help_was_printed.*) {
                     if (!is_test and options.print_help_on_error) {
                         var stderr_buffer: [4096]u8 = undefined;
-                        var stderr_writer = std.Io.File.stderr().writer(message_helper.io, &stderr_buffer);
+                        var stderr_writer =
+                            std.Io.File.stderr().writer(message_helper.io, &stderr_buffer);
                         message_helper.printHelp(
                             CurrentOptions,
                             sub_command_name,
@@ -658,23 +717,29 @@ fn OptionParser(
             var command_parser = CommandParser(CurrentOptions){};
             var sub_command_is_set = false;
 
-            const struct_fields = std.meta.fields(CurrentOptions);
-            inline for (struct_fields) |field| {
-                if (comptime std.mem.eql(u8, field.name, command_field_name_default)) {
-                    if (field.default_value_ptr) |value_ptr| {
+            const struct_fields = @typeInfo(CurrentOptions).@"struct";
+            inline for (
+                struct_fields.field_names,
+                struct_fields.field_types,
+                struct_fields.field_attrs,
+            ) |name, field_type, attrs| {
+                if (comptime std.mem.eql(u8, name, command_field_name_default)) {
+                    if (attrs.default_value_ptr) |value_ptr| {
                         sub_command_is_set = true;
-                        @field(options_value, field.name) = @as(*align(1) const field.type, @ptrCast(value_ptr)).*;
+                        const ptr: *align(1) const field_type = @ptrCast(value_ptr);
+                        @field(options_value, name) = ptr.*;
                     }
                     continue;
                 }
 
-                if (field.default_value_ptr) |value_ptr| {
-                    @field(options_value, field.name) = @as(*align(1) const field.type, @ptrCast(value_ptr)).*;
+                if (attrs.default_value_ptr) |value_ptr| {
+                    const ptr: *align(1) const field_type = @ptrCast(value_ptr);
+                    @field(options_value, name) = ptr.*;
                 } else {
-                    const option_type_kind = OptionType.from_zig_type(field.type);
+                    const option_type_kind = OptionType.from_zig_type(field_type);
                     if (!option_type_kind.is_required()) {
-                        if (@typeInfo(field.type) == .optional) {
-                            @field(options_value, field.name) = null;
+                        if (@typeInfo(field_type) == .optional) {
+                            @field(options_value, name) = null;
                         }
                     }
                 }
@@ -739,7 +804,12 @@ fn OptionParser(
                         };
 
                         if (option.option_type == .Bool or option.option_type == .RequiredBool) {
-                            _ = try setOptionValue(CurrentOptions, &options_value, option.long_name, "true");
+                            _ = try setOptionValue(
+                                CurrentOptions,
+                                &options_value,
+                                option.long_name,
+                                "true",
+                            );
                             option.is_set = true;
                             state = .start;
                             current_option = null;
@@ -747,9 +817,15 @@ fn OptionParser(
                             if (!is_test and options.print_help_and_exit) {
                                 if (std.mem.eql(u8, option.long_name, "help")) {
                                     var stdout_buffer: [4096]u8 = undefined;
-                                    var stdout_writer = std.Io.File.stdout().writer(message_helper.io, &stdout_buffer);
+                                    var stdout_file = std.Io.File.stdout();
+                                    var stdout_writer =
+                                        stdout_file.writer(message_helper.io, &stdout_buffer);
                                     const stdout = &stdout_writer.interface;
-                                    message_helper.printHelp(CurrentOptions, sub_command_name, stdout) catch @panic("OOM");
+                                    message_helper.printHelp(
+                                        CurrentOptions,
+                                        sub_command_name,
+                                        stdout,
+                                    ) catch @panic("OOM");
                                     stdout_writer.interface.flush() catch {};
                                     std.process.exit(0);
                                 } else if (std.mem.eql(u8, option.long_name, "version")) {
@@ -764,23 +840,34 @@ fn OptionParser(
                     .arguments => {
                         if (@TypeOf(command_parser.option_commands) != void) {
                             const sub_parser_type = @TypeOf(command_parser.option_commands);
-                            const sub_parser_fields = std.meta.fields(sub_parser_type);
-                            inline for (sub_parser_fields) |field| {
-                                if (std.mem.eql(u8, field.name, argument)) {
-                                    const UnionType = @TypeOf(@field(options_value, command_field_name_default));
-                                    const union_fields = std.meta.fields(UnionType);
-                                    inline for (union_fields) |union_field| {
-                                        if (comptime std.mem.eql(u8, union_field.name, field.name)) {
+                            const sub_parser_fields = @typeInfo(sub_parser_type).@"struct";
+                            inline for (sub_parser_fields.field_names) |field_name| {
+                                if (std.mem.eql(u8, field_name, argument)) {
+                                    const UnionType =
+                                        @TypeOf(@field(options_value, command_field_name_default));
+                                    const union_fields = @typeInfo(UnionType).@"union";
+                                    inline for (
+                                        union_fields.field_names,
+                                        union_fields.field_types,
+                                    ) |union_field_name, union_field_type| {
+                                        if (comptime std.mem.eql(
+                                            u8,
+                                            union_field_name,
+                                            field_name,
+                                        )) {
                                             const value = try Self.parseCommand(
-                                                union_field.type,
+                                                union_field_type,
                                                 input_arguments,
                                                 argument_index,
                                                 help_was_printed,
                                                 message_helper,
-                                                field.name,
+                                                field_name,
                                                 options,
                                             );
-                                            @field(options_value, command_field_name_default) = @unionInit(UnionType, field.name, value);
+                                            @field(
+                                                options_value,
+                                                command_field_name_default,
+                                            ) = @unionInit(UnionType, field_name, value);
                                             sub_command_is_set = true;
                                             break :outer;
                                         }
@@ -793,7 +880,12 @@ fn OptionParser(
                     },
                     .waitValue => {
                         const option = current_option.?;
-                        _ = try setOptionValue(CurrentOptions, &options_value, option.long_name, argument);
+                        _ = try setOptionValue(
+                            CurrentOptions,
+                            &options_value,
+                            option.long_name,
+                            argument,
+                        );
                         option.is_set = true;
                         state = .start;
                         current_option = null;
@@ -876,20 +968,25 @@ fn getSignedness(comptime option_type: type) std.builtin.Signedness {
 }
 
 // return true when set successfully
-fn setOptionValue(comptime Options: type, options: *Options, long_name: []const u8, raw_value: []const u8) !bool {
-    const fields = std.meta.fields(Options);
-    inline for (fields) |field| {
-        if (comptime std.mem.eql(u8, field.name, command_field_name_default)) {
+fn setOptionValue(
+    comptime Options: type,
+    options: *Options,
+    long_name: []const u8,
+    raw_value: []const u8,
+) !bool {
+    const s = @typeInfo(Options).@"struct";
+    inline for (s.field_names, s.field_types) |name, field_type| {
+        if (comptime std.mem.eql(u8, name, command_field_name_default)) {
             continue;
         }
 
-        if (std.mem.eql(u8, field.name, long_name)) {
-            const kind = OptionType.from_zig_type(field.type);
-            const BaseType = NonOptionType(field.type);
+        if (std.mem.eql(u8, name, long_name)) {
+            const kind = OptionType.from_zig_type(field_type);
+            const BaseType = NonOptionType(field_type);
             switch (kind) {
                 .Int, .RequiredInt => {
                     if (comptime @typeInfo(BaseType) == .int) {
-                        @field(options, field.name) = switch (getSignedness(field.type)) {
+                        @field(options, name) = switch (getSignedness(field_type)) {
                             .signed => try std.fmt.parseInt(BaseType, raw_value, 0),
                             .unsigned => try std.fmt.parseUnsigned(BaseType, raw_value, 0),
                         };
@@ -897,23 +994,25 @@ fn setOptionValue(comptime Options: type, options: *Options, long_name: []const 
                 },
                 .Float, .RequiredFloat => {
                     if (comptime @typeInfo(BaseType) == .float) {
-                        @field(options, field.name) = try std.fmt.parseFloat(BaseType, raw_value);
+                        @field(options, name) = try std.fmt.parseFloat(BaseType, raw_value);
                     }
                 },
                 .String, .RequiredString => {
                     if (comptime BaseType == []const u8) {
-                        @field(options, field.name) = raw_value;
+                        @field(options, name) = raw_value;
                     }
                 },
                 .Bool, .RequiredBool => {
                     if (comptime BaseType == bool) {
-                        @field(options, field.name) = std.mem.eql(u8, raw_value, "true") or std.mem.eql(u8, raw_value, "1");
+                        const is_true = std.mem.eql(u8, raw_value, "true") or
+                            std.mem.eql(u8, raw_value, "1");
+                        @field(options, name) = is_true;
                     }
                 },
                 .Enum, .RequiredEnum => {
                     if (comptime @typeInfo(BaseType) == .@"enum") {
                         if (std.meta.stringToEnum(BaseType, raw_value)) |value| {
-                            @field(options, field.name) = value;
+                            @field(options, name) = value;
                         } else {
                             return error.InvalidEnumValue;
                         }
@@ -946,17 +1045,17 @@ test "parse/valid option values" {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
     var input_arguments = [_][:0]u8{
-        try gpa.dupeZ(u8, "awesome-cli"),
-        try gpa.dupeZ(u8, "--help"),
-        try gpa.dupeZ(u8, "--rate"),
-        try gpa.dupeZ(u8, "1.2"),
-        try gpa.dupeZ(u8, "--timeout"),
-        try gpa.dupeZ(u8, "30"),
-        try gpa.dupeZ(u8, "--user-agent"),
-        try gpa.dupeZ(u8, "firefox"),
+        try gpa.dupeSentinel(u8, "awesome-cli", 0),
+        try gpa.dupeSentinel(u8, "--help", 0),
+        try gpa.dupeSentinel(u8, "--rate", 0),
+        try gpa.dupeSentinel(u8, "1.2", 0),
+        try gpa.dupeSentinel(u8, "--timeout", 0),
+        try gpa.dupeSentinel(u8, "30", 0),
+        try gpa.dupeSentinel(u8, "--user-agent", 0),
+        try gpa.dupeSentinel(u8, "firefox", 0),
         // Positional arguments.
-        try gpa.dupeZ(u8, "hello"),
-        try gpa.dupeZ(u8, "world"),
+        try gpa.dupeSentinel(u8, "hello", 0),
+        try gpa.dupeSentinel(u8, "world", 0),
     };
     defer for (input_arguments) |argument| {
         gpa.free(argument);
@@ -998,8 +1097,8 @@ test "parse/bool value" {
     const io = std.testing.io;
     {
         var input_arguments = [_][:0]u8{
-            try gpa.dupeZ(u8, "awesome-cli"),
-            try gpa.dupeZ(u8, "--help"),
+            try gpa.dupeSentinel(u8, "awesome-cli", 0),
+            try gpa.dupeSentinel(u8, "--help", 0),
         };
         defer for (input_arguments) |argument| {
             gpa.free(argument);
@@ -1013,9 +1112,9 @@ test "parse/bool value" {
     }
     {
         var input_arguments = [_][:0]u8{
-            try gpa.dupeZ(u8, "awesome-cli"),
-            try gpa.dupeZ(u8, "--help"),
-            try gpa.dupeZ(u8, "true"),
+            try gpa.dupeSentinel(u8, "awesome-cli", 0),
+            try gpa.dupeSentinel(u8, "--help", 0),
+            try gpa.dupeSentinel(u8, "true", 0),
         };
         defer for (input_arguments) |argument| {
             gpa.free(argument);
@@ -1037,8 +1136,8 @@ test "parse/missing required arguments" {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
     var input_arguments = [_][:0]u8{
-        try gpa.dupeZ(u8, "abc"),
-        try gpa.dupeZ(u8, "def"),
+        try gpa.dupeSentinel(u8, "abc", 0),
+        try gpa.dupeSentinel(u8, "def", 0),
     };
     defer for (input_arguments) |argument| {
         gpa.free(argument);
@@ -1052,10 +1151,10 @@ test "parse/invalid u16 values" {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
     var input_arguments = [_][:0]u8{
-        try gpa.dupeZ(u8, "awesome-cli"),
-        try gpa.dupeZ(u8, "--timeout"),
-        try gpa.dupeZ(u8, "not-a-number"),
-        try gpa.dupeZ(u8, "--help"),
+        try gpa.dupeSentinel(u8, "awesome-cli", 0),
+        try gpa.dupeSentinel(u8, "--timeout", 0),
+        try gpa.dupeSentinel(u8, "not-a-number", 0),
+        try gpa.dupeSentinel(u8, "--help", 0),
     };
     defer for (input_arguments) |argument| {
         gpa.free(argument);
@@ -1069,10 +1168,10 @@ test "parse/invalid f32 values" {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
     var input_arguments = [_][:0]u8{
-        try gpa.dupeZ(u8, "awesome-cli"),
-        try gpa.dupeZ(u8, "--rate"),
-        try gpa.dupeZ(u8, "not-a-number"),
-        try gpa.dupeZ(u8, "--help"),
+        try gpa.dupeSentinel(u8, "awesome-cli", 0),
+        try gpa.dupeSentinel(u8, "--rate", 0),
+        try gpa.dupeSentinel(u8, "not-a-number", 0),
+        try gpa.dupeSentinel(u8, "--help", 0),
     };
     defer for (input_arguments) |argument| {
         gpa.free(argument);
@@ -1086,11 +1185,11 @@ test "parse/unknown option" {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
     var input_arguments = [_][:0]u8{
-        try gpa.dupeZ(u8, "awesome-cli"),
-        try gpa.dupeZ(u8, "-h"),
-        try gpa.dupeZ(u8, "--timeout"),
-        try gpa.dupeZ(u8, "1"),
-        try gpa.dupeZ(u8, "--notexists"),
+        try gpa.dupeSentinel(u8, "awesome-cli", 0),
+        try gpa.dupeSentinel(u8, "-h", 0),
+        try gpa.dupeSentinel(u8, "--timeout", 0),
+        try gpa.dupeSentinel(u8, "1", 0),
+        try gpa.dupeSentinel(u8, "--notexists", 0),
     };
     defer for (input_arguments) |argument| {
         gpa.free(argument);
@@ -1104,9 +1203,9 @@ test "parse/missing option value" {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
     var input_arguments = [_][:0]u8{
-        try gpa.dupeZ(u8, "awesome-cli"),
-        try gpa.dupeZ(u8, "-h"),
-        try gpa.dupeZ(u8, "--timeout"),
+        try gpa.dupeSentinel(u8, "awesome-cli", 0),
+        try gpa.dupeSentinel(u8, "-h", 0),
+        try gpa.dupeSentinel(u8, "--timeout", 0),
     };
     defer for (input_arguments) |argument| {
         gpa.free(argument);
@@ -1120,7 +1219,7 @@ test "parse/default value" {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
     var input_arguments = [_][:0]u8{
-        try gpa.dupeZ(u8, "awesome-cli"),
+        try gpa.dupeSentinel(u8, "awesome-cli", 0),
     };
     defer for (input_arguments) |argument| {
         gpa.free(argument);
@@ -1135,7 +1234,7 @@ test "parse/default value" {
         d1: bool = true,
         d2: ?bool = false,
 
-        const __messages__ = .{ .d2 = "padding message" };
+        pub const __messages__ = .{ .d2 = "padding message" };
     }).init(gpa, io);
     const result = try parser.parse(&input_arguments, .{ .argument_prompt = "..." });
     try std.testing.expectEqualStrings("A1", result.options.a1);
@@ -1166,9 +1265,9 @@ test "parse/enum option" {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
     var input_arguments = [_][:0]u8{
-        try gpa.dupeZ(u8, "awesome-cli"),
-        try gpa.dupeZ(u8, "--a3"),
-        try gpa.dupeZ(u8, "Y"),
+        try gpa.dupeSentinel(u8, "awesome-cli", 0),
+        try gpa.dupeSentinel(u8, "--a3", 0),
+        try gpa.dupeSentinel(u8, "Y", 0),
     };
     defer for (input_arguments) |argument| {
         gpa.free(argument);
@@ -1203,10 +1302,10 @@ test "parse/positional arguments" {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
     var input_arguments = [_][:0]u8{
-        try gpa.dupeZ(u8, "awesome-cli"),
-        try gpa.dupeZ(u8, "--"),
-        try gpa.dupeZ(u8, "-a"),
-        try gpa.dupeZ(u8, "2"),
+        try gpa.dupeSentinel(u8, "awesome-cli", 0),
+        try gpa.dupeSentinel(u8, "--", 0),
+        try gpa.dupeSentinel(u8, "-a", 0),
+        try gpa.dupeSentinel(u8, "2", 0),
     };
     defer for (input_arguments) |argument| {
         gpa.free(argument);
@@ -1239,9 +1338,9 @@ test "parse/single dash as positional argument" {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
     var input_arguments = [_][:0]u8{
-        try gpa.dupeZ(u8, "awesome-cli"),
-        try gpa.dupeZ(u8, "-"),
-        try gpa.dupeZ(u8, "file.txt"),
+        try gpa.dupeSentinel(u8, "awesome-cli", 0),
+        try gpa.dupeSentinel(u8, "-", 0),
+        try gpa.dupeSentinel(u8, "file.txt", 0),
     };
     defer for (input_arguments) |argument| {
         gpa.free(argument);
@@ -1262,8 +1361,8 @@ test "parse/print_help_and_exit false" {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
     var input_arguments = [_][:0]u8{
-        try gpa.dupeZ(u8, "awesome-cli"),
-        try gpa.dupeZ(u8, "--help"),
+        try gpa.dupeSentinel(u8, "awesome-cli", 0),
+        try gpa.dupeSentinel(u8, "--help", 0),
     };
     defer for (input_arguments) |argument| {
         gpa.free(argument);
@@ -1283,8 +1382,8 @@ test "parse/print_help_on_error" {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
     var input_arguments = [_][:0]u8{
-        try gpa.dupeZ(u8, "awesome-cli"),
-        try gpa.dupeZ(u8, "--help"),
+        try gpa.dupeSentinel(u8, "awesome-cli", 0),
+        try gpa.dupeSentinel(u8, "--help", 0),
     };
     defer for (input_arguments) |argument| {
         gpa.free(argument);
@@ -1312,12 +1411,12 @@ test "parse/sub commands" {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
     var input_arguments = [_][:0]u8{
-        try gpa.dupeZ(u8, "awesome-cli"),
-        try gpa.dupeZ(u8, "--a"),
-        try gpa.dupeZ(u8, "2"),
-        try gpa.dupeZ(u8, "cmd1"),
-        try gpa.dupeZ(u8, "--aa"),
-        try gpa.dupeZ(u8, "22"),
+        try gpa.dupeSentinel(u8, "awesome-cli", 0),
+        try gpa.dupeSentinel(u8, "--a", 0),
+        try gpa.dupeSentinel(u8, "2", 0),
+        try gpa.dupeSentinel(u8, "cmd1", 0),
+        try gpa.dupeSentinel(u8, "--aa", 0),
+        try gpa.dupeSentinel(u8, "22", 0),
     };
     defer for (input_arguments) |argument| {
         gpa.free(argument);

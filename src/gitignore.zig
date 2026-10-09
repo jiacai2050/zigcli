@@ -142,7 +142,8 @@ const Pattern = struct {
     is_dir: bool,
     /// If true, the pattern is anchored to the repository root (starts with /).
     anchored_to_root: bool,
-    /// If true, the pattern contains one or more slashes, meaning it's matched relative to repo root.
+    /// If true, the pattern contains one or more slashes,
+    /// meaning it's matched relative to repo root.
     contains_slash: bool,
 
     fn init(allocator: Allocator, raw_pattern: []const u8) !Pattern {
@@ -324,7 +325,8 @@ pub const Gitignore = struct {
             if (trimmed.len == 0) continue;
             if (trimmed[0] == '#') continue;
 
-            // Pass the original (untrimmed) line so Pattern.init can handle escaped trailing whitespace correctly.
+            // Pass the original (untrimmed) line so Pattern.init can handle
+            // escaped trailing whitespace correctly.
             const pattern = Pattern.init(allocator, line) catch |e| switch (e) {
                 PatternError.InvalidPattern => continue,
                 else => return e,
@@ -386,8 +388,19 @@ pub const GitignoreStack = struct {
     /// `rel_dir` (relative to the walk root; pass `""` for the root directory).
     /// Returns true if a layer was pushed, false if no `.gitignore` was found.
     /// The caller must call `pop()` for every true return when leaving the directory.
-    pub fn tryPushDir(self: *GitignoreStack, io: Io, dir: Io.Dir, rel_dir: []const u8, allocator: Allocator) !bool {
-        const content = dir.readFileAlloc(io, ".gitignore", allocator, .limited(1024 * 1024)) catch |e| switch (e) {
+    pub fn tryPushDir(
+        self: *GitignoreStack,
+        io: Io,
+        dir: Io.Dir,
+        rel_dir: []const u8,
+        allocator: Allocator,
+    ) !bool {
+        const content = dir.readFileAlloc(
+            io,
+            ".gitignore",
+            allocator,
+            .limited(1024 * 1024),
+        ) catch |e| switch (e) {
             error.FileNotFound => return false,
             else => return e,
         };
@@ -463,7 +476,11 @@ test "GitignoreStack basic" {
     const sub_content = "!debug.log\n";
     const sub_gi = try Gitignore.init(allocator, sub_content);
     const sub_rel_root = try allocator.dupe(u8, "src");
-    try stack.layers.append(allocator, .{ .gi = sub_gi, .rel_root = sub_rel_root, .owns_rel_root = true });
+    try stack.layers.append(allocator, .{
+        .gi = sub_gi,
+        .rel_root = sub_rel_root,
+        .owns_rel_root = true,
+    });
 
     // src/debug.log is negated by the sub-layer
     try std.testing.expect(!stack.shouldIgnore("src/debug.log", false));

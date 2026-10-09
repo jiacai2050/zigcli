@@ -26,8 +26,3 @@ init-docs:
 
 serve:
 	cd docs && hugo serve -D
-
-
-zf:
-	zig build run-zigfetch --  \
-	http://localhost:8000/c0c48df7567ea02458e9fc1f35c4088271b8d4a6.tar.gz

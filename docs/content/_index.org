@@ -7,7 +7,7 @@
 [[https://github.com/jiacai2050/zigcli][https://img.shields.io/github/stars/jiacai2050/zigcli.svg]]
 [[https://github.com/jiacai2050/loc/actions/workflows/CI.yml][https://github.com/jiacai2050/loc/actions/workflows/CI.yml/badge.svg]]
 [[https://github.com/jiacai2050/loc/actions/workflows/release.yml][https://github.com/jiacai2050/loc/actions/workflows/release.yml/badge.svg]]
-[[https://img.shields.io/badge/zig%20version-0.16.0-F7A41D.svg]]
+[[https://img.shields.io/badge/zig%20version-0.17.0-F7A41D.svg]]
 
 #+begin_export html
 <img src="/images/logo.svg" alt="Zigcli logo" style="width: 350px;"/>
@@ -27,7 +27,7 @@ a dependency and import the packages you need. If you only want ready-made binar
 =loc=, =pretty-csv=, =hexdump=, or =cowsay=, install the release package and run them directly.
 
 #+begin_quote
-The =main= branch targets *Zig 0.16.0*.
+The =main= branch targets *Zig 0.17.0*.
 #+end_quote
 
 * Packages

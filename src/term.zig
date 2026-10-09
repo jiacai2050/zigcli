@@ -78,8 +78,14 @@ pub const Style = struct {
             try writer.writeAll(self.toEscapeCode());
         }
 
-        /// Formats `fmt` with `args`, wraps the output with this foreground color, and resets afterwards.
-        pub fn writeString(self: Color, writer: *std.Io.Writer, comptime fmt: []const u8, args: anytype) !void {
+        /// Formats `fmt` with `args`, wraps the output with this foreground color,
+        /// and resets afterwards.
+        pub fn writeString(
+            self: Color,
+            writer: *std.Io.Writer,
+            comptime fmt: []const u8,
+            args: anytype,
+        ) !void {
             try self.format(writer);
             try writer.print(fmt, args);
             try writer.writeAll(Color.reset);
@@ -118,7 +124,12 @@ pub const Style = struct {
     }
 
     /// Formats `fmt` with `args`, wraps the output with this style, and resets afterwards.
-    pub fn writeString(self: Style, writer: *std.Io.Writer, comptime fmt: []const u8, args: anytype) !void {
+    pub fn writeString(
+        self: Style,
+        writer: *std.Io.Writer,
+        comptime fmt: []const u8,
+        args: anytype,
+    ) !void {
         try self.format(writer);
         try writer.print(fmt, args);
         if (!self.isPlain()) try writer.writeAll(Color.reset);

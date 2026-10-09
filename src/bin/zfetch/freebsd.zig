@@ -7,9 +7,7 @@ const fmt = std.fmt;
 const Io = std.Io;
 const Environ = std.process.Environ;
 
-const c = @cImport({
-    @cInclude("sys/sysctl.h");
-});
+const c = @import("c");
 const c_timeval = extern struct {
     tv_sec: c_long,
     tv_usec: c_long,

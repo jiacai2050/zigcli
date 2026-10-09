@@ -27,7 +27,7 @@ Suggested capabilities:
 Why it matters:
 
 - almost every medium-sized or large CLI eventually needs this
-- it would directly benefit tools like `zigfetch`, `tcp-proxy`, and future network- or service-oriented programs
+- it would directly benefit tools like `tcp-proxy` and future network- or service-oriented programs
 - it would pair naturally with `structargs` and make the overall CLI experience much more complete
 
 ### 2. `structargs` enhancements
@@ -120,7 +120,7 @@ Why it matters:
 
 ### 7. Lightweight HTTP client capability
 
-Goal: extract reusable networking functionality from `zigfetch`.
+Goal: provide reusable lightweight networking functionality.
 
 Suggested capabilities:
 
@@ -132,7 +132,6 @@ Suggested capabilities:
 
 Why it matters:
 
-- this would turn `zigfetch` from a single tool into a platform capability
 - future API debugging, downloader, and webhook-related tools would become much easier to implement
 
 ### 8. Stronger system information and process tooling

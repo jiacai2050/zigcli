@@ -58,16 +58,17 @@ pub fn main(init: std.process.Init) !void {
     });
     defer opt.deinit();
 
-    const sep = "-" ** 30;
+    const sep: [30]u8 = @splat('-');
     std.debug.print("{s}Program{s}\n{s}\n\n", .{ sep, sep, opt.program_name });
     std.debug.print("{s}Arguments{s}\n", .{ sep, sep });
-    inline for (std.meta.fields(@TypeOf(opt.options))) |field| {
-        const format = "{s:>10}: " ++ switch (field.type) {
+    const opt_fields = @typeInfo(@TypeOf(opt.options)).@"struct";
+    inline for (opt_fields.field_names, opt_fields.field_types) |field_name, field_type| {
+        const format = "{s:>10}: " ++ switch (field_type) {
             []const u8 => "{s}",
             ?[]const u8 => "{?s}",
             else => "{any}",
         } ++ "\n";
-        std.debug.print(format, .{ field.name, @field(opt.options, field.name) });
+        std.debug.print(format, .{ field_name, @field(opt.options, field_name) });
     }
 
     std.debug.print("\n{s}Positionals{s}\n", .{ sep, sep });

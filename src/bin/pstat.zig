@@ -435,10 +435,26 @@ fn printWatchMetrics(writer: *std.Io.Writer, sample: ProcessSample, options: Opt
     const faults_text = try fmt.bufPrint(&faults_buf, "{d}", .{sample.task.faults});
     const pageins_text = try fmt.bufPrint(&pageins_buf, "{d}", .{sample.task.pageins});
     const csw_text = try fmt.bufPrint(&csw_buf, "{d}", .{sample.task.context_switches});
-    const cpu_total_text = try fmt.bufPrint(&cpu_total_buf, "{d:.3}", .{cpuSeconds(sample.task.total_cpu_ns)});
-    const cpu_user_text = try fmt.bufPrint(&cpu_user_buf, "{d:.3}", .{cpuSeconds(sample.task.total_user_ns)});
-    const cpu_system_text = try fmt.bufPrint(&cpu_system_buf, "{d:.3}", .{cpuSeconds(sample.task.total_system_ns)});
-    const energy_text = try fmt.bufPrint(&energy_buf, "{d:.3}", .{energyMillijoules(sample.energy_nj)});
+    const cpu_total_text = try fmt.bufPrint(
+        &cpu_total_buf,
+        "{d:.3}",
+        .{cpuSeconds(sample.task.total_cpu_ns)},
+    );
+    const cpu_user_text = try fmt.bufPrint(
+        &cpu_user_buf,
+        "{d:.3}",
+        .{cpuSeconds(sample.task.total_user_ns)},
+    );
+    const cpu_system_text = try fmt.bufPrint(
+        &cpu_system_buf,
+        "{d:.3}",
+        .{cpuSeconds(sample.task.total_system_ns)},
+    );
+    const energy_text = try fmt.bufPrint(
+        &energy_buf,
+        "{d:.3}",
+        .{energyMillijoules(sample.energy_nj)},
+    );
 
     try writeWatchColumn(writer, cpu_total_text, watch_column_widths.cpu);
     try writeWatchColumn(writer, cpu_user_text, watch_column_widths.user);

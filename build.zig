@@ -131,7 +131,6 @@ fn buildBinaries(
     all_tests: *Step,
 ) !void {
     inline for (.{
-        "zigfetch",
         "tree",
         "loc",
         "pidof",
@@ -183,9 +182,7 @@ fn buildBinary(
 
         b.installArtifact(compile_step);
         const run_step = b.addRunArtifact(compile_step);
-        if (b.args) |args| {
-            run_step.addArgs(args);
-        }
+        run_step.addPassthruArgs();
         const source_name = comptime source.name();
         b.step("run-" ++ source_name, "Run " ++ source_name)
             .dependOn(&run_step.step);
@@ -259,15 +256,7 @@ fn sourceSupported(
 ) bool {
     if (target_os == .freebsd) {
         // FreeBSD currently lacks std.net.if_nametoindex, which blocks these programs.
-        if (sourceNameInList(source_name, .{ "zigfetch", "tcp-proxy" })) {
-            return false;
-        }
-    }
-
-    if (std.mem.eql(u8, source_name, "zigfetch")) {
-        // .zig-cache/o/3390549d3c902e4c2db17c04c316202a/c.zig:2199:15: error: unused local constant
-        // const extern_local_wcscat_s = struct {
-        if (target_os == .windows) {
+        if (sourceNameInList(source_name, .{"tcp-proxy"})) {
             return false;
         }
     }
@@ -316,18 +305,6 @@ fn configureCompileStep(
 ) void {
     const module = compile_step.root_module;
 
-    if (std.mem.eql(u8, source_name, "zigfetch")) {
-        if (b.lazyDependency("curl", .{
-            .link_vendor = true,
-            .target = target,
-            .optimize = optimize,
-        })) |curl_dependency| {
-            module.addImport("curl", curl_dependency.module("curl"));
-        }
-        module.link_libc = true;
-        return;
-    }
-
     if (std.mem.eql(u8, source_name, "night-shift")) {
         module.linkSystemLibrary("objc", .{});
         addMacOSPrivateFrameworkPaths(module);
@@ -352,6 +329,12 @@ fn configureCompileStep(
     }
 
     if (std.mem.eql(u8, source_name, "pidof")) {
+        const translate_c = b.addTranslateC(.{
+            .root_source_file = b.path("src/include/pidof.h"),
+            .target = target,
+            .optimize = optimize,
+        });
+        module.addImport("c", translate_c.createModule());
         module.link_libc = true;
         return;
     }
@@ -368,6 +351,13 @@ fn configureCompileStep(
     }
 
     if (std.mem.eql(u8, source_name, "zfetch")) {
+        const translate_c = b.addTranslateC(.{
+            .root_source_file = b.path("src/include/zfetch.h"),
+            .target = target,
+            .optimize = optimize,
+        });
+        module.addImport("c", translate_c.createModule());
+
         switch (target.result.os.tag) {
             .macos => {
                 module.addCSourceFile(.{

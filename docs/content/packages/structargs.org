@@ -22,7 +22,7 @@ comptime.
 - =--version= support is enabled through =version_string=
 - =print_help_on_error= can print stderr help before returning parse errors
 - Supported option value types include:
-  - All [[https://ziglang.org/documentation/0.15.2/#Primitive-Types][primitive types]], such as =i8=, =u16=, =f32=, =bool=
+  - All [[https://ziglang.org/documentation/0.17.0/#Primitive-Types][primitive types]], such as =i8=, =u16=, =f32=, =bool=
   - =[]const u8=
   - =Enum=
 * Usage
@@ -77,9 +77,9 @@ const output_path = opt.options.output;
 const timeout = opt.options.timeout;
 
 // Print help to stdout.
-const stdout = std.fs.File.stdout();
+const stdout = std.Io.File.stdout();
 var buffer: [1024]u8 = undefined;
-var writer = stdout.writer(&buffer);
+var writer = stdout.writer(io, &buffer);
 try opt.printHelp(&writer.interface);
 try writer.interface.flush();
 #+end_src

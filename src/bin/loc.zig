@@ -124,10 +124,10 @@ const LinesOfCode = struct {
     const Self = @This();
 
     const header = b: {
-        const fieldInfos = std.meta.fields(Column);
-        var names: [fieldInfos.len]Cell = undefined;
-        for (fieldInfos, 0..) |field, i| {
-            names[i] = Cell.init([_]u8{std.ascii.toUpper(field.name[0])} ++ field.name[1..]);
+        const field_names = @typeInfo(Column).@"enum".field_names;
+        var names: [field_names.len]Cell = undefined;
+        for (field_names, 0..) |fname, i| {
+            names[i] = Cell.init([_]u8{std.ascii.toUpper(fname[0])} ++ fname[1..]);
         }
         break :b names;
     };
@@ -358,7 +358,13 @@ const State = enum {
     InMultipleLineComment,
 };
 
-fn populateLoc(io: Io, allocator: std.mem.Allocator, loc_map: *LocMap, dir: Io.Dir, basename: []const u8) anyerror!void {
+fn populateLoc(
+    io: Io,
+    allocator: std.mem.Allocator,
+    loc_map: *LocMap,
+    dir: Io.Dir,
+    basename: []const u8,
+) anyerror!void {
     _ = allocator;
     const lang = Language.parse(basename);
     if (lang == Language.Other) {
@@ -394,7 +400,10 @@ fn populateLoc(io: Io, allocator: std.mem.Allocator, loc_map: *LocMap, dir: Io.D
             var buf: [1024]u8 = undefined;
             var rdr = file.reader(io, &buf);
             while ((rdr.interface.takeDelimiter('\n') catch |e| {
-                std.log.err("Error when seek line delimiter, name:{s}, err:{any}", .{ basename, e });
+                std.log.err(
+                    "Error when seek line delimiter, name:{s}, err:{any}",
+                    .{ basename, e },
+                );
                 return e;
             })) |line| {
                 state = updateLineType(state, line, lang, loc_entry);
@@ -588,10 +597,10 @@ test "LOC Zig/Python/Ruby" {
                 loc.size = expected.size;
             }
         }
-        inline for (std.meta.fields(@TypeOf(expected))) |field| {
+        inline for (@typeInfo(@TypeOf(expected)).@"struct".field_names) |field_name| {
             try std.testing.expectEqual(
-                @field(loc, field.name),
-                @field(expected, field.name),
+                @field(loc, field_name),
+                @field(expected, field_name),
             );
         }
     }

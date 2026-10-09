@@ -51,7 +51,7 @@ If those defaults do not match your deployment needs, build from source and choo
 #+begin_src bash
 git clone https://github.com/jiacai2050/zigcli.git
 #+end_src
-Then build with zig 0.15.2
+Then build with zig 0.17.0
 #+begin_src bash
 make build
 #+end_src

@@ -1,8 +1,13 @@
 #+TITLE: zigfetch
 #+DATE: 2025-01-01T18:01:47+0800
-#+LASTMOD: 2025-02-25T22:44:10+0800
+#+LASTMOD: 2026-10-09T16:05:16+0800
 #+TYPE: docs
 #+DESCRIPTION: Fetch zig packages, utilizing libcurl.
+
+#+begin_quote
+*Note*: =zigfetch= has been removed starting with Zig 0.17.0.
+Please use [[https://github.com/jiacai2050/zig-maker][zig-maker]] as its replacement. If you are still using Zig 0.16, [[https://github.com/jiacai2050/zigcli/releases/tag/v0.6.3][v0.6.3]] is the last version that includes =zigfetch=.
+#+end_quote
 
 =zigfetch= behaves similarly to =zig fetch=, but utilizing the capabilities of libcurl for its functionality.
 

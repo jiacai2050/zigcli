@@ -10,22 +10,15 @@ const builtin = @import("builtin");
 
 const max_read_bytes = 1024 * 1024;
 
-const c = @cImport({
-    @cInclude("sys/types.h");
-    @cInclude("sys/socket.h");
-    if (builtin.os.tag != .linux) @cInclude("sys/statvfs.h");
-    @cInclude("sys/utsname.h");
-    @cInclude("netinet/in.h");
-    @cInclude("ifaddrs.h");
-    @cInclude("arpa/inet.h");
-});
+const c = @import("c");
 
 fn readAbsoluteAlloc(io: Io, allocator: mem.Allocator, path: []const u8, max_bytes: usize) ![]u8 {
     var file = std.Io.Dir.cwd().openFile(io, path, .{}) catch return error.ReadFailed;
     defer file.close(io);
     var file_reader = file.reader(io, &.{});
 
-    // This doesn't work because it can't read /proc files that report 0 size, even if they have data to read.
+    // This doesn't work because it can't read /proc files that report 0 size,
+    // even if they have data to read.
     // https://codeberg.org/ziglang/zig/issues/31946
     // return file_reader.interface.readAlloc(allocator, max_bytes);
 
@@ -68,7 +61,7 @@ const Statvfs = if (builtin.os.tag == .linux)
         f_fsid: u64,
         f_flag: c_ulong,
         f_namemax: c_ulong,
-        __f_spare: [6]c_int = .{0} ** 6,
+        __f_spare: [6]c_int = @splat(0),
     }
 else
     c.struct_statvfs;
@@ -161,7 +154,7 @@ pub fn getDiskMounts(
 ) ![]const u8 {
     var parts: std.ArrayList(u8) = .empty;
     const GiB = 1024 * 1024 * 1024;
-    var seen_dev: [8]u64 = .{0} ** 8;
+    var seen_dev: [8]u64 = @splat(0);
     var seen_count: usize = 0;
 
     for (mounts) |mount| {
@@ -307,7 +300,12 @@ pub fn parseKbLine(line: []const u8) u64 {
 
 /// Reads PRETTY_NAME from /etc/os-release.
 pub fn getOsFromRelease(io: Io, allocator: mem.Allocator, fallback: []const u8) ![]const u8 {
-    const content = readAbsoluteAlloc(io, allocator, "/etc/os-release", max_read_bytes) catch return fallback;
+    const content = readAbsoluteAlloc(
+        io,
+        allocator,
+        "/etc/os-release",
+        max_read_bytes,
+    ) catch return fallback;
     var iter = mem.splitScalar(u8, content, '\n');
     while (iter.next()) |line| {
         if (!mem.startsWith(u8, line, "PRETTY_NAME=")) continue;
@@ -334,20 +332,32 @@ pub fn getUptimeFromProc(io: Io, allocator: mem.Allocator) ![]const u8 {
 
 /// Reads battery from /sys/class/power_supply (Linux, FreeBSD).
 pub fn getBatteryFromSys(io: Io, allocator: mem.Allocator) ![]const u8 {
-    var ps_dir = std.Io.Dir.openDirAbsolute(io, "/sys/class/power_supply", .{ .iterate = true }) catch
+    var ps_dir = std.Io.Dir.openDirAbsolute(
+        io,
+        "/sys/class/power_supply",
+        .{ .iterate = true },
+    ) catch
         return "No Battery";
     defer ps_dir.close(io);
     var iter = ps_dir.iterate();
     while (try iter.next(io)) |entry| {
         var path_buf: [256]u8 = undefined;
 
-        const type_path = fmt.bufPrint(&path_buf, "/sys/class/power_supply/{s}/type", .{entry.name}) catch continue;
+        const type_path = fmt.bufPrint(
+            &path_buf,
+            "/sys/class/power_supply/{s}/type",
+            .{entry.name},
+        ) catch continue;
         var type_buf: [16]u8 = undefined;
         const n_type = readAbsoluteIntoBuf(io, type_path, &type_buf) orelse continue;
         const dev_type = mem.trim(u8, type_buf[0..n_type], " \n\t");
         if (!mem.eql(u8, dev_type, "Battery")) continue;
 
-        const cap_path = fmt.bufPrint(&path_buf, "/sys/class/power_supply/{s}/capacity", .{entry.name}) catch continue;
+        const cap_path = fmt.bufPrint(
+            &path_buf,
+            "/sys/class/power_supply/{s}/capacity",
+            .{entry.name},
+        ) catch continue;
         var cap_buf: [8]u8 = undefined;
         const n_cap = readAbsoluteIntoBuf(io, cap_path, &cap_buf) orelse continue;
         const capacity = fmt.parseInt(
@@ -356,7 +366,11 @@ pub fn getBatteryFromSys(io: Io, allocator: mem.Allocator) ![]const u8 {
             10,
         ) catch continue;
 
-        const stat_path = fmt.bufPrint(&path_buf, "/sys/class/power_supply/{s}/status", .{entry.name}) catch continue;
+        const stat_path = fmt.bufPrint(
+            &path_buf,
+            "/sys/class/power_supply/{s}/status",
+            .{entry.name},
+        ) catch continue;
         var stat_buf: [16]u8 = undefined;
         const n_stat = readAbsoluteIntoBuf(io, stat_path, &stat_buf) orelse continue;
         const status = mem.trim(u8, stat_buf[0..n_stat], " \n\t");
@@ -400,7 +414,12 @@ pub fn getThemeFromGtk(io: Io, env: *const Environ.Map) []const u8 {
 
 /// Reads memory info from /proc/meminfo (Linux, FreeBSD with procfs).
 pub fn getMemoryFromProc(io: Io, allocator: mem.Allocator) ![]const u8 {
-    const content = readAbsoluteAlloc(io, allocator, "/proc/meminfo", max_read_bytes) catch return "Unknown";
+    const content = readAbsoluteAlloc(
+        io,
+        allocator,
+        "/proc/meminfo",
+        max_read_bytes,
+    ) catch return "Unknown";
     var bytes_total_kb: u64 = 0;
     var bytes_available_kb: u64 = 0;
     var bytes_swap_total_kb: u64 = 0;
@@ -526,13 +545,21 @@ pub fn getGpuFromDrm(io: Io, allocator: mem.Allocator) ![]const u8 {
         if (!isDrmCardName(entry.name)) continue;
 
         var path_buf: [256]u8 = undefined;
-        const vendor_path = fmt.bufPrint(&path_buf, "/sys/class/drm/{s}/device/vendor", .{entry.name}) catch continue;
+        const vendor_path = fmt.bufPrint(
+            &path_buf,
+            "/sys/class/drm/{s}/device/vendor",
+            .{entry.name},
+        ) catch continue;
         var vendor_buf: [16]u8 = undefined;
         const vendor_n = readAbsoluteIntoBuf(io, vendor_path, &vendor_buf) orelse continue;
         const vendor_id = trimHexPrefix(vendor_buf[0..vendor_n]);
         if (vendor_id.len != 4) continue;
 
-        const device_path = fmt.bufPrint(&path_buf, "/sys/class/drm/{s}/device/device", .{entry.name}) catch continue;
+        const device_path = fmt.bufPrint(
+            &path_buf,
+            "/sys/class/drm/{s}/device/device",
+            .{entry.name},
+        ) catch continue;
         var device_buf: [16]u8 = undefined;
         const device_n = readAbsoluteIntoBuf(io, device_path, &device_buf) orelse continue;
         const device_id = trimHexPrefix(device_buf[0..device_n]);
@@ -561,10 +588,18 @@ pub fn getGpuFromDrm(io: Io, allocator: mem.Allocator) ![]const u8 {
             const entry_text = try fmt.allocPrint(allocator, "{s} {s}", .{ vendor, name });
             try parts.appendSlice(allocator, entry_text);
         } else if (!mem.eql(u8, vendor, "Unknown")) {
-            const entry_text = try fmt.allocPrint(allocator, "{s} GPU ({s}:{s})", .{ vendor, vendor_id, device_id });
+            const entry_text = try fmt.allocPrint(
+                allocator,
+                "{s} GPU ({s}:{s})",
+                .{ vendor, vendor_id, device_id },
+            );
             try parts.appendSlice(allocator, entry_text);
         } else {
-            const entry_text = try fmt.allocPrint(allocator, "GPU ({s}:{s})", .{ vendor_id, device_id });
+            const entry_text = try fmt.allocPrint(
+                allocator,
+                "GPU ({s}:{s})",
+                .{ vendor_id, device_id },
+            );
             try parts.appendSlice(allocator, entry_text);
         }
     }
@@ -574,7 +609,12 @@ pub fn getGpuFromDrm(io: Io, allocator: mem.Allocator) ![]const u8 {
 
 /// Reads CPU info from /proc/cpuinfo.
 pub fn getCpuFromProc(io: Io, allocator: mem.Allocator) ![]const u8 {
-    const content = readAbsoluteAlloc(io, allocator, "/proc/cpuinfo", max_read_bytes) catch return "Unknown";
+    const content = readAbsoluteAlloc(
+        io,
+        allocator,
+        "/proc/cpuinfo",
+        max_read_bytes,
+    ) catch return "Unknown";
     var iter = mem.splitScalar(u8, content, '\n');
     var model: ?[]const u8 = null;
     var logical_count: u32 = 0;
@@ -619,8 +659,18 @@ pub fn getCpuFromProc(io: Io, allocator: mem.Allocator) ![]const u8 {
 
 /// Reads host from DMI (Linux, some FreeBSD).
 pub fn getHostFromDmi(io: Io, allocator: mem.Allocator, fallback: []const u8) ![]const u8 {
-    const vendor = readAbsoluteAlloc(io, allocator, "/sys/class/dmi/id/sys_vendor", max_read_bytes) catch return fallback;
-    const product = readAbsoluteAlloc(io, allocator, "/sys/class/dmi/id/product_name", max_read_bytes) catch return fallback;
+    const vendor = readAbsoluteAlloc(
+        io,
+        allocator,
+        "/sys/class/dmi/id/sys_vendor",
+        max_read_bytes,
+    ) catch return fallback;
+    const product = readAbsoluteAlloc(
+        io,
+        allocator,
+        "/sys/class/dmi/id/product_name",
+        max_read_bytes,
+    ) catch return fallback;
 
     return fmt.allocPrint(allocator, "{s} {s}", .{
         mem.trim(u8, vendor, " \n\t"),
@@ -640,7 +690,11 @@ pub fn getResolutionFromDrm(io: Io, allocator: mem.Allocator) ![]const u8 {
         if (mem.indexOfScalar(u8, entry.name[4..], '-') == null) continue;
 
         var path_buf: [256]u8 = undefined;
-        const modes_path = fmt.bufPrint(&path_buf, "/sys/class/drm/{s}/modes", .{entry.name}) catch continue;
+        const modes_path = fmt.bufPrint(
+            &path_buf,
+            "/sys/class/drm/{s}/modes",
+            .{entry.name},
+        ) catch continue;
         var buf: [64]u8 = undefined;
         const n = readAbsoluteIntoBuf(io, modes_path, &buf) orelse continue;
         if (n == 0) continue;
@@ -661,7 +715,9 @@ pub fn getResolutionFromDrm(io: Io, allocator: mem.Allocator) ![]const u8 {
         }
 
         // Optional: add (built-in) indicator for internal displays
-        if (mem.indexOf(u8, entry.name, "eDP") != null or mem.indexOf(u8, entry.name, "LVDS") != null) {
+        const is_internal = mem.indexOf(u8, entry.name, "eDP") != null or
+            mem.indexOf(u8, entry.name, "LVDS") != null;
+        if (is_internal) {
             try parts.appendSlice(allocator, " (built-in)");
         }
     }
@@ -672,7 +728,11 @@ pub fn getResolutionFromDrm(io: Io, allocator: mem.Allocator) ![]const u8 {
 /// for max vertical rate first (preferred for VRR/high-refresh panels),
 /// then falls back to computing from the first Detailed Timing Descriptor.
 fn getRefreshFromEdid(io: Io, path_buf: *[256]u8, connector_name: []const u8) u32 {
-    const edid_path = fmt.bufPrint(path_buf, "/sys/class/drm/{s}/edid", .{connector_name}) catch return 0;
+    const edid_path = fmt.bufPrint(
+        path_buf,
+        "/sys/class/drm/{s}/edid",
+        .{connector_name},
+    ) catch return 0;
     var edid_buf: [128]u8 = undefined;
     const edid_n = readAbsoluteIntoBuf(io, edid_path, &edid_buf) orelse return 0;
     if (edid_n < 128) return 0;

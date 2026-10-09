@@ -45,194 +45,6 @@ const Options = struct {
     };
 };
 
-// Use default foreground reset (\x1b[39m) rather than full reset (\x1b[0m)
-// so that background colors set by the terminal theme are preserved.
-const color_reset = "\x1b[39m";
-
-fn byteColor(byte: u8) term.Style.Color {
-    return switch (byte) {
-        0x00 => .bright_black,
-        0x01...0x20, 0x7F => .green,
-        0x21...0x7E => .cyan,
-        0x80...0xFF => .yellow,
-    };
-}
-
-// Maps a byte to its character panel symbol, following hexyl's Default character table.
-// Returns null for printable ASCII (0x21-0x7E): caller writes the byte directly to
-// avoid returning a slice pointing to a local variable (dangling reference).
-//   ⋄  (U+22C4) — null byte
-//   ' '          — space, rendered as-is to keep the panel visually aligned
-//   _            — ASCII whitespace: tab/LF/FF/CR (0x09, 0x0A, 0x0C, 0x0D)
-//   •  (U+2022) — other ASCII control characters
-//   ×  (U+00D7) — non-ASCII bytes
-fn byteChar(byte: u8) ?[]const u8 {
-    return switch (byte) {
-        0x00 => "⋄",
-        0x20 => " ",
-        0x09, 0x0A, 0x0C, 0x0D => "_",
-        0x01...0x08, 0x0B, 0x0E...0x1F, 0x7F => "•",
-        0x21...0x7E => null,
-        0x80...0xFF => "×",
-    };
-}
-
-// Converts a filename (e.g. "11.jpeg") to a valid C identifier (e.g. "_11_jpeg").
-fn filenameToCIdent(buf: []u8, name: []const u8) []u8 {
-    var len: usize = 0;
-    for (name) |c| {
-        const out: u8 = switch (c) {
-            'a'...'z', 'A'...'Z', '0'...'9' => c,
-            else => '_',
-        };
-        if (len < buf.len) {
-            buf[len] = out;
-            len += 1;
-        }
-    }
-    return buf[0..len];
-}
-
-fn printInclude(
-    gpa: std.mem.Allocator,
-    reader: *std.Io.Reader,
-    writer: *std.Io.Writer,
-    var_name: []const u8,
-    max_bytes: ?usize,
-) !usize {
-    // Read all bytes first so we know the total and can omit the trailing comma.
-    var bytes: std.ArrayListUnmanaged(u8) = .empty;
-    defer bytes.deinit(gpa);
-    var read_buf: [4096]u8 = undefined;
-    while (true) {
-        const remaining = if (max_bytes) |max| max - bytes.items.len else read_buf.len;
-        if (remaining == 0) break;
-        const n = try reader.readSliceShort(read_buf[0..@min(read_buf.len, remaining)]);
-        if (n == 0) break;
-        try bytes.appendSlice(gpa, read_buf[0..n]);
-    }
-
-    const data = bytes.items;
-    try writer.print("unsigned char {s}[] = {{\n", .{var_name});
-    for (data, 0..) |b, i| {
-        if (i % 12 == 0) try writer.writeAll("  ");
-        try writer.print("0x{x:0>2}", .{b});
-        if (i + 1 < data.len) {
-            try writer.writeAll(",");
-            if (i % 12 == 11) try writer.writeAll("\n") else try writer.writeAll(" ");
-        }
-    }
-    if (data.len > 0) try writer.writeAll("\n");
-    try writer.writeAll("};\n");
-    try writer.print("unsigned int {s}_len = {d};\n", .{ var_name, data.len });
-    return data.len;
-}
-
-// ┌────────┬─────────────────────────┬─────────────────────────┬────────┬────────┐
-fn printHeader(writer: *std.Io.Writer) !void {
-    try writer.writeAll("┌────────┬─────────────────────────┬─────────────────────────┬────────┬────────┐\n");
-}
-
-// └────────┴─────────────────────────┴─────────────────────────┴────────┴────────┘
-fn printFooter(writer: *std.Io.Writer) !void {
-    try writer.writeAll("└────────┴─────────────────────────┴─────────────────────────┴────────┴────────┘\n");
-}
-
-fn printColorTable(writer: *std.Io.Writer, use_color: bool) !void {
-    try writer.writeAll("zhexdump color reference:\n\n");
-    const Entry = struct { symbol: []const u8, color: term.Style.Color, label: []const u8 };
-    const entries = [_]Entry{
-        .{ .symbol = "⋄", .color = .bright_black, .label = "NULL bytes (0x00)" },
-        .{ .symbol = "a", .color = .cyan, .label = "ASCII printable characters (0x21 - 0x7E)" },
-        .{ .symbol = "_", .color = .green, .label = "ASCII whitespace (0x09 - 0x0D, 0x20)" },
-        .{ .symbol = "•", .color = .green, .label = "ASCII control characters (except NULL and whitespace)" },
-        .{ .symbol = "×", .color = .yellow, .label = "Non-ASCII bytes (0x80 - 0xFF)" },
-    };
-    for (entries) |e| {
-        if (use_color) try writer.print("{f}", .{e.color});
-        try writer.writeAll(e.symbol);
-        try writer.print(" {s}", .{e.label});
-        if (use_color) try writer.writeAll(color_reset);
-        try writer.writeAll("\n");
-    }
-}
-
-// Returns true if the color for byte at index i differs from the previous byte in the panel.
-// Always true at panel boundaries (i == 0, i == 8) so the first byte always sets its color.
-fn colorChangedAt(bytes: []const u8, i: usize) bool {
-    assert(i < bytes.len);
-    if (i == 0 or i == 8) return true;
-    return byteColor(bytes[i]) != byteColor(bytes[i - 1]);
-}
-
-// │00000000│ xx xx xx xx xx xx xx xx ┊ xx xx xx xx xx xx xx xx │charchar┊charchar│
-fn printRow(
-    writer: *std.Io.Writer,
-    offset: u64,
-    bytes: []const u8,
-    use_color: bool,
-) !void {
-    assert(bytes.len > 0);
-    assert(bytes.len <= 16);
-    // Left border + offset.
-    try writer.writeAll("│");
-    if (use_color) try writer.print("{f}", .{term.Style.Color.bright_black});
-    try writer.print("{x:0>8}", .{offset});
-    if (use_color) try writer.writeAll(color_reset);
-    try writer.writeAll("│");
-
-    // Hex panels: two panels of 8 bytes, separated by ┊.
-    // hexyl optimization: emit color code only on color change, reset once per panel.
-    for (0..16) |i| {
-        if (i == 8) {
-            // End of first panel: reset, then inner separator.
-            if (use_color) try writer.writeAll(color_reset);
-            try writer.writeAll(" ┊");
-        }
-        try writer.writeAll(" ");
-        if (i < bytes.len) {
-            const b = bytes[i];
-            if (use_color and colorChangedAt(bytes, i))
-                try writer.print("{f}", .{byteColor(b)});
-            try writer.print("{x:0>2}", .{b});
-        } else {
-            try writer.writeAll("  ");
-        }
-    }
-    // End of second panel: reset.
-    if (use_color) try writer.writeAll(color_reset);
-    try writer.writeAll(" ");
-
-    // Separator before char panel.
-    try writer.writeAll("│");
-
-    // Char panels: two panels of 8 chars, separated by ┊.
-    // Same optimization: color code only on change, reset once per panel.
-    for (0..16) |i| {
-        if (i == 8) {
-            if (use_color) try writer.writeAll(color_reset);
-            try writer.writeAll("┊");
-        }
-        if (i < bytes.len) {
-            const b = bytes[i];
-            if (use_color and colorChangedAt(bytes, i))
-                try writer.print("{f}", .{byteColor(b)});
-            if (byteChar(b)) |ch| {
-                try writer.writeAll(ch);
-            } else {
-                try writer.writeByte(b);
-            }
-        } else {
-            try writer.writeAll(" ");
-        }
-    }
-    // End of second char panel: reset.
-    if (use_color) try writer.writeAll(color_reset);
-
-    // Right border.
-    try writer.writeAll("│\n");
-}
-
 pub fn main(init: std.process.Init) anyerror!void {
     return run(init) catch |err| switch (err) {
         error.WriteFailed => {}, // broken pipe (e.g. piped to head)
@@ -342,18 +154,21 @@ fn run(init: std.process.Init) anyerror!void {
 
         if (is_repeat) {
             if (!squeezing) {
+                const sp7: [7]u8 = @splat(' ');
+                const sp8: [8]u8 = @splat(' ');
+                const sp25: [25]u8 = @splat(' ');
                 if (use_color) {
                     try writer.interface.writeAll(
-                        "│" ++ "\x1b[90m" ++ "*" ++ "\x1b[39m" ++ " " ** 7 ++ // offset (8)
-                            "│" ++ " " ** 25 ++ "┊" ++ " " ** 25 ++ // hex panels (25+┊+25)
-                            "│" ++ " " ** 8 ++ "┊" ++ " " ** 8 ++ // char panels (8+┊+8)
+                        "│" ++ "\x1b[90m" ++ "*" ++ "\x1b[39m" ++ sp7 ++ // offset (8)
+                            "│" ++ sp25 ++ "┊" ++ sp25 ++ // hex panels (25+┊+25)
+                            "│" ++ sp8 ++ "┊" ++ sp8 ++ // char panels (8+┊+8)
                             "│\n",
                     );
                 } else {
                     try writer.interface.writeAll(
-                        "│" ++ "*" ++ " " ** 7 ++ // offset (8)
-                            "│" ++ " " ** 25 ++ "┊" ++ " " ** 25 ++ // hex panels (25+┊+25)
-                            "│" ++ " " ** 8 ++ "┊" ++ " " ** 8 ++ // char panels (8+┊+8)
+                        "│" ++ "*" ++ sp7 ++ // offset (8)
+                            "│" ++ sp25 ++ "┊" ++ sp25 ++ // hex panels (25+┊+25)
+                            "│" ++ sp8 ++ "┊" ++ sp8 ++ // char panels (8+┊+8)
                             "│\n",
                     );
                 }
@@ -371,6 +186,202 @@ fn run(init: std.process.Init) anyerror!void {
     }
     if (has_output) try printFooter(&writer.interface);
     try writer.interface.flush();
+}
+
+// Use default foreground reset (\x1b[39m) rather than full reset (\x1b[0m)
+// so that background colors set by the terminal theme are preserved.
+const color_reset = "\x1b[39m";
+
+fn byteColor(byte: u8) term.Style.Color {
+    return switch (byte) {
+        0x00 => .bright_black,
+        0x01...0x20, 0x7F => .green,
+        0x21...0x7E => .cyan,
+        0x80...0xFF => .yellow,
+    };
+}
+
+// Maps a byte to its character panel symbol, following hexyl's Default character table.
+// Returns null for printable ASCII (0x21-0x7E): caller writes the byte directly to
+// avoid returning a slice pointing to a local variable (dangling reference).
+//   ⋄  (U+22C4) — null byte
+//   ' '          — space, rendered as-is to keep the panel visually aligned
+//   _            — ASCII whitespace: tab/LF/FF/CR (0x09, 0x0A, 0x0C, 0x0D)
+//   •  (U+2022) — other ASCII control characters
+//   ×  (U+00D7) — non-ASCII bytes
+fn byteChar(byte: u8) ?[]const u8 {
+    return switch (byte) {
+        0x00 => "⋄",
+        0x20 => " ",
+        0x09, 0x0A, 0x0C, 0x0D => "_",
+        0x01...0x08, 0x0B, 0x0E...0x1F, 0x7F => "•",
+        0x21...0x7E => null,
+        0x80...0xFF => "×",
+    };
+}
+
+// Converts a filename (e.g. "11.jpeg") to a valid C identifier (e.g. "_11_jpeg").
+fn filenameToCIdent(buf: []u8, name: []const u8) []u8 {
+    var len: usize = 0;
+    for (name) |c| {
+        const out: u8 = switch (c) {
+            'a'...'z', 'A'...'Z', '0'...'9' => c,
+            else => '_',
+        };
+        if (len < buf.len) {
+            buf[len] = out;
+            len += 1;
+        }
+    }
+    return buf[0..len];
+}
+
+fn printInclude(
+    gpa: std.mem.Allocator,
+    reader: *std.Io.Reader,
+    writer: *std.Io.Writer,
+    var_name: []const u8,
+    max_bytes: ?usize,
+) !usize {
+    // Read all bytes first so we know the total and can omit the trailing comma.
+    var bytes: std.ArrayListUnmanaged(u8) = .empty;
+    defer bytes.deinit(gpa);
+    var read_buf: [4096]u8 = undefined;
+    while (true) {
+        const remaining = if (max_bytes) |max| max - bytes.items.len else read_buf.len;
+        if (remaining == 0) break;
+        const n = try reader.readSliceShort(read_buf[0..@min(read_buf.len, remaining)]);
+        if (n == 0) break;
+        try bytes.appendSlice(gpa, read_buf[0..n]);
+    }
+
+    const data = bytes.items;
+    try writer.print("unsigned char {s}[] = {{\n", .{var_name});
+    for (data, 0..) |b, i| {
+        if (i % 12 == 0) try writer.writeAll("  ");
+        try writer.print("0x{x:0>2}", .{b});
+        if (i + 1 < data.len) {
+            try writer.writeAll(",");
+            if (i % 12 == 11) try writer.writeAll("\n") else try writer.writeAll(" ");
+        }
+    }
+    if (data.len > 0) try writer.writeAll("\n");
+    try writer.writeAll("};\n");
+    try writer.print("unsigned int {s}_len = {d};\n", .{ var_name, data.len });
+    return data.len;
+}
+
+// ┌────────┬─────────────────────────┬─────────────────────────┬────────┬────────┐
+fn printHeader(writer: *std.Io.Writer) !void {
+    try writer.writeAll(
+        "┌────────┬─────────────────────────┬─────────────────────────┬────────┬────────┐\n",
+    );
+}
+
+// └────────┴─────────────────────────┴─────────────────────────┴────────┴────────┘
+fn printFooter(writer: *std.Io.Writer) !void {
+    try writer.writeAll(
+        "└────────┴─────────────────────────┴─────────────────────────┴────────┴────────┘\n",
+    );
+}
+
+fn printColorTable(writer: *std.Io.Writer, use_color: bool) !void {
+    try writer.writeAll("zhexdump color reference:\n\n");
+    const Entry = struct { symbol: []const u8, color: term.Style.Color, label: []const u8 };
+    const entries = [_]Entry{
+        .{ .symbol = "⋄", .color = .bright_black, .label = "NULL bytes (0x00)" },
+        .{ .symbol = "a", .color = .cyan, .label = "ASCII printable characters (0x21 - 0x7E)" },
+        .{ .symbol = "_", .color = .green, .label = "ASCII whitespace (0x09 - 0x0D, 0x20)" },
+        .{
+            .symbol = "•",
+            .color = .green,
+            .label = "ASCII control characters (except NULL and whitespace)",
+        },
+        .{ .symbol = "×", .color = .yellow, .label = "Non-ASCII bytes (0x80 - 0xFF)" },
+    };
+    for (entries) |e| {
+        if (use_color) try writer.print("{f}", .{e.color});
+        try writer.writeAll(e.symbol);
+        try writer.print(" {s}", .{e.label});
+        if (use_color) try writer.writeAll(color_reset);
+        try writer.writeAll("\n");
+    }
+}
+
+// Returns true if the color for byte at index i differs from the previous byte in the panel.
+// Always true at panel boundaries (i == 0, i == 8) so the first byte always sets its color.
+fn colorChangedAt(bytes: []const u8, i: usize) bool {
+    assert(i < bytes.len);
+    if (i == 0 or i == 8) return true;
+    return byteColor(bytes[i]) != byteColor(bytes[i - 1]);
+}
+
+// │00000000│ xx xx xx xx xx xx xx xx ┊ xx xx xx xx xx xx xx xx │charchar┊charchar│
+fn printRow(
+    writer: *std.Io.Writer,
+    offset: u64,
+    bytes: []const u8,
+    use_color: bool,
+) !void {
+    assert(bytes.len > 0);
+    assert(bytes.len <= 16);
+    // Left border + offset.
+    try writer.writeAll("│");
+    if (use_color) try writer.print("{f}", .{term.Style.Color.bright_black});
+    try writer.print("{x:0>8}", .{offset});
+    if (use_color) try writer.writeAll(color_reset);
+    try writer.writeAll("│");
+
+    // Hex panels: two panels of 8 bytes, separated by ┊.
+    // hexyl optimization: emit color code only on color change, reset once per panel.
+    for (0..16) |i| {
+        if (i == 8) {
+            // End of first panel: reset, then inner separator.
+            if (use_color) try writer.writeAll(color_reset);
+            try writer.writeAll(" ┊");
+        }
+        try writer.writeAll(" ");
+        if (i < bytes.len) {
+            const b = bytes[i];
+            if (use_color and colorChangedAt(bytes, i))
+                try writer.print("{f}", .{byteColor(b)});
+            try writer.print("{x:0>2}", .{b});
+        } else {
+            try writer.writeAll("  ");
+        }
+    }
+    // End of second panel: reset.
+    if (use_color) try writer.writeAll(color_reset);
+    try writer.writeAll(" ");
+
+    // Separator before char panel.
+    try writer.writeAll("│");
+
+    // Char panels: two panels of 8 chars, separated by ┊.
+    // Same optimization: color code only on change, reset once per panel.
+    for (0..16) |i| {
+        if (i == 8) {
+            if (use_color) try writer.writeAll(color_reset);
+            try writer.writeAll("┊");
+        }
+        if (i < bytes.len) {
+            const b = bytes[i];
+            if (use_color and colorChangedAt(bytes, i))
+                try writer.print("{f}", .{byteColor(b)});
+            if (byteChar(b)) |ch| {
+                try writer.writeAll(ch);
+            } else {
+                try writer.writeByte(b);
+            }
+        } else {
+            try writer.writeAll(" ");
+        }
+    }
+    // End of second char panel: reset.
+    if (use_color) try writer.writeAll(color_reset);
+
+    // Right border.
+    try writer.writeAll("│\n");
 }
 
 const testing = std.testing;

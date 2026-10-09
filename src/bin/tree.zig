@@ -39,7 +39,7 @@ const PREFIX_ARR = [_][4][]const u8{ // mode -> position
 };
 
 fn getPrefix(mode: Mode, pos: Position) []const u8 {
-    return PREFIX_ARR[@intFromEnum(mode)][@intFromEnum(pos)];
+    return PREFIX_ARR[@backingInt(mode)][@backingInt(pos)];
 }
 
 pub const WalkOptions = struct {
@@ -260,9 +260,17 @@ fn walk(
 
                 const new_prefix =
                     if (i < files.items.len - 1)
-                        try std.fmt.allocPrint(local, "{s}{s}", .{ prefix, getPrefix(walk_ctx.mode, Position.UpperNormal) })
+                        try std.fmt.allocPrint(
+                            local,
+                            "{s}{s}",
+                            .{ prefix, getPrefix(walk_ctx.mode, Position.UpperNormal) },
+                        )
                     else
-                        try std.fmt.allocPrint(local, "{s}{s}", .{ prefix, getPrefix(walk_ctx.mode, Position.UpperLast) });
+                        try std.fmt.allocPrint(
+                            local,
+                            "{s}{s}",
+                            .{ prefix, getPrefix(walk_ctx.mode, Position.UpperLast) },
+                        );
 
                 const new_rel_dir = if (rel_dir.len == 0)
                     entry.name
@@ -276,7 +284,17 @@ fn walk(
                     false;
                 defer if (layer_pushed) gi_stack.pop(allocator);
 
-                ret.add(try walk(io, allocator, walk_ctx, gi_stack, sub_dir, writer, new_prefix, new_rel_dir, level + 1));
+                ret.add(try walk(
+                    io,
+                    allocator,
+                    walk_ctx,
+                    gi_stack,
+                    sub_dir,
+                    writer,
+                    new_prefix,
+                    new_rel_dir,
+                    level + 1,
+                ));
             },
             .sym_link => {
                 ret.files += 1;
