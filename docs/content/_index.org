@@ -1,6 +1,6 @@
 #+TITLE: Introduction
 #+DATE: 2023-10-21T12:09:48+0800
-#+LASTMOD: 2026-04-22T19:37:27+0800
+#+LASTMOD: 2026-10-09T16:42:45+0800
 #+TYPE: docs
 #+author: Jiacai Liu
 
@@ -10,11 +10,13 @@
 [[https://img.shields.io/badge/zig%20version-0.17.0-F7A41D.svg]]
 
 #+begin_export html
-<img src="/images/logo.svg" alt="Zigcli logo" style="width: 350px;"/>
+<img src="/zigcli/images/logo.svg" alt="Zigcli logo" style="width: 350px;"/>
 #+end_export
 
 #+begin_quote
-[[https://zigcli.liujiacai.net/][Zigcli]] is a toolkit for building command line programs in Zig.
+Zigcli is a toolkit for building command line programs in Zig.
+
+[[https://jiacai2050.github.io/zigcli/][https://jiacai2050.github.io/zigcli/]]
 #+end_quote
 
 =zigcli= has two faces:
@@ -79,7 +81,7 @@ Two common paths are:
 For binaries:
 
 #+begin_src bash
-curl -fsSL https://zigcli.liujiacai.net/install.sh | sh
+curl -fsSL https://jiacai2050.github.io/zigcli/install.sh | sh
 #+end_src
 
 For package use, see the install page and the package docs for the current =build.zig=

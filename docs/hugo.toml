@@ -1,4 +1,4 @@
-baseURL = 'https://zigcli.liujiacai.net/'
+baseURL = 'https://jiacai2050.github.io/zigcli/'
 languageCode = 'en-us'
 title = 'Zigcli'
 enableGitInfo = true
